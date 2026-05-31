@@ -14,6 +14,7 @@ from abc import abstractmethod
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+import numpy as np
 import warp as wp
 
 # Load CUDA runtime for relaxed-mode graph capture (RTX-compatible).
@@ -40,6 +41,8 @@ from isaaclab.sim.utils.stage import get_current_stage
 from isaaclab.utils import checked_apply
 from isaaclab.utils.string import resolve_matching_names
 from isaaclab.utils.timer import Timer
+
+from isaaclab_newton.sim.batched_model_builder import BatchedModelBuilder
 
 from .newton_manager_cfg import NewtonCfg, NewtonShapeCfg
 
@@ -704,7 +707,7 @@ class NewtonManager(PhysicsManager):
         NewtonManager._builder = builder
 
     @classmethod
-    def create_builder(cls, up_axis: str | None = None, **kwargs) -> ModelBuilder:
+    def create_builder(cls, up_axis: str | None = None, *, batched: bool = False, **kwargs) -> ModelBuilder:
         """Create a :class:`ModelBuilder` configured with default settings.
 
         Forwards :class:`NewtonShapeCfg` defaults onto Newton's upstream
@@ -715,12 +718,17 @@ class NewtonManager(PhysicsManager):
         Args:
             up_axis: Override for the up-axis. Defaults to ``None``, which uses
                 the manager's ``_up_axis``.
-            **kwargs: Forwarded to :class:`ModelBuilder`.
+            batched: If ``True``, return a
+                :class:`~isaaclab_newton.sim.BatchedModelBuilder` that can replicate a
+                prototype into many worlds in a single vectorized pass. Used as the main
+                aggregating builder for cloned scenes.
+            **kwargs: Forwarded to the builder constructor.
 
         Returns:
             New builder with up-axis and per-shape defaults (gap, margin) applied.
         """
-        builder = ModelBuilder(up_axis=up_axis or cls._up_axis, **kwargs)
+        builder_cls = BatchedModelBuilder if batched else ModelBuilder
+        builder = builder_cls(up_axis=up_axis or cls._up_axis, **kwargs)
         # Resolve which NewtonShapeCfg to apply: user override if active config
         # is NewtonCfg, else the wrapper's own defaults so callers from non-Newton
         # contexts (tests, early construction) still get the rough-terrain margin.
@@ -1069,7 +1077,7 @@ class NewtonManager(PhysicsManager):
                     env_paths.append((int(m.group(1)), child.GetPath().pathString))
         env_paths.sort(key=lambda x: x[0])
 
-        builder = ModelBuilder(up_axis=up_axis)
+        builder = cls.create_builder(up_axis=up_axis, batched=True)
 
         schema_resolvers = [SchemaResolverNewton(), SchemaResolverPhysx()]
 
@@ -1099,21 +1107,23 @@ class NewtonManager(PhysicsManager):
             site_entries = proto_sites.get(id(proto), {})
             world_xforms: list[wp.transform] = []
 
-            # Add each env as a separate Newton world
+            # Collect each env's world transform in one XformCache pass.
             xform_cache = UsdGeom.XformCache()
+            env_xforms = np.empty((num_worlds, 7), dtype=np.float32)
             for col, (_, env_path) in enumerate(env_paths):
-                builder.begin_world()
-                offset = builder.shape_count
                 world_xform = xform_cache.GetLocalToWorldTransform(stage.GetPrimAtPath(env_path))
                 translation = world_xform.ExtractTranslation()
                 rotation = world_xform.ExtractRotationQuat()
-                pos = (translation[0], translation[1], translation[2])
-                quat = (
+                env_xforms[col] = (
+                    translation[0],
+                    translation[1],
+                    translation[2],
                     rotation.GetImaginary()[0],
                     rotation.GetImaginary()[1],
                     rotation.GetImaginary()[2],
                     rotation.GetReal(),
                 )
+<<<<<<< Updated upstream
                 env_xform = wp.transform(pos, quat)
                 world_xforms.append(env_xform)
                 builder.add_builder(proto, xform=env_xform)
@@ -1122,12 +1132,33 @@ class NewtonManager(PhysicsManager):
                         local_site_map[label] = [[] for _ in range(num_worlds)]
                     site_idx = builder.add_site(body=-1, xform=wp.transform_multiply(env_xform, xform), label=label)
                     local_site_map[label][col].append(site_idx)
+=======
+
+            front_shapes = builder.shape_count
+            if isinstance(builder, BatchedModelBuilder) and BatchedModelBuilder.can_replicate([proto]):
+                # Batched fast path: replicate the single prototype across all envs at once.
+                builder.replicate_grouped([proto], [0] * num_worlds, env_xforms)
+                proto_shapes = proto.shape_count
+>>>>>>> Stashed changes
                 for label, proto_shape_indices in site_entries.items():
-                    if label not in local_site_map:
-                        local_site_map[label] = [[] for _ in range(num_worlds)]
-                    for proto_shape_idx in proto_shape_indices:
-                        local_site_map[label][col].append(offset + proto_shape_idx)
-                builder.end_world()
+                    local_site_map[label] = [
+                        [front_shapes + col * proto_shapes + psi for psi in proto_shape_indices]
+                        for col in range(num_worlds)
+                    ]
+            else:
+                # Sequential fallback (e.g. prototype contains particles/deformables).
+                for col in range(num_worlds):
+                    builder.begin_world()
+                    offset = builder.shape_count
+                    builder.add_builder(
+                        proto, xform=wp.transform(env_xforms[col, :3].tolist(), env_xforms[col, 3:].tolist())
+                    )
+                    for label, proto_shape_indices in site_entries.items():
+                        if label not in local_site_map:
+                            local_site_map[label] = [[] for _ in range(num_worlds)]
+                        for proto_shape_idx in proto_shape_indices:
+                            local_site_map[label][col].append(offset + proto_shape_idx)
+                    builder.end_world()
 
             NewtonManager._cl_site_index_map = {
                 **global_site_map,
@@ -1702,7 +1733,7 @@ class NewtonManager(PhysicsManager):
                     env_paths.append((int(match.group(1)), child.GetPath().pathString))
         env_paths.sort(key=lambda x: x[0])
 
-        builder = ModelBuilder(up_axis=up_axis)
+        builder = cls.create_builder(up_axis=up_axis, batched=True)
 
         if not env_paths:
             # Fallback: ingest the whole stage as a single world.
@@ -1767,7 +1798,11 @@ class NewtonManager(PhysicsManager):
         )
         proto_world_tf_inv = wp.transform_inverse(proto_world_tf)
 
-        for _, env_path in env_paths:
+        # Collect each env's transform (relative to env_0's prototype) in one pass.
+        num_worlds = len(env_paths)
+        rel_xforms = np.empty((num_worlds, 7), dtype=np.float32)
+        env_path_list: list[str] = []
+        for col, (_, env_path) in enumerate(env_paths):
             world_xform = xform_cache.GetLocalToWorldTransform(stage.GetPrimAtPath(env_path))
             translation = world_xform.ExtractTranslation()
             rotation = world_xform.ExtractRotationQuat()
@@ -1780,17 +1815,39 @@ class NewtonManager(PhysicsManager):
                     rotation.GetReal(),
                 ),
             )
-            relative_tf = wp.transform_multiply(env_world_tf, proto_world_tf_inv)
-            builder.begin_world()
-            builder.add_builder(proto, xform=relative_tf)
-            if env_path != proto_env_path:
-                for attr in label_attrs:
-                    labels = getattr(builder, attr)
-                    for i in range(label_starts[attr], len(labels)):
-                        labels[i] = labels[i].replace(proto_env_path, env_path, 1)
+            rel_xforms[col] = np.array(wp.transform_multiply(env_world_tf, proto_world_tf_inv), dtype=np.float32)
+            env_path_list.append(env_path)
+
+        def _rewrite_world_labels(col: int, env_path: str, starts: dict[str, int], lengths: dict[str, int]) -> None:
+            """Rewrite the prototype's env path to ``env_path`` for world ``col``'s label slice."""
+            if env_path == proto_env_path:
+                return
             for attr in label_attrs:
-                label_starts[attr] = len(getattr(builder, attr))
-            builder.end_world()
+                labels = getattr(builder, attr)
+                start = starts[attr] + col * lengths[attr]
+                for i in range(start, start + lengths[attr]):
+                    labels[i] = labels[i].replace(proto_env_path, env_path, 1)
+
+        if isinstance(builder, BatchedModelBuilder) and BatchedModelBuilder.can_replicate([proto]):
+            # Batched fast path: replicate env_0 across all envs, then rewrite per-world labels.
+            builder.replicate_grouped([proto], [0] * num_worlds, rel_xforms)
+            proto_lens = {attr: len(getattr(proto, attr)) for attr in label_attrs}
+            for col, env_path in enumerate(env_path_list):
+                _rewrite_world_labels(col, env_path, label_starts, proto_lens)
+        else:
+            # Sequential fallback (e.g. prototype contains particles/deformables).
+            for col, env_path in enumerate(env_path_list):
+                relative_tf = wp.transform(rel_xforms[col, :3].tolist(), rel_xforms[col, 3:].tolist())
+                builder.begin_world()
+                builder.add_builder(proto, xform=relative_tf)
+                if env_path != proto_env_path:
+                    for attr in label_attrs:
+                        labels = getattr(builder, attr)
+                        for i in range(label_starts[attr], len(labels)):
+                            labels[i] = labels[i].replace(proto_env_path, env_path, 1)
+                for attr in label_attrs:
+                    label_starts[attr] = len(getattr(builder, attr))
+                builder.end_world()
 
         return builder
 

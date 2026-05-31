@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
+import numpy as np
 import torch
 import warp as wp
 from newton import ModelBuilder, solvers
@@ -15,6 +17,7 @@ from newton._src.usd.schemas import SchemaResolverNewton, SchemaResolverPhysx
 from pxr import Usd
 
 from isaaclab_newton.physics import NewtonManager
+from isaaclab_newton.sim.batched_model_builder import BatchedModelBuilder
 
 
 def _build_newton_builder_from_mapping(
@@ -52,7 +55,7 @@ def _build_newton_builder_from_mapping(
 
     schema_resolvers = [SchemaResolverNewton(), SchemaResolverPhysx()]
 
-    builder = NewtonManager.create_builder(up_axis=up_axis)
+    builder = NewtonManager.create_builder(up_axis=up_axis, batched=True)
     stage_info = builder.add_usd(
         stage,
         ignore_paths=["/World/envs", *sources],
@@ -66,8 +69,6 @@ def _build_newton_builder_from_mapping(
     # Deformable prim paths are handled by per_world_builder_hooks, not add_usd.
     # Resolve the regex prim_path patterns to concrete env_0 paths so add_usd
     # can skip them via ignore_paths.
-    import re
-
     _deformable_ignore_paths: list[str] = []
     if hasattr(NewtonManager, "_deformable_registry"):
         for entry in NewtonManager._deformable_registry:
@@ -98,12 +99,152 @@ def _build_newton_builder_from_mapping(
         protos[src_path] = p
 
     # Inject registered sites into prototypes (and global sites into main builder)
+<<<<<<< Updated upstream
     global_sites, proto_sites, world_sites = NewtonManager._cl_inject_sites(builder, protos)
 
     # Global sites: (int, None)
+=======
+    global_sites, proto_sites = NewtonManager._cl_inject_sites(builder, protos)
+>>>>>>> Stashed changes
     global_site_map: dict[str, tuple[int, None]] = {label: (idx, None) for label, idx in global_sites.items()}
 
-    # Local sites: per-world sublists, populated in the loop below
+    local_site_map = _replicate_into_builder(
+        builder, sources, protos, env_ids, mapping, positions, quaternions, env0_pos, proto_sites, up_axis
+    )
+
+    site_index_map = {
+        **global_site_map,
+        **{label: (None, per_world) for label, per_world in local_site_map.items()},
+    }
+    return builder, stage_info, site_index_map
+
+
+def _per_world_signatures(mapping: torch.Tensor) -> list[tuple[int, ...]]:
+    """Per-column tuple of active source rows (the world's "source signature")."""
+    return [tuple(torch.nonzero(mapping[:, col], as_tuple=True)[0].tolist()) for col in range(mapping.size(1))]
+
+
+def _hooks_active() -> bool:
+    """Whether deformable per-world / post-replicate hooks are registered.
+
+    These mutate worlds individually and break the "identical worlds" assumption the batched
+    path relies on, so their presence forces the sequential replication path.
+    """
+    return bool(getattr(NewtonManager, "_per_world_builder_hooks", None)) or bool(
+        getattr(NewtonManager, "_post_replicate_hooks", None)
+    )
+
+
+def _replicate_into_builder(
+    builder: ModelBuilder,
+    sources: Sequence[str],
+    protos: dict[str, ModelBuilder],
+    env_ids: torch.Tensor,
+    mapping: torch.Tensor,
+    positions: torch.Tensor,
+    quaternions: torch.Tensor,
+    env0_pos: torch.Tensor,
+    proto_sites: dict[int, dict[str, list[int]]],
+    up_axis: str,
+) -> dict[str, list[list[int]]]:
+    """Replicate prototypes into ``builder`` (batched fast path or sequential fallback).
+
+    Returns the per-world local site-index map (``{label: [[shape_idx, ...] per world]}``).
+    """
+    signatures = _per_world_signatures(mapping)
+
+    # Build one combined prototype per unique source signature. A single-source signature
+    # reuses its prototype directly (no copy); multi-source signatures concatenate their
+    # prototypes once. ``shape_offsets`` records each source's shape offset within the
+    # combined prototype so site indices can be resolved without a per-world pattern match.
+    sig_ids: dict[tuple[int, ...], int] = {}
+    combined_protos: list[ModelBuilder] = []
+    shape_offsets: list[dict[int, int]] = []
+    for sig in signatures:
+        if sig in sig_ids:
+            continue
+        sig_ids[sig] = len(combined_protos)
+        if len(sig) == 1:
+            combined_protos.append(protos[sources[sig[0]]])
+            shape_offsets.append({sig[0]: 0})
+        else:
+            combined = NewtonManager.create_builder(up_axis=up_axis)
+            solvers.SolverMuJoCo.register_custom_attributes(combined)
+            offsets: dict[int, int] = {}
+            for row in sig:
+                offsets[row] = combined.shape_count
+                combined.add_builder(protos[sources[row]])
+            combined_protos.append(combined)
+            shape_offsets.append(offsets)
+
+    signature_ids = [sig_ids[sig] for sig in signatures]
+
+    if (
+        isinstance(builder, BatchedModelBuilder)
+        and not _hooks_active()
+        and BatchedModelBuilder.can_replicate(combined_protos)
+    ):
+        front_shapes = builder.shape_count
+        # Per-world rigid transforms ([N, 7]: delta position from env_0 + orientation).
+        deltas = (positions - env0_pos).cpu().numpy().astype(np.float32)
+        quats = quaternions.cpu().numpy().astype(np.float32)
+        xforms = np.concatenate([deltas, quats], axis=1)
+        builder.replicate_grouped(combined_protos, signature_ids, xforms)
+        return _batched_site_map(
+            front_shapes, signatures, signature_ids, combined_protos, shape_offsets, protos, sources, proto_sites
+        )
+
+    return _replicate_sequential(
+        builder, sources, protos, env_ids, mapping, positions, quaternions, env0_pos, proto_sites
+    )
+
+
+def _batched_site_map(
+    front_shapes: int,
+    signatures: list[tuple[int, ...]],
+    signature_ids: list[int],
+    combined_protos: list[ModelBuilder],
+    shape_offsets: list[dict[int, int]],
+    protos: dict[str, ModelBuilder],
+    sources: Sequence[str],
+    proto_sites: dict[int, dict[str, list[int]]],
+) -> dict[str, list[list[int]]]:
+    """Resolve per-world site shape indices for the batched path (vectorized over worlds)."""
+    num_worlds = len(signatures)
+    shape_counts = np.array([combined_protos[sid].shape_count for sid in signature_ids], dtype=np.int64)
+    # Exclusive prefix sum -> start shape index (within the worlds region) of each world.
+    shape_prefix = np.concatenate([[0], np.cumsum(shape_counts)[:-1]])
+
+    local_site_map: dict[str, list[list[int]]] = {}
+    for col, sig in enumerate(signatures):
+        base = front_shapes + int(shape_prefix[col])
+        offsets = shape_offsets[signature_ids[col]]
+        for row in sig:
+            proto = protos[sources[row]]
+            row_offset = base + offsets[row]
+            for label, proto_shape_indices in proto_sites.get(id(proto), {}).items():
+                if label not in local_site_map:
+                    local_site_map[label] = [[] for _ in range(num_worlds)]
+                local_site_map[label][col].extend(row_offset + psi for psi in proto_shape_indices)
+    return local_site_map
+
+
+def _replicate_sequential(
+    builder: ModelBuilder,
+    sources: Sequence[str],
+    protos: dict[str, ModelBuilder],
+    env_ids: torch.Tensor,
+    mapping: torch.Tensor,
+    positions: torch.Tensor,
+    quaternions: torch.Tensor,
+    env0_pos: torch.Tensor,
+    proto_sites: dict[int, dict[str, list[int]]],
+) -> dict[str, list[list[int]]]:
+    """Sequential per-world replication via :meth:`~newton.ModelBuilder.add_builder`.
+
+    The guaranteed-correct fallback used when batched replication is unavailable (deformable
+    hooks registered, particles in a prototype, or unsupported custom attributes).
+    """
     num_worlds = mapping.size(1)
     local_site_map: dict[str, list[list[int]]] = {}
 
@@ -147,12 +288,7 @@ def _build_newton_builder_from_mapping(
         for hook in NewtonManager._post_replicate_hooks:
             hook(builder)
 
-    site_index_map = {
-        **global_site_map,
-        **{label: (None, per_world) for label, per_world in local_site_map.items()},
-    }
-
-    return builder, stage_info, site_index_map
+    return local_site_map
 
 
 # Built-in label arrays that ``_rename_builder_labels`` rewrites in Pass 1.

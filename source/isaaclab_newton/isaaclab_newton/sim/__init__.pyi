@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 __all__ = [
+    "BatchedModelBuilder",
+    "BatchedReplicationError",
     "NewtonDeformableBodyPropertiesCfg",
     "NewtonDeformableBodyMaterialCfg",
     "NewtonDeformableMaterialCfg",
@@ -14,6 +16,7 @@ __all__ = [
 ]
 
 from . import schemas, spawners, views
+from .batched_model_builder import BatchedModelBuilder, BatchedReplicationError
 from .schemas import NewtonDeformableBodyPropertiesCfg
 from .spawners.materials import (
     NewtonDeformableBodyMaterialCfg,

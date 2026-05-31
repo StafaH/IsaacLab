@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -127,6 +128,7 @@ class InteractiveScene:
             cfg: The configuration class for the scene.
         """
         # check that the config is valid
+        start = time.perf_counter()
         cfg.validate()
         # store inputs
         self.cfg = cfg
@@ -163,8 +165,12 @@ class InteractiveScene:
         self._physics_scene_path = None
         # prepare cloner for environment replication
         self.env_prim_paths = [f"{self.env_ns}/env_{i}" for i in range(self.cfg.num_envs)]
+<<<<<<< Updated upstream
         is_newton_replicated_scene = self.cfg.replicate_physics and self.physics_backend.startswith("newton")
 
+=======
+        start_cloner_cfg = time.perf_counter()
+>>>>>>> Stashed changes
         self.cloner_cfg = cloner.CloneCfg(
             clone_regex=self.env_regex_ns,
             clone_in_fabric=self.cfg.clone_in_fabric,
@@ -172,47 +178,101 @@ class InteractiveScene:
             physics_clone_fn=physics_clone_fn,
             clone_usd=not is_newton_replicated_scene or has_kit(),
         )
-
+        end_cloner_cfg = time.perf_counter()
+        print(f"[Mustafa INFO]: cloner cfg time: {end_cloner_cfg - start_cloner_cfg:.2f} s")
         # create source prim
         self.stage.DefinePrim(self.env_prim_paths[0], "Xform")
         self.env_fmt = self.env_regex_ns.replace(".*", "{}")
         # allocate env indices
         self._ALL_INDICES = torch.arange(self.cfg.num_envs, dtype=torch.long, device=self.device)
+<<<<<<< Updated upstream
         pos, quat = cloner.grid_transforms(self.num_envs, self.cfg.env_spacing, device=self.device)
         self._default_env_pose = torch.cat([pos, quat], dim=-1)
 
         homo_mask = torch.ones((1, self.num_envs), device=self.device, dtype=torch.bool)
         # Suspend Fabric's USD notice listener enable fast usd cloning
+=======
+        self._default_env_origins, _ = cloner.grid_transforms(self.num_envs, self.cfg.env_spacing, device=self.device)
+        # copy empty prim of env_0 to env_1, env_2, ..., env_{num_envs-1} with correct location.
+        # Suspend Fabric's USD notice listener: scene-init is followed by ``SimulationContext.reset``,
+        # which does the Fabric resync naturally — re-enabling here would just trigger a redundant batch.
+        # Note: ``restore=False`` means the listener stays disabled past this ``with`` block — through
+        # ``_add_entities_from_cfg`` and ``clone_environments`` below — until ``SimulationContext.reset``
+        # re-enables it. The nested suspension inside ``clone_environments`` becomes a no-op as a result.
+        start_usd_replicate = time.perf_counter()
+>>>>>>> Stashed changes
         with cloner.disabled_fabric_change_notifies(self.stage, restore=False):
             # copy empty prim of env_0 to env_1, env_2, ..., env_{num_envs-1} with correct location.
             rep_args = (self.stage, [self.env_fmt.format(0)], [self.env_fmt], self._ALL_INDICES, homo_mask, pos, quat)
             cloner.usd_replicate(*rep_args)
 
+        end_usd_replicate = time.perf_counter()
+        print(f"[Mustafa INFO]: usd replicate time: {end_usd_replicate - start_usd_replicate:.2f} s")
+
+        start_global_prim_paths = time.perf_counter()
         self._global_prim_paths = list()
+        end_global_prim_paths = time.perf_counter()
+        print(f"[Mustafa INFO]: global prim paths time: {end_global_prim_paths - start_global_prim_paths:.2f} s")
+        start_has_scene_cfg_entities = time.perf_counter()
         has_scene_cfg_entities = self._is_scene_setup_from_cfg()
+        end_has_scene_cfg_entities = time.perf_counter()
+        print(
+            f"[Mustafa INFO]: has scene cfg entities time: {end_has_scene_cfg_entities - start_has_scene_cfg_entities:.2f} s"
+        )
         if has_scene_cfg_entities:
+            start_build_clone_plan = time.perf_counter()
             self._clone_plan = self._build_clone_plan_from_cfg()
+<<<<<<< Updated upstream
             self.sim.set_clone_plan(self._clone_plan)
+=======
+            end_build_clone_plan = time.perf_counter()
+            print(f"[Mustafa INFO]: build clone plan time: {end_build_clone_plan - start_build_clone_plan:.2f} s")
+            start_add_entities = time.perf_counter()
+>>>>>>> Stashed changes
             self._add_entities_from_cfg()
+            end_add_entities = time.perf_counter()
+            print(f"[Mustafa INFO]: add entities from cfg time: {end_add_entities - start_add_entities:.2f} s")
         else:
+            start_clone_plan = time.perf_counter()
             self._clone_plan = cloner.ClonePlan(
                 sources=(self.env_fmt.format(0),),
                 destinations=(self.env_fmt,),
                 clone_mask=homo_mask,
             )
+<<<<<<< Updated upstream
             self.sim.set_clone_plan(self._clone_plan)
 
+=======
+            end_clone_plan = time.perf_counter()
+            print(f"[Mustafa INFO]: clone plan time: {end_clone_plan - start_clone_plan:.2f} s")
+>>>>>>> Stashed changes
         # Aggregate scene-data requirements from declared visualizers and constructed sensors,
         # then publish to ``SimulationContext`` so downstream providers (constructed later by
         # :meth:`SimulationContext.initialize_visualizers`) see the full picture in one read.
+        start_aggregate_scene_data_requirements = time.perf_counter()
         self._aggregate_scene_data_requirements(requested_viz_types)
-
+        end_aggregate_scene_data_requirements = time.perf_counter()
+        print(
+            f"[Mustafa INFO]: aggregate scene data requirements time: {end_aggregate_scene_data_requirements - start_aggregate_scene_data_requirements:.2f} s"
+        )
         if has_scene_cfg_entities:
+            start_clone_environments = time.perf_counter()
             self.clone_environments(copy_from_source=(not self.cfg.replicate_physics))
+            end_clone_environments = time.perf_counter()
+            print(f"[Mustafa INFO]: clone environments time: {end_clone_environments - start_clone_environments:.2f} s")
             # Collision filtering is PhysX-specific (PhysxSchema.PhysxSceneAPI)
             # Intentionally matches both physx and ovphysx (both are PhysX-based)
             if self.cfg.filter_collisions and "physx" in self.physics_backend:
+                start_filter_collisions = time.perf_counter()
                 self.filter_collisions(self._global_prim_paths)
+                end_filter_collisions = time.perf_counter()
+                print(
+                    f"[Mustafa INFO]: filter collisions time: {end_filter_collisions - start_filter_collisions:.2f} s"
+                )
+                end_filter_collisions = time.perf_counter()
+                print(
+                    f"[Mustafa INFO]: filter collisions time: {end_filter_collisions - start_filter_collisions:.2f} s"
+                )
 
     def _build_clone_plan_from_cfg(self) -> cloner.ClonePlan | None:
         """Build a clone plan from scene cfg spawn variants and write planned spawn paths.
@@ -317,6 +377,7 @@ class InteractiveScene:
         with cloner.disabled_fabric_change_notifies(self.stage, restore=False):
             replicate_args = (plan.sources, plan.destinations, self._ALL_INDICES, plan.clone_mask)
 
+            start_physics_clone = time.perf_counter()
             if not copy_from_source and self.cloner_cfg.physics_clone_fn is not None:
                 self.cloner_cfg.physics_clone_fn(
                     self.stage,
@@ -324,11 +385,15 @@ class InteractiveScene:
                     positions=self._default_env_pose[:, :3],
                     device=self.cloner_cfg.device,
                 )
+            end_physics_clone = time.perf_counter()
+            print(f"[Mustafa INFO]: physics clone time: {end_physics_clone - start_physics_clone:.2f} s")
+            start_usd_replicate = time.perf_counter()
             if self.cloner_cfg.clone_usd:
                 is_env_root_plan = len(plan.sources) == 1 and plan.destinations == (self.env_fmt,)
                 usd_positions = self._default_env_pose[:, :3] if is_env_root_plan else None
                 cloner.usd_replicate(self.stage, *replicate_args, positions=usd_positions)
-
+            end_usd_replicate = time.perf_counter()
+            print(f"[Mustafa INFO]: usd replicate time: {end_usd_replicate - start_usd_replicate:.2f} s")
         # Publish to ``SimulationContext`` (the canonical owner). The :attr:`clone_plan`
         # property below forwards reads back through ``sim.get_clone_plan()`` so consumers
         # holding a scene reference still see the published plan without a duplicate cache.
