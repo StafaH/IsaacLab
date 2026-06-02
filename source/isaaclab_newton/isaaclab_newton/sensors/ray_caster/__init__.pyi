@@ -6,11 +6,15 @@
 __all__ = [
     "MultiMeshRayCaster",
     "MultiMeshRayCasterCamera",
+    "NewtonRayCaster",
+    "NewtonRayCasterCfg",
     "RayCaster",
     "RayCasterCamera",
 ]
 
 from .multi_mesh_ray_caster import MultiMeshRayCaster
 from .multi_mesh_ray_caster_camera import MultiMeshRayCasterCamera
+from .newton_ray_caster import NewtonRayCaster
+from .newton_ray_caster_cfg import NewtonRayCasterCfg
 from .ray_caster import RayCaster
 from .ray_caster_camera import RayCasterCamera

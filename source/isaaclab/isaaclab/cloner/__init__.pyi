@@ -13,6 +13,7 @@ __all__ = [
     "make_clone_plan",
     "path_source_path",
     "random",
+    "resolve_clone_plan_source",
     "sequential",
     "usd_replicate",
 ]
@@ -27,5 +28,6 @@ from .cloner_utils import (
     grid_transforms,
     make_clone_plan,
     path_source_path,
+    resolve_clone_plan_source,
     usd_replicate,
 )
