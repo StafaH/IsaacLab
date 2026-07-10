@@ -27,7 +27,8 @@ _VISUALIZER_REQUIREMENTS: dict[str, SceneDataRequirement] = {
     "kit": SceneDataRequirement(requires_usd_stage=True),
     "newton": SceneDataRequirement(requires_newton_model=True),
     "rerun": SceneDataRequirement(requires_newton_model=True),
-    "viser": SceneDataRequirement(requires_newton_model=True),
+    # isaac_viser exports the composed stage for OVRT/X rendering.
+    "viser": SceneDataRequirement(requires_usd_stage=True),
 }
 
 _RENDERER_REQUIREMENTS: dict[str, SceneDataRequirement] = {

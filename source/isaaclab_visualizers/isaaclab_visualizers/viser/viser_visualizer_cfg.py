@@ -13,7 +13,7 @@ from isaaclab.visualizers.visualizer_cfg import VisualizerCfg
 
 @configclass
 class ViserVisualizerCfg(VisualizerCfg):
-    """Configuration for Viser visualizer (web-based visualization)."""
+    """Configuration for the Viser visualizer (OVRT/X frames streamed to the browser)."""
 
     visualizer_type: str = "viser"
     """Type identifier for Viser visualizer."""
@@ -39,14 +39,17 @@ class ViserVisualizerCfg(VisualizerCfg):
     The viewer URL is always logged during initialization. Set this to ``True`` to auto-launch it.
     """
 
-    label: str | None = "Isaac Lab Simulation"
-    """Optional label shown in the viewer page title."""
-
     verbose: bool = True
     """Whether to print viewer server startup information."""
 
-    share: bool = False
-    """Whether to request a public share URL from viser."""
+    width: int = 1280
+    """OVRT/X render width in pixels."""
 
-    record_to_viser: str | None = None
-    """Path to save a .viser recording file. None = no recording."""
+    height: int = 720
+    """OVRT/X render height in pixels."""
+
+    target_fps: float = 30.0
+    """Maximum browser stream update frequency."""
+
+    render_mode: str = "RealTimePathTracing"
+    """OVRT/X render mode: ``"RealTimePathTracing"``, ``"PathTracing"``, or ``"Minimal"``."""

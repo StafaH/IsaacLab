@@ -3,31 +3,32 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Viser-based visualizer using Newton's ViewerViser."""
+"""Viser-based visualizer backed by isaac_viser (OVRT/X RTX rendering).
+
+The browser viewport is an OVRT/X-rendered image streamed through a Viser
+server; no scene geometry is sent to Viser's native WebGL renderer. The
+composed USD stage is exported once during :meth:`ViserVisualizer.initialize`,
+then rigid-body world transforms from the :class:`~isaaclab.scene_data.SceneDataProvider`
+are pushed into the OVRT/X runtime stage every step.
+"""
 
 from __future__ import annotations
 
-import contextlib
-import io
 import logging
-import math
 import os
+import sys
+import tempfile
+import time
 import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import newton
 import numpy as np
-from newton.viewer import ViewerViser
+from isaac_viser import Viewer, ViewerConfig
+from isaac_viser.transforms import poses_wxyz_to_matrices
 
+from isaaclab.scene_data.scene_data_backend import SceneDataFormat
 from isaaclab.visualizers.base_visualizer import BaseVisualizer
-
-from isaaclab_visualizers.newton.newton_visualization_markers import render_newton_visualization_markers
-from isaaclab_visualizers.newton_adapter import (
-    apply_viewer_visible_worlds,
-    log_geo_with_expanded_plane_scale,
-    resolve_visible_env_indices,
-)
 
 from .viser_visualizer_cfg import ViserVisualizerCfg
 
@@ -37,165 +38,24 @@ if TYPE_CHECKING:
     from isaaclab.scene_data import SceneDataProvider
 
 
-def _disable_viser_runtime_client_rebuild_if_bundled() -> None:
-    """Skip viser's runtime frontend rebuild when a bundled build is present."""
+def _kit_app_is_running() -> bool:
+    """Return whether an Isaac Sim (Kit) app is running in this process.
+
+    Kitless flows may still import ``omni.kit.app`` without starting an app, so
+    the module's presence alone is not a signal.
+    """
+    app_module = sys.modules.get("omni.kit.app")
+    if app_module is None:
+        return False
     try:
-        import viser
-        import viser._client_autobuild as client_autobuild
+        app = app_module.get_app()
+        return app is not None and bool(app.is_running())
     except Exception:
-        return
-
-    client_root = Path(viser.__file__).resolve().parent / "client"
-    has_bundled_build = (client_root / "build" / "index.html").exists()
-    if not has_bundled_build:
-        return
-
-    client_autobuild.ensure_client_is_built = lambda: None
-
-
-def _open_viser_web_viewer(url: str) -> None:
-    """Open the Viser web UI in a browser."""
-    try:
-        if not webbrowser.open_new_tab(url):
-            logger.info("[ViserVisualizer] Could not auto-open browser tab. Open manually: %s", url)
-    except Exception:
-        logger.info("[ViserVisualizer] Could not auto-open browser tab. Open manually: %s", url)
-
-
-def _viser_web_viewer_url(port: int, display_address: str) -> str:
-    """Return Viser web UI URL for display to users."""
-    return f"http://{display_address}:{int(port)}"
-
-
-class NewtonViewerViser(ViewerViser):
-    """Isaac Lab wrapper for Newton's ViewerViser."""
-
-    def __init__(
-        self,
-        port: int = 8080,
-        bind_address: str = "0.0.0.0",
-        label: str | None = None,
-        verbose: bool = True,
-        share: bool = False,
-        record_to_viser: str | None = None,
-        metadata: dict | None = None,
-    ):
-        """Initialize Newton-backed viser viewer wrapper.
-
-        Args:
-            port: HTTP port for viser server.
-            bind_address: Host/interface for the Viser server to bind.
-            label: Optional viewer label.
-            verbose: Whether to keep verbose startup output enabled.
-            share: Whether to enable sharing/tunneling.
-            record_to_viser: Optional recording destination.
-            metadata: Optional metadata attached to the viewer.
-        """
-        _disable_viser_runtime_client_rebuild_if_bundled()
-        viser = self._get_viser()
-        original_viser_server = viser.ViserServer
-
-        def _viser_server_with_bind_address(*args, **kwargs):
-            kwargs["host"] = bind_address
-            kwargs["verbose"] = verbose
-            return original_viser_server(*args, **kwargs)
-
-        with contextlib.ExitStack() as stack:
-            viser.ViserServer = _viser_server_with_bind_address
-            stack.callback(setattr, viser, "ViserServer", original_viser_server)
-            if not verbose:
-                stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
-                stack.enter_context(contextlib.redirect_stderr(io.StringIO()))
-            super().__init__(
-                port=port,
-                label=label,
-                verbose=verbose,
-                share=share,
-                record_to_viser=record_to_viser,
-            )
-        self._metadata = metadata or {}
-        self._isaaclab_plane_grid_cache: dict[str, tuple] = {}
-
-    @property
-    def share_url(self) -> str | None:
-        """Return the public share URL created by Viser, if any."""
-        return self._share_url
-
-    def clear_model(self) -> None:
-        """Clear cached static plane-grid signatures with the viewer model."""
-        cache = getattr(self, "_isaaclab_plane_grid_cache", None)
-        if cache is not None:
-            cache.clear()
-        return super().clear_model()
-
-    @staticmethod
-    def _array_signature(array) -> tuple[tuple[int, ...], bytes] | None:
-        """Return a stable signature for small transform/scale arrays."""
-        if array is None:
-            return None
-        array_np = np.ascontiguousarray(np.asarray(array, dtype=np.float32))
-        return tuple(int(dim) for dim in array_np.shape), array_np.tobytes()
-
-    def _log_plane_instances(
-        self,
-        name: str,
-        plane_info: dict[str, float | bool],
-        xforms,
-        scales,
-        hidden: bool = False,
-    ) -> None:
-        """Avoid removing/re-adding unchanged Viser plane grids every frame."""
-        cache = getattr(self, "_isaaclab_plane_grid_cache", None)
-        if hidden or xforms is None:
-            if cache is not None:
-                cache.pop(name, None)
-            return super()._log_plane_instances(name, plane_info, xforms, scales, hidden=hidden)
-
-        xforms_np = self._to_numpy(xforms)
-        if xforms_np is None or len(xforms_np) == 0:
-            if cache is not None:
-                cache.pop(name, None)
-            return super()._log_plane_instances(name, plane_info, xforms, scales, hidden=hidden)
-
-        scales_np = self._to_numpy(scales) if scales is not None else None
-        signature = (
-            float(plane_info["width"]),
-            float(plane_info["length"]),
-            self._array_signature(xforms_np),
-            self._array_signature(scales_np),
-        )
-        if cache is not None and cache.get(name) == signature and name in self._plane_handles:
-            return None
-        if cache is not None:
-            cache[name] = signature
-        return super()._log_plane_instances(name, plane_info, xforms, scales, hidden=hidden)
-
-    def log_geo(
-        self,
-        name: str,
-        geo_type: int,
-        geo_scale: tuple[float, ...],
-        geo_thickness: float,
-        geo_is_solid: bool,
-        geo_src=None,
-        hidden: bool = False,
-    ):
-        """Log geometry, preserving large render extents for infinite ground planes."""
-        return log_geo_with_expanded_plane_scale(
-            super().log_geo,
-            newton.GeoType.PLANE,
-            name,
-            geo_type,
-            geo_scale,
-            geo_thickness,
-            geo_is_solid,
-            geo_src,
-            hidden,
-        )
+        return False
 
 
 class ViserVisualizer(BaseVisualizer):
-    """Viser web-based visualizer backed by Newton's ViewerViser."""
+    """Web visualizer streaming OVRT/X path-traced frames through Viser."""
 
     def __init__(self, cfg: ViserVisualizerCfg):
         """Initialize Viser visualizer state.
@@ -205,246 +65,275 @@ class ViserVisualizer(BaseVisualizer):
         """
         super().__init__(cfg)
         self.cfg: ViserVisualizerCfg = cfg
-        self._viewer: NewtonViewerViser | None = None
-        self._model: Any | None = None
-        self._state = None
+        self._viewer: Viewer | None = None
+        self._temporary_directory: tempfile.TemporaryDirectory[str] | None = None
+        self._transform_paths: list[str] = []
+        self._transform_output: Any | None = None
+        self._env_prim_paths: list[str] = []
+        self._visible_environment: int | None = None
         self._sim_time = 0.0
-        self._active_record_path: str | None = None
-        self._last_camera_pose: tuple[tuple[float, float, float], tuple[float, float, float]] | None = None
-        self._pending_camera_pose: tuple[tuple[float, float, float], tuple[float, float, float]] | None = None
-        self._resolved_visible_env_ids: list[int] | None = None
-        self._warned_marker_render_failure = False
+        self._step_count = 0
 
     def initialize(self, scene_data_provider: SceneDataProvider) -> None:
-        """Initialize viewer resources and bind scene data provider.
+        """Export the composed stage and start the OVRT/X-backed web viewer.
 
         Args:
-            scene_data_provider: Scene data provider used to fetch model/state data.
-        """
-        from isaaclab_newton.physics import NewtonManager
+            scene_data_provider: Scene data provider used to fetch stage and transforms.
 
+        Raises:
+            RuntimeError: If no USD stage is available or the stage export fails.
+        """
         if self._is_initialized:
             logger.debug("[ViserVisualizer] initialize() called while already initialized.")
             return
 
-        scene_data_provider = self._set_scene_data_provider(scene_data_provider)
-        num_envs = scene_data_provider.num_envs
-        metadata = {"num_envs": num_envs}
-        self._env_ids = self._compute_visualized_env_ids()
-        self._model = NewtonManager.get_model()
-        self._state = NewtonManager.get_state(self._scene_data_provider)
+        if _kit_app_is_running():
+            # OVRT/X's plugins clash with Kit's in-process USD build (same renamed
+            # symbol namespace, different symbol set), mirroring the launcher's
+            # existing '--visualizer kit' + ovrtx incompatibility.
+            raise RuntimeError(
+                "ViserVisualizer renders with OVRT/X, which cannot load inside an Isaac Sim (Kit)"
+                " process. Launch with a kitless physics backend instead, e.g."
+                " 'env.sim.physics=newton_mjwarp' or 'env.sim.physics=ovphysx'."
+            )
 
-        self._active_record_path = self.cfg.record_to_viser
-        self._create_viewer(record_to_viser=self.cfg.record_to_viser, metadata=metadata)
-        self._resolved_visible_env_ids = resolve_visible_env_indices(self._env_ids, self.cfg.max_visible_envs, num_envs)
-        num_visualized_envs = (
-            len(self._resolved_visible_env_ids) if self._resolved_visible_env_ids is not None else num_envs
+        provider = self._set_scene_data_provider(scene_data_provider)
+        stage = provider.usd_stage
+        if stage is None:
+            raise RuntimeError(
+                "ViserVisualizer requires a USD stage to export for OVRT/X rendering, but none is available."
+            )
+        self._env_ids = self._compute_visualized_env_ids()
+
+        self._temporary_directory = tempfile.TemporaryDirectory(prefix="isaac_viser_")
+        stage_path = Path(self._temporary_directory.name) / "scene.usda"
+        if not self._export_deinstanced_stage(stage, stage_path):
+            raise RuntimeError(f"failed to export the composed stage to {stage_path}")
+
+        # Isaac Lab pins usd-core to the same USD major.minor that ovrtx bundles, which
+        # ovrtx rejects by default. In this kitless flow usd-core's pxr is fully loaded
+        # before ovrtx (the stage export above), which co-exists; opt out of the guard
+        # unless the user has set it explicitly.
+        os.environ.setdefault("OVRTX_SKIP_USD_CHECK", "1")
+
+        eye, lookat = self._resolve_cfg_camera_pose("ViserVisualizer")
+        config = ViewerConfig(
+            host=self.cfg.bind_address,
+            port=self.cfg.port,
+            width=self.cfg.width,
+            height=self.cfg.height,
+            target_fps=self.cfg.target_fps,
+            render_mode=self.cfg.render_mode,
+            camera_position=eye,
+            camera_look_at=lookat,
+            vertical_fov_degrees=self._focal_length_to_vertical_fov_degrees(),
         )
+        self._viewer = self._create_viewer(stage_path, config)
+
+        stage_paths = self._query_stage_paths()
+        # Newton's kitless cloning replicates environments inside the physics model
+        # only; the USD stage (and therefore the render) may hold fewer env prims
+        # than the simulation. Offer only environments that exist on the stage.
+        num_envs = provider.num_envs
+        self._env_prim_paths = [f"/World/envs/env_{index}" for index in range(num_envs)]
+        if stage_paths is not None:
+            self._env_prim_paths = [path for path in self._env_prim_paths if path in stage_paths]
+        if num_envs > 0:
+            self._viewer.set_num_environments(max(1, len(self._env_prim_paths)))
+
+        self._transform_paths = self._resolve_transform_paths(provider, stage_paths)
+        self._transform_output = SceneDataFormat.Transform()
+
+        viewer_url = f"http://{self.cfg.display_address}:{int(self.cfg.port)}"
+        if self.cfg.verbose:
+            self._log_viewer_url("ViserVisualizer", viewer_url)
+        if self.cfg.open_browser and not webbrowser.open_new_tab(viewer_url):
+            logger.info("[ViserVisualizer] Could not auto-open browser tab. Open manually: %s", viewer_url)
+
         self._log_initialization_table(
             logger=logger,
             title="ViserVisualizer Configuration",
             rows=[
-                ("eye", self.cfg.eye),
-                ("lookat", self.cfg.lookat),
-                ("focal_length", self.cfg.focal_length),
-                ("num_visualized_envs", num_visualized_envs),
+                ("eye", eye),
+                ("lookat", lookat),
+                ("resolution", f"{self.cfg.width}x{self.cfg.height}"),
+                ("render_mode", self.cfg.render_mode),
+                ("target_fps", self.cfg.target_fps),
+                ("num_envs", num_envs),
+                ("tracked_transforms", len(self._transform_paths)),
                 ("bind_address", self.cfg.bind_address),
-                ("display_address", self.cfg.display_address),
                 ("port", self.cfg.port),
-                ("record_to_viser", self.cfg.record_to_viser or "<none>"),
             ],
         )
         self._is_initialized = True
 
     def step(self, dt: float) -> None:
-        """Advance visualization by one simulation step.
+        """Push current world transforms into OVRT/X and render browser clients.
 
         Args:
-            dt: Simulation time-step in seconds.
+            dt: Simulation time-step in seconds. ``0.0`` keeps clients responsive
+                while training is paused.
         """
-        from isaaclab_newton.physics import NewtonManager
-
-        if not self._is_initialized or self._viewer is None or self._scene_data_provider is None:
+        if not self._is_initialized or self._viewer is None:
             return
 
-        self._apply_pending_camera_pose()
+        if dt > 0.0:
+            self._sim_time += dt
+            self._step_count += 1
 
-        self._state = NewtonManager.get_state(self._scene_data_provider)
-        num_envs = NewtonManager.get_num_envs()
+        if not self._viewer.has_clients:
+            # Nothing to render; avoid GPU work and pause-loop busy spinning.
+            if dt == 0.0:
+                time.sleep(0.01)
+            return
 
-        self._sim_time += dt
-        self._viewer.begin_frame(self._sim_time)
-        try:
-            self._viewer.log_state(self._state)
-            if self.cfg.enable_markers:
-                self._render_markers(num_envs)
-        finally:
-            self._viewer.end_frame()
-
-    def _render_markers(self, num_envs: int) -> None:
-        """Render marker overlays without letting them interrupt Viser body updates."""
-        try:
-            render_newton_visualization_markers(self._viewer, self._resolved_visible_env_ids, num_envs=num_envs)
-        except Exception as exc:
-            if not self._warned_marker_render_failure:
-                logger.warning("[ViserVisualizer] Marker rendering failed; continuing body updates: %s", exc)
-                self._warned_marker_render_failure = True
-            else:
-                logger.debug("[ViserVisualizer] Marker rendering failed: %s", exc)
+        self._apply_environment_selection()
+        self._write_transforms()
+        self._viewer.update_metrics(step_count=self._step_count, sim_time=self._sim_time)
+        rendered = self._viewer.render(delta_time=dt or None)
+        if dt == 0.0 and not rendered:
+            # Paused and frame-rate limited: yield so the pause loop does not spin hot.
+            time.sleep(0.005)
 
     def close(self) -> None:
-        """Close viewer resources and finalize optional recording."""
+        """Close the web viewer and remove the exported temporary stage."""
         if not self._is_initialized:
             return
         try:
-            self._close_viewer(finalize_viser=bool(self.cfg.record_to_viser))
+            if self._viewer is not None:
+                self._viewer.close()
         except Exception as exc:
             logger.warning("[ViserVisualizer] Error during close: %s", exc)
-
         self._viewer = None
+        if self._temporary_directory is not None:
+            self._temporary_directory.cleanup()
+            self._temporary_directory = None
         self._is_initialized = False
         self._is_closed = True
-        self._active_record_path = None
-        self._pending_camera_pose = None
 
     def is_running(self) -> bool:
-        """Return whether the visualizer should continue stepping.
-
-        Returns:
-            ``True`` while the visualizer is active, otherwise ``False``.
-        """
-        if not self._is_initialized or self._is_closed:
-            return False
-        if self._viewer is None:
-            return False
-        return self._viewer.is_running()
+        """Return whether the visualizer should continue stepping."""
+        return self._is_initialized and not self._is_closed and self._viewer is not None
 
     def is_training_paused(self) -> bool:
-        """Return whether training is paused.
+        """Return whether training is paused from the browser GUI.
 
-        Viser backend does not currently expose a training pause control.
+        A queued single-step request resumes training for exactly one step
+        (consumed through :meth:`isaac_viser.Viewer.should_step`).
         """
-        return False
+        if self._viewer is None:
+            return False
+        return not self._viewer.should_step()
 
     def supports_markers(self) -> bool:
-        """Viser backend supports Isaac Lab markers through Newton viewer primitives."""
-        return bool(self.cfg.enable_markers)
-
-    def supports_live_plots(self) -> bool:
-        """Viser backend currently does not expose Isaac Lab live-plot widgets."""
+        """OVRT/X renders the USD stage only; Viser marker overlays are not drawn."""
         return False
 
-    def _create_viewer(self, record_to_viser: str | None, metadata: dict | None = None) -> None:
-        """Create Newton-backed Viser viewer and apply initial camera.
+    def supports_live_plots(self) -> bool:
+        """Live-plot widgets are not exposed by this backend."""
+        return False
+
+    def set_camera_view(self, eye: tuple, target: tuple) -> None:
+        """Point connected browser cameras at a new pose.
 
         Args:
-            record_to_viser: Optional output path for viser recording.
-            metadata: Optional metadata passed to viewer.
+            eye: Camera eye position.
+            target: Camera target position.
         """
-        if self._model is None:
-            raise RuntimeError("Viser visualizer requires a Newton model.")
-
-        self._viewer = NewtonViewerViser(
-            port=self.cfg.port,
-            bind_address=self.cfg.bind_address,
-            label=self.cfg.label,
-            verbose=False,
-            share=self.cfg.share,
-            record_to_viser=record_to_viser,
-            metadata=metadata or {},
-        )
-        viewer_url = self._viewer.share_url or _viser_web_viewer_url(self.cfg.port, self.cfg.display_address)
-        if self.cfg.verbose:
-            print()
-            self._log_viewer_url(
-                "ViserVisualizer",
-                viewer_url,
-            )
-        num_envs = int((metadata or {}).get("num_envs", 0))
-        self._viewer.set_model(self._model)
-        apply_viewer_visible_worlds(
-            self._viewer,
-            env_ids=self._env_ids,
-            max_visible_envs=self.cfg.max_visible_envs,
-            num_envs=num_envs,
-        )
-        # Preserve simulation world positions (env_spacing) rather than adding viewer-side offsets.
-        self._viewer.set_world_offsets((0.0, 0.0, 0.0))
-        if self.cfg.open_browser:
-            _open_viser_web_viewer(viewer_url)
-        initial_pose = self._resolve_initial_camera_pose()
-        self._set_viser_camera_view(initial_pose)
-        self._sim_time = 0.0
-
-    def _close_viewer(self, finalize_viser: bool = False) -> None:
-        """Close viewer and log recording output when requested."""
         if self._viewer is None:
             return
-        self._viewer.close()
-        if finalize_viser and self._active_record_path:
-            if os.path.exists(self._active_record_path):
-                size = os.path.getsize(self._active_record_path)
-                logger.info("[ViserVisualizer] Recording saved: %s (%s bytes)", self._active_record_path, size)
-            else:
-                logger.warning("[ViserVisualizer] Recording file not found: %s", self._active_record_path)
-        self._viewer = None
+        self._viewer._initial_camera_position = tuple(float(v) for v in eye)
+        self._viewer._initial_camera_look_at = tuple(float(v) for v in target)
+        for client in self._viewer.server.get_clients().values():
+            client.camera.position = tuple(float(v) for v in eye)
+            client.camera.look_at = tuple(float(v) for v in target)
 
-    def _resolve_initial_camera_pose(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
-        """Resolve initial camera pose from config."""
-        return self._resolve_cfg_camera_pose("ViserVisualizer")
+    def _create_viewer(self, stage_path: Path, config: ViewerConfig) -> Viewer:
+        """Create the isaac_viser viewer. Split out for tests."""
+        return Viewer(stage_path, config=config)
 
-    def _try_apply_viser_camera_view(self, pose: tuple[tuple[float, float, float], tuple[float, float, float]]) -> bool:
-        """Try applying camera pose to active viser clients.
+    @staticmethod
+    def _export_deinstanced_stage(stage: Any, stage_path: Path) -> bool:
+        """Flatten ``stage`` to ``stage_path`` with instancing expanded.
 
-        Returns:
-            ``True`` if at least one client camera was updated, otherwise ``False``.
+        Cloned environments are typically instanceable, which turns their link
+        prims into unwritable instance proxies. Disabling instancing on the
+        flattened copy makes every environment's links real prims so per-link
+        world transforms can be written into OVRT/X.
         """
-        if self._viewer is None:
-            return False
-        server = getattr(self._viewer, "_server", None)
-        get_clients = getattr(server, "get_clients", None) if server is not None else None
-        if not callable(get_clients):
-            return False
+        from pxr import Usd
 
+        flattened = Usd.Stage.Open(stage.Flatten())
+        instance_paths = [prim.GetPath() for prim in flattened.Traverse() if prim.IsInstance()]
+        for path in instance_paths:
+            flattened.GetPrimAtPath(path).SetInstanceable(False)
+        return bool(flattened.GetRootLayer().Export(str(stage_path)))
+
+    def _query_stage_paths(self) -> set[str] | None:
+        """Return the prim paths on the OVRT/X runtime stage, or ``None`` on failure."""
         try:
-            clients = get_clients()
-        except Exception:
-            return False
+            return set(self._viewer.renderer.query_prims())
+        except Exception as exc:
+            logger.warning("[ViserVisualizer] Could not query OVRT/X stage prims: %s", exc)
+            return None
 
-        client_iterable = clients.values() if isinstance(clients, dict) else clients
-        cam_pos, cam_target = pose
-        fov_radians = math.radians(self._focal_length_to_vertical_fov_degrees())
-        applied = False
-        for client in client_iterable:
-            camera = getattr(client, "camera", None)
-            if camera is None:
-                continue
-            try:
-                if hasattr(camera, "fov"):
-                    camera.fov = fov_radians
-                    applied = True
-                if hasattr(camera, "position"):
-                    camera.position = cam_pos
-                    applied = True
-                if hasattr(camera, "look_at"):
-                    camera.look_at = cam_target
-                    applied = True
-            except Exception:
-                continue
-        return applied
+    def _resolve_transform_paths(self, provider: SceneDataProvider, stage_paths: set[str] | None) -> list[str]:
+        """Match backend transform paths against prims on the OVRT/X runtime stage.
 
-    def _set_viser_camera_view(self, pose: tuple[tuple[float, float, float], tuple[float, float, float]]) -> None:
-        """Apply or defer camera pose update depending on client readiness."""
-        if self._try_apply_viser_camera_view(pose):
-            self._last_camera_pose = pose
-            self._pending_camera_pose = None
-        else:
-            self._pending_camera_pose = pose
+        Transforms whose path is unknown to the runtime stage (for example
+        environments replicated only inside the physics model) are dropped;
+        their slots keep ``None`` so indices stay aligned with the backend
+        transform order.
+        """
+        backend_paths = list(provider.backend.transform_paths)
+        if not backend_paths:
+            logger.warning("[ViserVisualizer] Scene data backend exposes no transform paths.")
+            return []
+        if stage_paths is None:
+            return backend_paths
+        resolved = [path if path in stage_paths else None for path in backend_paths]
+        missing = [path for path, kept in zip(backend_paths, resolved) if kept is None]
+        if missing:
+            logger.info(
+                "[ViserVisualizer] %d of %d transforms have no prim on the OVRT/X stage and are skipped"
+                " (expected for environments replicated only inside the physics model; e.g. %s).",
+                len(missing),
+                len(backend_paths),
+                ", ".join(missing[:4]),
+            )
+        return resolved
 
-    def _apply_pending_camera_pose(self) -> None:
-        """Apply deferred camera pose once client cameras are available."""
-        if self._pending_camera_pose is None:
+    def _write_transforms(self) -> None:
+        """Copy current backend world transforms into the OVRT/X runtime stage."""
+        provider = self._scene_data_provider
+        if provider is None or not self._transform_paths or provider.transform_count == 0:
             return
-        if self._try_apply_viser_camera_view(self._pending_camera_pose):
-            self._last_camera_pose = self._pending_camera_pose
-            self._pending_camera_pose = None
+        if not provider.get_transforms(self._transform_output):
+            logger.warning("[ViserVisualizer] Scene data provider could not convert transforms.")
+            return
+
+        # wp.transformf rows are (x, y, z, qx, qy, qz, qw); reorder to (x, y, z, qw, qx, qy, qz).
+        transforms = np.asarray(self._transform_output.transforms.numpy(), dtype=np.float64)
+        count = min(len(transforms), len(self._transform_paths))
+        poses = np.empty((count, 7), dtype=np.float64)
+        poses[:, :3] = transforms[:count, :3]
+        poses[:, 3] = transforms[:count, 6]
+        poses[:, 4:7] = transforms[:count, 3:6]
+
+        # Skip unmatched paths and uninitialized (zero-quaternion) transforms.
+        mask = np.linalg.norm(poses[:, 3:7], axis=1) > 1e-6
+        mask &= np.array([path is not None for path in self._transform_paths[:count]], dtype=bool)
+        if not mask.any():
+            return
+        prim_paths = [self._transform_paths[index] for index in np.flatnonzero(mask)]
+        self._viewer.write_world_poses(prim_paths, poses_wxyz_to_matrices(poses[mask]))
+
+    def _apply_environment_selection(self) -> None:
+        """Show the environment selected in the browser GUI and hide the others."""
+        if len(self._env_prim_paths) <= 1 or self._viewer is None:
+            return
+        selected = min(max(0, self._viewer.selected_environment), len(self._env_prim_paths) - 1)
+        if selected == self._visible_environment:
+            return
+        self._viewer.show_environment(self._env_prim_paths, selected)
+        self._visible_environment = selected

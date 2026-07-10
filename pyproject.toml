@@ -109,7 +109,7 @@ rl-games = [
 rsl-rl = ["rsl-rl-lib==5.4.1", "onnxscript>=0.5"]
 # No ``newton`` extra: the viewer GUI ships in the base install; ``-i newton`` is a no-op.
 # Visualizer backends.
-viser = ["viser>=1.0.16"]
+viser = ["viser>=1.0.16", "isaac-viser"]
 rerun = [
     "rerun-sdk>=0.29.0",
     "pyarrow==22.0.0",  # match rerun-sdk's Arrow stack
@@ -117,7 +117,7 @@ rerun = [
 # Isaac Sim (PhysX backend); co-resolves with the base install via the [tool.uv] conflicts table.
 isaacsim = ["isaacsim[all,extscache]==6.0.0.1"]
 # Omniverse renderer / physics backends (``ov[ovphysx|ovrtx|all]`` selectors).
-ov = ["ovphysx==0.5.2+head.f62c22207c"]
+ov = ["ovphysx>=0.4.0"]
 rtx = ["ovrtx>=0.3.0,<0.4.0"]
 mimic = [
     "isaaclab-mimic",
@@ -368,6 +368,8 @@ isaaclab = { path = "source/isaaclab", editable = true }
 "isaaclab-tasks-experimental" = { path = "source/isaaclab_tasks_experimental", editable = true }
 "isaaclab-teleop" = { path = "source/isaaclab_teleop", editable = true }
 "isaaclab-visualizers" = { path = "source/isaaclab_visualizers", editable = true }
+# OVRT/X-rendered web viewer backing the viser visualizer (sibling checkout).
+"isaac-viser" = { path = "../isaac_viser", editable = true }
 torch = [
     { index = "pytorch-cu128", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
     { index = "pytorch-cu128", marker = "sys_platform == 'linux' and platform_machine == 'AMD64'" },

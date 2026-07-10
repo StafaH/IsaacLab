@@ -225,153 +225,164 @@ def test_reset_initializes_visualizers_before_playing_timeline():
     assert not ctx.is_stopped()
 
 
+class _DummyViserStage:
+    """Stage stub whose Flatten().Export() writes a placeholder file."""
+
+    def Flatten(self):  # noqa: N802 - mirrors pxr API
+        return self
+
+    def Export(self, path: str) -> bool:  # noqa: N802 - mirrors pxr API
+        with open(path, "w") as stream:
+            stream.write("#usda 1.0\n")
+        return True
+
+
+class _DummyViserBackend:
+    def __init__(self, paths: list[str]):
+        self._paths = paths
+
+    @property
+    def transform_paths(self) -> list[str]:
+        return self._paths
+
+
 class _DummyViserSceneDataProvider:
+    def __init__(self, transforms=None, paths: list[str] | None = None):
+        self._transforms = transforms
+        self.backend = _DummyViserBackend(paths or [])
+
     @property
     def num_envs(self) -> int:
         return 4
 
     @property
     def usd_stage(self):
-        return None
+        return _DummyViserStage()
+
+    @property
+    def transform_count(self) -> int:
+        return 0 if self._transforms is None else len(self._transforms)
+
+    def get_transforms(self, output, mapping=None, allow_passthrough: bool = True) -> bool:
+        if self._transforms is None:
+            return False
+        output.transforms = self._transforms
+        return True
 
     def get_camera_transforms(self):
         return {}
 
 
-class _DummyViserViewer:
+class _DummyIsaacViserViewer:
+    """Stub for isaac_viser.Viewer recording the calls the visualizer makes."""
+
     def __init__(self):
         self.calls = []
+        self.has_clients = True
+        self.paused = False
+        self.selected_environment = 0
 
-    def begin_frame(self, sim_time: float) -> None:
-        self.calls.append(("begin_frame", sim_time))
+    def set_num_environments(self, count: int) -> None:
+        self.calls.append(("set_num_environments", count))
 
-    def log_state(self, state) -> None:
-        self.calls.append(("log_state", state))
+    def show_environment(self, env_prim_paths, selected_index) -> None:
+        self.calls.append(("show_environment", tuple(env_prim_paths), selected_index))
 
-    def end_frame(self) -> None:
-        self.calls.append(("end_frame",))
+    def write_world_poses(self, prim_paths, matrices) -> None:
+        self.calls.append(("write_world_poses", tuple(prim_paths), matrices.shape))
 
-    def is_running(self) -> bool:
+    def update_metrics(self, **kwargs) -> None:
+        self.calls.append(("update_metrics", kwargs))
+
+    def render(self, *, force: bool = False, delta_time=None) -> bool:
+        self.calls.append(("render", delta_time))
         return True
 
+    def should_step(self) -> bool:
+        return not self.paused
 
-def test_viser_visualizer_initialize_and_step_uses_newton_manager_state(monkeypatch: pytest.MonkeyPatch):
-    provider = _DummyViserSceneDataProvider()
-    viewer = _DummyViserViewer()
+    def close(self) -> None:
+        self.calls.append(("close",))
 
-    def _fake_create_viewer(self, record_to_viser: str | None, metadata: dict | None = None):
-        assert record_to_viser is None
-        assert metadata == {"num_envs": provider.num_envs}
-        self._viewer = viewer
+    @property
+    def renderer(self):
+        raise RuntimeError("stage prim queries are stubbed out in tests")
 
-    monkeypatch.setattr(viser_visualizer.ViserVisualizer, "_create_viewer", _fake_create_viewer)
 
-    state_calls: list[object] = []
-
-    class _FakeNewtonManager:
-        @staticmethod
-        def get_model():
-            return "dummy-model"
-
-        @staticmethod
-        def get_state(scene_data_provider=None):
-            state_calls.append(scene_data_provider)
-            return {"state_call": len(state_calls)}
-
-        @staticmethod
-        def get_num_envs() -> int:
-            return 1
-
-    import isaaclab_newton.physics as _np_mod
-
-    monkeypatch.setattr(_np_mod, "NewtonManager", _FakeNewtonManager)
-
+def _make_viser_visualizer(monkeypatch: pytest.MonkeyPatch, provider) -> tuple[Any, _DummyIsaacViserViewer]:
+    viewer = _DummyIsaacViserViewer()
+    monkeypatch.setattr(
+        viser_visualizer.ViserVisualizer, "_create_viewer", lambda self, stage_path, config: viewer
+    )
+    # Prim-path resolution needs a live OVRT/X stage; identity-resolve in unit tests.
+    monkeypatch.setattr(
+        viser_visualizer.ViserVisualizer,
+        "_resolve_transform_paths",
+        lambda self, provider, stage_paths: list(provider.backend.transform_paths),
+    )
+    # De-instancing needs pxr; fall back to the stage stub's plain export.
+    monkeypatch.setattr(
+        viser_visualizer.ViserVisualizer,
+        "_export_deinstanced_stage",
+        staticmethod(lambda stage, stage_path: stage.Flatten().Export(str(stage_path))),
+    )
     visualizer = viser_visualizer.ViserVisualizer(ViserVisualizerCfg())
     visualizer.initialize(cast(Any, provider))
+    return visualizer, viewer
+
+
+def test_viser_visualizer_initialize_and_step_streams_provider_transforms(monkeypatch: pytest.MonkeyPatch):
+    import numpy as np
+    import warp as wp
+
+    transforms = wp.array(
+        [
+            [1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0],  # (pos xyz, quat xyzw): identity rotation
+            [4.0, 5.0, 6.0, 0.0, 0.0, 0.0, 0.0],  # uninitialized transform: skipped
+        ],
+        dtype=wp.transformf,
+    )
+    provider = _DummyViserSceneDataProvider(transforms=transforms, paths=["/World/A", "/World/B"])
+    visualizer, viewer = _make_viser_visualizer(monkeypatch, provider)
+
     visualizer.step(0.25)
 
     assert visualizer.is_initialized
-    assert state_calls == [provider, provider]
     assert visualizer._sim_time == pytest.approx(0.25)
-    assert viewer.calls[0][0] == "begin_frame"
-    assert viewer.calls[0][1] == pytest.approx(0.25)
-    # log_state passes NewtonManager.get_state(provider) through as-is; no env_ids merged in.
-    assert viewer.calls[1] == ("log_state", {"state_call": 2})
-    assert viewer.calls[2] == ("end_frame",)
+    assert ("set_num_environments", 4) in viewer.calls
+    write_calls = [call for call in viewer.calls if call[0] == "write_world_poses"]
+    assert write_calls == [("write_world_poses", ("/World/A",), (1, 4, 4))]
+    assert viewer.calls[-1] == ("render", 0.25)
+    np.testing.assert_allclose(visualizer._sim_time, 0.25)
 
 
-@pytest.mark.parametrize(
-    ("cfg_max_visible_envs", "expected_visible"),
-    [
-        (None, None),
-        (0, []),
-        (3, [0, 1, 2]),
-    ],
-)
-def test_viser_visualizer_create_viewer_applies_visible_worlds(
-    monkeypatch: pytest.MonkeyPatch,
-    cfg_max_visible_envs: int | None,
-    expected_visible: list[int] | None,
-):
-    captured = {}
+def test_viser_visualizer_environment_selection_and_pause(monkeypatch: pytest.MonkeyPatch):
+    provider = _DummyViserSceneDataProvider(paths=[])
+    visualizer, viewer = _make_viser_visualizer(monkeypatch, provider)
 
-    class _FakeNewtonViewerViser:
-        def __init__(
-            self,
-            *,
-            port: int,
-            bind_address: str,
-            label: str | None,
-            verbose: bool,
-            share: bool,
-            record_to_viser: str | None,
-            metadata: dict | None = None,
-        ):
-            captured["init"] = {
-                "port": port,
-                "bind_address": bind_address,
-                "label": label,
-                "verbose": verbose,
-                "share": share,
-                "record_to_viser": record_to_viser,
-                "metadata": metadata,
-            }
+    visualizer.step(0.1)
+    show_calls = [call for call in viewer.calls if call[0] == "show_environment"]
+    assert show_calls == [
+        ("show_environment", ("/World/envs/env_0", "/World/envs/env_1", "/World/envs/env_2", "/World/envs/env_3"), 0)
+    ]
 
-        def set_model(self, model: Any) -> None:
-            captured["set_model"] = model
+    # Selecting another environment re-applies visibility once.
+    viewer.selected_environment = 2
+    visualizer.step(0.1)
+    visualizer.step(0.1)
+    show_calls = [call for call in viewer.calls if call[0] == "show_environment"]
+    assert show_calls[-1][2] == 2
+    assert len(show_calls) == 2
 
-        def set_visible_worlds(self, worlds) -> None:
-            captured["visible_worlds"] = worlds
+    # Pause state is read through isaac_viser's should_step().
+    assert not visualizer.is_training_paused()
+    viewer.paused = True
+    assert visualizer.is_training_paused()
 
-        def set_world_offsets(self, spacing) -> None:
-            captured["set_world_offsets"] = tuple(spacing)
-
-        @property
-        def share_url(self) -> str | None:
-            return None
-
-    monkeypatch.setattr(viser_visualizer, "NewtonViewerViser", _FakeNewtonViewerViser)
-    monkeypatch.setattr(
-        viser_visualizer.ViserVisualizer,
-        "_resolve_initial_camera_pose",
-        lambda self: ((1.0, 2.0, 3.0), (0.0, 0.0, 0.0)),
-    )
-    monkeypatch.setattr(viser_visualizer.ViserVisualizer, "_set_viser_camera_view", lambda self, pose: None)
-
-    cfg = ViserVisualizerCfg(
-        max_visible_envs=cfg_max_visible_envs,
-        open_browser=False,
-        randomly_sample_visible_envs=False,
-    )
-    visualizer = viser_visualizer.ViserVisualizer(cfg)
-    visualizer._model = "dummy-model"
-    visualizer._env_ids = None  # normally set by initialize() -> _compute_visualized_env_ids()
-    visualizer._create_viewer(record_to_viser="record.viser", metadata={"num_envs": 8})
-
-    assert captured["set_model"] == "dummy-model"
-    assert captured["init"]["bind_address"] == cfg.bind_address
-    assert captured["visible_worlds"] == expected_visible
-    assert captured["set_world_offsets"] == (0.0, 0.0, 0.0)
+    visualizer.close()
+    assert ("close",) in viewer.calls
+    assert visualizer.is_closed
+    assert not visualizer.is_running()
 
 
 @pytest.mark.parametrize(
