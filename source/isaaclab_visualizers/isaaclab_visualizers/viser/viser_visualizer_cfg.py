@@ -42,14 +42,33 @@ class ViserVisualizerCfg(VisualizerCfg):
     verbose: bool = True
     """Whether to print viewer server startup information."""
 
-    width: int = 1280
-    """OVRT/X render width in pixels."""
+    label: str | None = "Isaac Lab Simulation"
+    """Optional label shown in the viewer page title."""
 
-    height: int = 720
-    """OVRT/X render height in pixels."""
+    share: bool = False
+    """Whether to request a public share URL from viser."""
 
-    target_fps: float = 30.0
-    """Maximum browser stream update frequency."""
+    width: int = 2560
+    """OVRT/X render width in pixels.
+
+    The browser decodes one JPEG per streamed frame on its main thread, so
+    ``width * height * target_fps`` bounds client responsiveness: 2560x1440 at
+    60 FPS suits desktop browsers; 3840x2160 renders at full rate server-side
+    but can saturate client decoding and make interaction laggy.
+    """
+
+    height: int = 1440
+    """OVRT/X render height in pixels. See :attr:`width` for the client-side trade-off."""
+
+    target_fps: float = 60.0
+    """Maximum browser stream update frequency.
+
+    Lower this (e.g. to 30) if interaction feels laggy on remote or low-power
+    clients; see :attr:`width`.
+    """
+
+    jpeg_quality: int = 90
+    """JPEG quality of the browser stream (1-100)."""
 
     render_mode: str = "RealTimePathTracing"
     """OVRT/X render mode: ``"RealTimePathTracing"``, ``"PathTracing"``, or ``"Minimal"``."""

@@ -280,13 +280,17 @@ class _DummyIsaacViserViewer:
         self.calls = []
         self.has_clients = True
         self.paused = False
-        self.selected_environment = 0
+        self.warming_up = False
+        self.isolated_environment = None
+
+    def warmup(self, frames: int = 8, delta_time=None) -> None:
+        self.calls.append(("warmup",))
 
     def set_num_environments(self, count: int) -> None:
         self.calls.append(("set_num_environments", count))
 
-    def show_environment(self, env_prim_paths, selected_index) -> None:
-        self.calls.append(("show_environment", tuple(env_prim_paths), selected_index))
+    def set_environment_visibility(self, env_prim_paths, visible) -> None:
+        self.calls.append(("set_environment_visibility", tuple(env_prim_paths), tuple(visible)))
 
     def write_world_poses(self, prim_paths, matrices) -> None:
         self.calls.append(("write_world_poses", tuple(prim_paths), matrices.shape))
@@ -294,7 +298,9 @@ class _DummyIsaacViserViewer:
     def update_metrics(self, **kwargs) -> None:
         self.calls.append(("update_metrics", kwargs))
 
-    def render(self, *, force: bool = False, delta_time=None) -> bool:
+    def render(self, *, force: bool = False, delta_time=None, before_kick=None) -> bool:
+        if before_kick is not None:
+            before_kick()
         self.calls.append(("render", delta_time))
         return True
 
@@ -303,6 +309,10 @@ class _DummyIsaacViserViewer:
 
     def close(self) -> None:
         self.calls.append(("close",))
+
+    @property
+    def server(self):
+        raise RuntimeError("no viser server in unit tests")
 
     @property
     def renderer(self):
@@ -320,10 +330,10 @@ def _make_viser_visualizer(monkeypatch: pytest.MonkeyPatch, provider) -> tuple[A
         "_resolve_transform_paths",
         lambda self, provider, stage_paths: list(provider.backend.transform_paths),
     )
-    # De-instancing needs pxr; fall back to the stage stub's plain export.
+    # The render-stage export needs pxr; fall back to the stage stub's plain export.
     monkeypatch.setattr(
         viser_visualizer.ViserVisualizer,
-        "_export_deinstanced_stage",
+        "_export_render_stage",
         staticmethod(lambda stage, stage_path: stage.Flatten().Export(str(stage_path))),
     )
     visualizer = viser_visualizer.ViserVisualizer(ViserVisualizerCfg())
@@ -356,23 +366,29 @@ def test_viser_visualizer_initialize_and_step_streams_provider_transforms(monkey
     np.testing.assert_allclose(visualizer._sim_time, 0.25)
 
 
-def test_viser_visualizer_environment_selection_and_pause(monkeypatch: pytest.MonkeyPatch):
+def test_viser_visualizer_environment_isolation_and_pause(monkeypatch: pytest.MonkeyPatch):
     provider = _DummyViserSceneDataProvider(paths=[])
     visualizer, viewer = _make_viser_visualizer(monkeypatch, provider)
+    assert ("warmup",) in viewer.calls
 
+    # All environments are visible by default: no visibility writes.
     visualizer.step(0.1)
-    show_calls = [call for call in viewer.calls if call[0] == "show_environment"]
-    assert show_calls == [
-        ("show_environment", ("/World/envs/env_0", "/World/envs/env_1", "/World/envs/env_2", "/World/envs/env_3"), 0)
-    ]
+    assert not [call for call in viewer.calls if call[0] == "set_environment_visibility"]
 
-    # Selecting another environment re-applies visibility once.
-    viewer.selected_environment = 2
+    # Isolating an environment applies visibility once.
+    viewer.isolated_environment = 2
     visualizer.step(0.1)
     visualizer.step(0.1)
-    show_calls = [call for call in viewer.calls if call[0] == "show_environment"]
-    assert show_calls[-1][2] == 2
-    assert len(show_calls) == 2
+    visibility_calls = [call for call in viewer.calls if call[0] == "set_environment_visibility"]
+    assert len(visibility_calls) == 1
+    assert visibility_calls[0][2] == (False, False, True, False)
+
+    # Turning isolation off restores all environments.
+    viewer.isolated_environment = None
+    visualizer.step(0.1)
+    visibility_calls = [call for call in viewer.calls if call[0] == "set_environment_visibility"]
+    assert len(visibility_calls) == 2
+    assert visibility_calls[-1][2] == (True, True, True, True)
 
     # Pause state is read through isaac_viser's should_step().
     assert not visualizer.is_training_paused()
