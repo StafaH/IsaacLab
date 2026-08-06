@@ -24,6 +24,7 @@
             ["Isaac-Lift-Cloth-Franka", "rsl_rl", "newton_mjwarp_vbd_proxy,ovphysx", "", ""],
             ["Isaac-Lift-Cloth-Franka-Camera", "rsl_rl", "newton_mjwarp_vbd_proxy,ovphysx", "isaacsim_rtx,newton_renderer,ovrtx", ""],
             ["Isaac-Lift-Franka", "rsl_rl", "isaacsim_physx,newton_mjwarp", "", "cube,shapes"],
+            ["Isaac-Lift-Franka-Camera", "rsl_rl", "isaacsim_physx,newton_mjwarp", "isaacsim_rtx,newton_renderer,ovrtx", "cube,shapes"],
             ["Isaac-Lift-KukaAllegro", "rsl_rl", "isaacsim_physx,newton_mjwarp,ovphysx", "", "cube,shapes"],
             ["Isaac-Lift-KukaAllegro-Camera", "rsl_rl", "isaacsim_physx,newton_mjwarp,ovphysx", "isaacsim_rtx,newton_renderer,ovrtx", "albedo128,albedo256,albedo64,cube,depth128,depth256,depth64,duo_camera,raycaster_depth128,raycaster_depth256,raycaster_depth64,rgb128,rgb256,rgb64,semantic_segmentation128,semantic_segmentation256,semantic_segmentation64,shapes,simple_shading_constant_diffuse128,simple_shading_constant_diffuse256,simple_shading_constant_diffuse64,simple_shading_diffuse_mdl128,simple_shading_diffuse_mdl256,simple_shading_diffuse_mdl64,simple_shading_full_mdl128,simple_shading_full_mdl256,simple_shading_full_mdl64,single_camera"],
             ["Isaac-Lift-Soft-Franka", "rsl_rl", "isaacsim_physx,newton_mjwarp_vbd_proxy,ovphysx", "", ""],

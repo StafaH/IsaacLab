@@ -32,3 +32,17 @@ gym.register(
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:FrankaPPORunnerCfg",
     },
 )
+
+##
+# Camera (vision) environments.
+##
+
+gym.register(
+    id="Isaac-Lift-Franka-Camera",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.franka_camera_env_cfg:FrankaLiftCameraEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:FrankaCameraPPORunnerCfg",
+    },
+)

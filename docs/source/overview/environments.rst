@@ -1104,6 +1104,12 @@ including disabling runtime perturbations used for training.
       - **rsl_rl** (PPO)
       - | **physics=** ``isaacsim_physx``, ``newton_mjwarp``
           | **presets=** ``cube``, ``shapes``
+    * - Isaac-Lift-Franka-Camera
+      - Manager Based
+      - **rsl_rl** (PPO)
+      - | **physics=** ``isaacsim_physx``, ``newton_mjwarp``
+          | **renderer=** ``isaacsim_rtx``, ``newton_renderer``, ``ovrtx``
+          | **presets=** ``cube``, ``shapes``
     * - Isaac-Lift-KukaAllegro
       - Manager Based
       - **rsl_rl** (PPO)

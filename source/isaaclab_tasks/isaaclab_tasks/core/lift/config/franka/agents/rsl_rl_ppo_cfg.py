@@ -8,6 +8,7 @@ from dataclasses import MISSING
 from isaaclab.utils.configclass import configclass
 
 from isaaclab_rl.rsl_rl import (
+    RslRlCNNModelCfg,
     RslRlMLPModelCfg,
     RslRlOnPolicyRunnerCfg,
     RslRlPpoAlgorithmCfg,
@@ -29,6 +30,21 @@ STATE_CRITIC_CFG = RslRlMLPModelCfg(
 )
 
 
+# Camera actor: the convolutional encoder feeds the same MLP head as the state actor.
+CNN_POLICY_CFG = RslRlCNNModelCfg(
+    obs_normalization=True,
+    hidden_dims=[512, 256, 128],
+    distribution_cfg=RslRlCNNModelCfg.GaussianDistributionCfg(init_std=1.0),
+    cnn_cfg=RslRlCNNModelCfg.CNNCfg(
+        output_channels=[16, 32, 32],
+        kernel_size=[8, 4, 3],
+        stride=[4, 2, 1],
+        activation="elu",
+    ),
+    activation="elu",
+)
+
+
 ALGO_CFG = RslRlPpoAlgorithmCfg(
     value_loss_coef=1.0,
     use_clipped_value_loss=True,
@@ -43,6 +59,11 @@ ALGO_CFG = RslRlPpoAlgorithmCfg(
     desired_kl=0.01,
     max_grad_norm=1.0,
 )
+
+
+# Camera actors need a fixed learning rate: the adaptive KL schedule varies it across the range
+# where encoder features change faster than the policy head can track, and does not converge.
+CAMERA_ALGO_CFG = ALGO_CFG.replace(num_mini_batches=8, schedule="fixed", learning_rate=7.0e-5)
 
 
 @configclass
@@ -65,4 +86,15 @@ class FrankaPPORunnerCfg(PresetCfg):
         actor=STATE_POLICY_CFG,
         critic=STATE_CRITIC_CFG,
         algorithm=ALGO_CFG,
+    )
+
+
+@configclass
+class FrankaCameraPPORunnerCfg(PresetCfg):
+    default = FrankaPPOBaseRunnerCfg().replace(
+        experiment_name="lift_franka_camera",
+        obs_groups={"actor": ["policy", "proprio", "base_image"], "critic": ["policy", "proprio", "perception"]},
+        actor=CNN_POLICY_CFG,
+        critic=STATE_CRITIC_CFG,
+        algorithm=CAMERA_ALGO_CFG,
     )
