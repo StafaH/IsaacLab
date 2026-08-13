@@ -141,6 +141,11 @@ Or install the ``ovrtx`` runtime wheel directly with pip (note the extra index U
   subsequent renderer methods. It should be completely opaque to the caller: inspecting or modifying it
   via get/set attributes is an anti-pattern and breaks the API contract.
 
+- **Two-phase startup**: :meth:`~isaaclab.scene.InteractiveScene.prepare_renderers` calls
+  :meth:`~isaaclab.renderers.BaseRenderer.prepare_render_data` after pre-startup stage mutations and
+  before physics starts. Backends should load renderer-only scene data there and defer any work that
+  requires initialized physics to :meth:`~isaaclab.renderers.BaseRenderer.create_render_data`.
+
 .. note::
 
    The :class:`~isaaclab.renderers.BaseRenderer` class is under active development and may change without notice.

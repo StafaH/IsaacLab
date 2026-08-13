@@ -330,6 +330,21 @@ def test_collect_asset_cfgs_orders_sensors_last():
     assert cfgs.index(body) < cfgs.index(sensor)
 
 
+def test_prepare_renderers_prepares_camera_like_sensors_once():
+    """Renderer preparation receives the scene environment count and skips other sensors."""
+    scene = object.__new__(InteractiveScene)
+    scene.cfg = SimpleNamespace(num_envs=8)
+    prepared: list[int] = []
+    scene._sensors = {
+        "camera": SimpleNamespace(prepare_renderer=prepared.append),
+        "contact": SimpleNamespace(),
+    }
+
+    scene.prepare_renderers()
+
+    assert prepared == [8]
+
+
 def test_aggregate_scene_data_requirements_merges_visualizers_and_renderers(monkeypatch: pytest.MonkeyPatch):
     """Scene aggregation must OR visualizer and sensor-renderer requirements onto sim context.
 

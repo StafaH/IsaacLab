@@ -38,6 +38,7 @@ from isaaclab.physics.scene_data_requirements import aggregate_requirements, res
 from isaaclab.sensors import ContactSensorCfg, FrameTransformerCfg, SensorBase, SensorBaseCfg
 from isaaclab.sim import SimulationContext
 from isaaclab.sim.utils.stage import get_current_stage, get_current_stage_id
+from isaaclab.utils.timer import Timer
 
 # Note: This is a temporary import for the VisuoTactileSensorCfg class.
 # It will be removed once the VisuoTactileSensor class is added to the core Isaac Lab framework.
@@ -285,8 +286,8 @@ class InteractiveScene:
         deterministic (matches sensor registration order) and front-loads logging
         instead of trickling out during the first :meth:`Camera._initialize_impl`.
         :meth:`~isaaclab.renderers.base_renderer.BaseRenderer.prepare_stage` is
-        intentionally not invoked here; it runs on first camera initialization
-        with the correct ``num_envs`` and final stage.
+        intentionally not invoked here; :meth:`prepare_renderers` runs it after
+        pre-startup stage mutations with the correct ``num_envs``.
 
         Returns:
             The list of unique renderer backends now registered on the
@@ -305,6 +306,25 @@ class InteractiveScene:
                 seen.add(id(backend))
                 backends.append(backend)
         return backends
+
+    def prepare_renderers(self) -> None:
+        """Prepare camera renderers after stage mutation and before physics startup.
+
+        Camera sensors use this phase to export and load renderer scene data. Physics-dependent
+        bindings remain deferred until the sensors receive the physics-ready callback.
+        """
+        renderer_sensors = [
+            sensor for sensor in self._sensors.values() if getattr(sensor, "prepare_renderer", None) is not None
+        ]
+        if not renderer_sensors:
+            return
+        with Timer(
+            "[INFO]: Time taken for renderer scene preparation",
+            "renderer_scene_preparation",
+            activity="Preparing renderer scenes",
+        ):
+            for sensor in renderer_sensors:
+                sensor.prepare_renderer(self.num_envs)
 
     def filter_collisions(self, global_prim_paths: list[str] | None = None):
         """Filter environments collisions.

@@ -73,6 +73,7 @@ def _make_ovrtx_render_data() -> OVRTXRenderData:
 def _make_ovrtx_renderer_without_backend() -> OVRTXRenderer:
     renderer = OVRTXRenderer.__new__(OVRTXRenderer)
     renderer.cfg = OVRTXRendererCfg()
+    renderer._scene_loaded = False
     return renderer
 
 
@@ -465,6 +466,8 @@ def _make_ovstage_renderer_with_backend(events: list[str]) -> OVRTXRenderer:
     renderer._use_ovstage = True
     renderer._stage = Stage()
     renderer._stage_paths = StagePaths()
+    renderer._pending_ovstage_ops = []
+    renderer._deferred_ovstage_queries = []
     renderer._camera_xform_query = "camera"
     renderer._camera_paths_list = "camera"
     renderer._object_xform_query = "object"
@@ -549,6 +552,7 @@ def test_ovrtx_close_releases_ovstage_renderer_state():
     assert renderer._render_product_paths == []
     assert renderer._output_id_color_buffers == {}
     assert renderer._initialized_scene is False
+    assert renderer._scene_loaded is False
     assert renderer._current_ordinal == 0
 
 
@@ -562,3 +566,38 @@ def test_ovrtx_close_is_idempotent():
     renderer.close()
 
     assert events == []
+
+
+def test_ovstage_init_writes_share_one_phase_barrier():
+    """Queued initialization writes retain their buffers and use one write-floor barrier."""
+    events: list[str] = []
+
+    class Completion:
+        def wait(self) -> None:
+            events.append("wait")
+
+    class Stage:
+        def advance_write_floor(self, ordinal: int):
+            events.append(f"floor:{ordinal}")
+            return Completion()
+
+        def release_op(self, op_id: int) -> None:
+            events.append(f"release:{op_id}")
+
+    class Operation:
+        def __init__(self, op_id: int) -> None:
+            self.op_id = op_id
+
+    renderer = _make_ovrtx_renderer_without_backend()
+    renderer._stage = Stage()
+    renderer._stage_paths = object()
+    renderer._current_ordinal = 3
+    renderer._pending_ovstage_ops = []
+    renderer._deferred_ovstage_queries = []
+    renderer._queue_ovstage_write(Operation(11))
+    renderer._queue_ovstage_write(Operation(12))
+
+    renderer._flush_ovstage_writes()
+
+    assert events == ["floor:3", "wait", "release:11", "release:12"]
+    assert renderer._pending_ovstage_ops == []

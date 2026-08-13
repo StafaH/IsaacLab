@@ -170,6 +170,9 @@ class DirectMARLEnv(gym.Env):
 
         self.video_recorders: list[VideoRecorder] = [VideoRecorder(cfg, self) for cfg in self.cfg.video_recorders]
 
+        with use_stage(self.sim.stage):
+            self.scene.prepare_renderers()
+
         # play the simulator to activate physics handles
         # note: this activates the physics simulation view that exposes TensorAPIs
         # note: when started in extension mode, first call sim.reset_async() and then initialize the managers

@@ -40,6 +40,19 @@ class BaseRenderer(ABC):
         """
         return
 
+    def prepare_render_data(self, spec: CameraRenderSpec) -> None:
+        """Perform renderer work that does not depend on initialized physics.
+
+        This hook is called before simulation startup when a camera belongs to an
+        :class:`~isaaclab.scene.InteractiveScene`. The default implementation is a no-op;
+        backends may use it to load scene data or start asynchronous initialization before
+        :meth:`create_render_data` completes physics-dependent bindings.
+
+        Args:
+            spec: Immutable description of the tiled camera bundle.
+        """
+        return
+
     @abstractmethod
     def supported_output_types(self) -> dict[RenderBufferKind, RenderBufferSpec]:
         """Per-output layout (channels + dtype) this renderer can produce.

@@ -109,6 +109,7 @@ def _make_ovrtx_renderer_without_backend() -> OVRTXRenderer:
     renderer._render_product_paths = []
     renderer._exported_usd_string = None
     renderer._initialized_scene = False
+    renderer._scene_loaded = False
     renderer._use_ovstage = False
     return renderer
 
@@ -458,6 +459,32 @@ def test_initialize_from_spec_refreshes_camera_relationship_after_cloning():
             [[f"/World/envs/env_{env_id}/Camera" for env_id in range(num_envs)]],
         )
     ]
+
+
+def test_prepare_from_spec_loads_scene_before_newton_bindings():
+    """Scene population is complete before any Newton-dependent binding is created."""
+    renderer = _make_ovrtx_renderer_without_backend()
+    renderer._exported_usd_string = "#usda 1.0\n"
+    events: list[str] = []
+
+    renderer._renderer.open_usd_from_string = lambda _usd_string: events.append("load")
+    renderer._renderer.bind_attribute = lambda **_kwargs: object()
+    renderer._renderer.write_attribute = lambda **_kwargs: None
+    renderer._setup_xform_bindings = lambda: events.append("xform_bindings")
+    renderer._setup_deformable_bindings = lambda _num_envs: events.append("deformable_bindings")
+    renderer._setup_particle_bindings = lambda: events.append("particle_bindings")
+
+    spec = _make_camera_render_spec(num_envs=1)
+    renderer._prepare_from_spec(spec)
+
+    assert events == ["load"]
+    assert renderer._scene_loaded is True
+    assert renderer._initialized_scene is False
+
+    renderer._initialize_from_spec(spec)
+
+    assert events == ["load", "xform_bindings", "deformable_bindings", "particle_bindings"]
+    assert renderer._initialized_scene is True
 
 
 def test_prepare_stage_stores_clone_plan_and_exports(monkeypatch: pytest.MonkeyPatch):

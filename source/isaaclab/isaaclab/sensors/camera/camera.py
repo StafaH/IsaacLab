@@ -213,8 +213,9 @@ class Camera(SensorBase):
         self._sensor_prims: list[UsdGeom.Camera] = list()
         # Allocated in :meth:`_create_buffers` once the renderer's output contract is known.
         self._data: CameraData | None = None
-        # Renderer and render data — assigned in _initialize_impl.
+        # Renderer state — prepared before physics when possible, completed in _initialize_impl.
         self._renderer: BaseRenderer | None = None
+        self._render_spec: CameraRenderSpec | None = None
         self._render_data = None
         # Frame view — assigned in _initialize_impl.
         self._view: FrameView | None = None
@@ -480,6 +481,28 @@ class Camera(SensorBase):
     Operations
     """
 
+    def prepare_renderer(self, num_envs: int) -> None:
+        """Prepare the renderer before physics startup.
+
+        This lets renderers load stage data before physics initialization while keeping
+        physics-dependent render bindings in :meth:`_initialize_impl`.
+
+        Args:
+            num_envs: Number of cloned environments represented by this camera.
+        """
+        if self._render_spec is not None:
+            return
+        sim_ctx = sim_utils.SimulationContext.instance()
+        if sim_ctx is None:
+            raise RuntimeError("SimulationContext is not initialized.")
+        renderer = sim_ctx.render_context.get_renderer(self.cfg.renderer_cfg)
+        render_spec = self._build_render_spec(num_envs, sim_ctx.device)
+        renderer.prepare_cameras(self.stage, render_spec)
+        sim_ctx.render_context.ensure_prepare_stage(self.stage, num_envs)
+        renderer.prepare_render_data(render_spec)
+        self._renderer = renderer
+        self._render_spec = render_spec
+
     def reset(self, env_ids: Sequence[int] | None = None, env_mask: wp.array | None = None):
         if not self._is_initialized:
             raise RuntimeError("Camera could not be initialized. Check the renderer and simulation logs for details.")
@@ -522,33 +545,18 @@ class Camera(SensorBase):
         with force_log_level(logging.INFO):
             logger.info("Using renderer: %s", type(self._renderer).__name__)
 
-        # Build the render spec early — both the wrapper ISP (which delegates
-        # any renderer-side per-camera setup) and ``create_render_data`` consume
-        # it, and the prims are already authored at this point.
-        cam_paths = tuple(str(p.GetPath()) for p in sim_utils.find_matching_prims(self.cfg.prim_path, self.stage))
-        env_0_prefix = "/World/envs/env_0/"
-        rel_under_env0 = (
-            cam_paths[0].removeprefix(env_0_prefix) if cam_paths and cam_paths[0].startswith(env_0_prefix) else ""
-        )
-        device_str = self._device if isinstance(self._device, str) else str(self._device)
-        render_spec = CameraRenderSpec(
-            cfg=self.cfg,
-            device=device_str,
-            num_instances=self._num_envs,
-            camera_prim_paths=cam_paths,
-            view_count=self._num_envs,
-            camera_path_relative_to_env_0=rel_under_env0,
-        )
-
-        # Delegate per-camera USD setup to the renderer — must run **before**
-        # ``ensure_prepare_stage`` so renderers that snapshot the stage
-        # (ovrtx's ``stage.Export``) capture the resulting overrides in their
-        # exported USD.
-        self._renderer.prepare_cameras(self.stage, render_spec)
-
-        # Stage preprocessing must happen before creating the view because the view keeps
-        # references to prims located in the stage.
-        sim_ctx.render_context.ensure_prepare_stage(self.stage, self._num_envs)
+        render_spec = self._render_spec
+        if render_spec is None:
+            render_spec = self._build_render_spec(self._num_envs, self._device)
+            self._renderer.prepare_cameras(self.stage, render_spec)
+            sim_ctx.render_context.ensure_prepare_stage(self.stage, self._num_envs)
+            self._renderer.prepare_render_data(render_spec)
+            self._render_spec = render_spec
+        elif render_spec.num_instances != self._num_envs:
+            raise RuntimeError(
+                "Prepared camera environment count does not match physics initialization "
+                f"({render_spec.num_instances} vs {self._num_envs})."
+            )
 
         self._view = FrameView(self.cfg.prim_path, device=self._device, stage=self.stage)
         # Check that sizes are correct
@@ -566,8 +574,8 @@ class Camera(SensorBase):
         # Convert all encapsulated prims to Camera. Newton keeps only source USD camera prims.
         self._sensor_prims.clear()
         view_prims = list(self._view.prims)
-        if not view_prims and cam_paths:
-            view_prims = [self.stage.GetPrimAtPath(cam_paths[0])] * self._view.count
+        if not view_prims and render_spec.camera_prim_paths:
+            view_prims = [self.stage.GetPrimAtPath(render_spec.camera_prim_paths[0])] * self._view.count
         for cam_prim in view_prims:
             # Obtain the prim path
             cam_prim_path = cam_prim.GetPath().pathString
@@ -608,6 +616,22 @@ class Camera(SensorBase):
     """
     Private Helpers
     """
+
+    def _build_render_spec(self, num_envs: int, device: str) -> CameraRenderSpec:
+        """Build the renderer-facing description of this camera bundle."""
+        cam_paths = tuple(str(p.GetPath()) for p in sim_utils.find_matching_prims(self.cfg.prim_path, self.stage))
+        env_0_prefix = "/World/envs/env_0/"
+        rel_under_env0 = (
+            cam_paths[0].removeprefix(env_0_prefix) if cam_paths and cam_paths[0].startswith(env_0_prefix) else ""
+        )
+        return CameraRenderSpec(
+            cfg=self.cfg,
+            device=device if isinstance(device, str) else str(device),
+            num_instances=num_envs,
+            camera_prim_paths=cam_paths,
+            view_count=num_envs,
+            camera_path_relative_to_env_0=rel_under_env0,
+        )
 
     def _check_supported_data_types(self, cfg: CameraCfg):
         """Checks if the data types are supported by the ray-caster camera."""
@@ -905,6 +929,7 @@ class Camera(SensorBase):
             self._renderer.cleanup(self._render_data)
         self._render_data = None
         self._renderer = None
+        self._render_spec = None
         # call parent
         super()._invalidate_initialize_callback(event)
         # release backend state deterministically, then invalidate the view
