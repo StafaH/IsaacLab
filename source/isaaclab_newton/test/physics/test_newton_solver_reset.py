@@ -128,3 +128,59 @@ def test_env_reset_clears_selected_mjwarp_solver_internals(device):
         torch.testing.assert_close(wp.to_torch(state.joint_qd), joint_qd_before)
         assert torch.count_nonzero(warm_start[0]).item() == 0
         torch.testing.assert_close(warm_start[1], torch.full_like(warm_start[1], 29.0))
+
+
+@pytest.mark.parametrize("device", ["cuda:0"])
+def test_captured_forward_skips_clean_reset_and_consumes_selected_reset(device):
+    """The captured forward boundary skips clean state and resets only authored worlds."""
+    sim_cfg = SimulationCfg(
+        dt=1 / 120,
+        physics=NewtonCfg(
+            solver_cfg=MJWarpSolverCfg(
+                njmax=20,
+                nconmax=20,
+                integrator="implicitfast",
+            ),
+            num_substeps=1,
+            use_cuda_graph=True,
+        ),
+    )
+    with build_simulation_context(sim_cfg=sim_cfg, device=device) as sim:
+        sim._app_control_on_stop_handle = None
+        articulation = _generate_single_joint_articulations(num_articulations=2, device=device)
+        sim.reset()
+
+        solver = SimulationManager._solver
+        assert isinstance(solver, SolverMuJoCo)
+        assert SimulationManager._authored_state_reconciliation_graph is not None
+        warm_start = wp.to_torch(solver.mjw_data.qacc_warmstart)
+        warm_start[0].fill_(11.0)
+        warm_start[1].fill_(17.0)
+
+        sim.forward()
+        wp.synchronize_device(device)
+
+        torch.testing.assert_close(warm_start[0], torch.full_like(warm_start[0], 11.0))
+        torch.testing.assert_close(warm_start[1], torch.full_like(warm_start[1], 17.0))
+
+        env_ids = torch.tensor([0], dtype=torch.int32, device=device)
+        joint_pos = articulation.data.default_joint_pos.torch[:1].clone() + 0.25
+        joint_vel = torch.full_like(articulation.data.default_joint_vel.torch[:1], 0.5)
+        articulation.write_joint_state_to_sim_index(
+            position=joint_pos,
+            velocity=joint_vel,
+            env_ids=env_ids,
+        )
+        state = SimulationManager._state_0
+        joint_q_before = wp.to_torch(state.joint_q).clone()
+        joint_qd_before = wp.to_torch(state.joint_qd).clone()
+        warm_start[0].fill_(23.0)
+        warm_start[1].fill_(29.0)
+
+        sim.forward()
+        wp.synchronize_device(device)
+
+        torch.testing.assert_close(wp.to_torch(state.joint_q), joint_q_before)
+        torch.testing.assert_close(wp.to_torch(state.joint_qd), joint_qd_before)
+        assert torch.count_nonzero(warm_start[0]).item() == 0
+        torch.testing.assert_close(warm_start[1], torch.full_like(warm_start[1], 29.0))

@@ -126,12 +126,16 @@ class TerminationManager(ManagerBase):
     Operations.
     """
 
-    def reset(self, env_ids: Sequence[int] | None = None) -> dict[str, torch.Tensor]:
+    def reset(
+        self, env_ids: Sequence[int] | None = None, *, record_terminations: bool = True
+    ) -> dict[str, torch.Tensor]:
         """Returns the per-term mean activation across environments.
 
         Args:
             env_ids: The environment ids. Defaults to None, in which case
                 all environments are considered.
+            record_terminations: Whether to record the current termination causes before reset. Defaults to True.
+                Environment loops that already called :meth:`record_episode_terminations` should set this to False.
 
         Returns:
             Dictionary mapping each termination term to its mean activation.
@@ -139,6 +143,9 @@ class TerminationManager(ManagerBase):
         # resolve environment ids
         if env_ids is None:
             env_ids = slice(None)
+        if record_terminations:
+            terminated_env_ids = self._term_dones.any(dim=1).nonzero(as_tuple=True)[0]
+            self.record_episode_terminations(terminated_env_ids)
         # add to episode dict
         extras = {}
         # move to host once; per-element .item() would sync per term
@@ -174,11 +181,6 @@ class TerminationManager(ManagerBase):
                 self._terminated_buf |= value
             # add to episode dones
             self._term_dones[:, i] = value
-        # update last-episode dones once per compute: for any env where a term fired,
-        # reflect exactly which term(s) fired this step and clear others
-        rows = self._term_dones.any(dim=1).nonzero(as_tuple=True)[0]
-        if rows.numel() > 0:
-            self._last_episode_dones[rows] = self._term_dones[rows]
         # return combined termination signal
         return self._truncated_buf | self._terminated_buf
 
@@ -249,6 +251,10 @@ class TerminationManager(ManagerBase):
     """
     Helper functions.
     """
+
+    def record_episode_terminations(self, env_ids: Sequence[int]) -> None:
+        """Store the terms that ended the selected environments' episodes."""
+        self._last_episode_dones[env_ids] = self._term_dones[env_ids]
 
     def _prepare_terms(self):
         # check if config is dict already

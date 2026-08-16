@@ -67,6 +67,8 @@ class SensorBase(ABC):
         self._is_initialized = False
         # flag for whether the sensor is in visualization mode
         self._is_visualizing = False
+        # Host-side hint used by full-batch sensors to skip checking an all-true device mask.
+        self._all_envs_outdated = False
         # clone plan used for this sensor's latest initialization
         self._clone_plan: ClonePlan | None = None
         self.stage = sim_utils.get_current_stage()
@@ -184,6 +186,8 @@ class SensorBase(ABC):
                 takes priority over ``env_ids``. Defaults to None.
         """
         env_mask = self._resolve_indices_and_mask(env_ids, env_mask)
+        if env_mask is self._ALL_ENV_MASK:
+            self._all_envs_outdated = True
         wp.launch(
             reset_envs_kernel,
             dim=self._num_envs,
@@ -210,6 +214,8 @@ class SensorBase(ABC):
             ],
             device=self._device,
         )
+        if self.cfg.update_period <= 0.0:
+            self._all_envs_outdated = True
         # Update the buffers
         if force_recompute or self._is_visualizing:
             self._update_outdated_buffers(force_recompute=force_recompute)
@@ -257,6 +263,7 @@ class SensorBase(ABC):
         self._reset_mask_torch = wp.to_torch(self._reset_mask)
         # timestamp and outdated flags
         self._is_outdated = wp.ones(self._num_envs, dtype=wp.bool, device=self._device)
+        self._all_envs_outdated = True
         self._timestamp = wp.zeros(self._num_envs, dtype=wp.float32, device=self._device)
         self._timestamp_last_update = wp.zeros_like(self._timestamp)
         self._data_generation = 0
@@ -408,6 +415,7 @@ class SensorBase(ABC):
             inputs=[self._is_outdated, self._timestamp, self._timestamp_last_update],
             device=self._device,
         )
+        self._all_envs_outdated = False
         self._data_generation_last_update = self._data_generation
 
     def _resolve_indices_and_mask(

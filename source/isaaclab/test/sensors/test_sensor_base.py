@@ -309,6 +309,29 @@ def test_force_recompute_bypasses_sensor_data_cache(create_dummy_sensor, device)
     assert sensor.backend_update_count == backend_update_count + 1
 
 
+@pytest.mark.parametrize("device", ("cpu", "cuda"))
+def test_all_envs_outdated_hint_tracks_full_batch_updates(create_dummy_sensor, device):
+    """The host hint identifies full-batch invalidation without changing partial-reset semantics."""
+    sensor_cfg, sim, dt = create_dummy_sensor
+    sensor = DummySensor(cfg=sensor_cfg)
+    sim.step()
+    sim.reset()
+
+    assert sensor._all_envs_outdated
+    _ = sensor.data
+    assert not sensor._all_envs_outdated
+
+    sensor.update(dt=dt)
+    assert sensor._all_envs_outdated
+    _ = sensor.data
+    assert not sensor._all_envs_outdated
+
+    sensor.reset(env_ids=[0])
+    assert not sensor._all_envs_outdated
+    sensor.reset()
+    assert sensor._all_envs_outdated
+
+
 @pytest.mark.parametrize("device", ("cuda",))
 def test_repeated_data_reads_are_graph_safe(create_dummy_sensor, device):
     """Test that CUDA graph capture records one backend refresh for repeated reads."""

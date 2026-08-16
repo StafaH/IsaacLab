@@ -49,6 +49,16 @@ def fail_every_3_steps(env) -> torch.Tensor:
     return torch.full((env.num_envs,), cond, dtype=torch.bool, device=env.device)
 
 
+def fail_even_envs(env) -> torch.Tensor:
+    """Returns True for even-numbered environments."""
+    return torch.arange(env.num_envs, device=env.device) % 2 == 0
+
+
+def fail_first_half(env) -> torch.Tensor:
+    """Returns True for environments in the first half of the batch."""
+    return torch.arange(env.num_envs, device=env.device) < env.num_envs // 2
+
+
 @pytest.fixture
 def env():
     sim = SimulationContext()
@@ -88,6 +98,7 @@ def test_term_transitions_and_persistence(env):
     # step 3: only term_3 -> last_episode [True, False]
     env.counter = 3
     out = tm.compute()
+    tm.record_episode_terminations(out.nonzero(as_tuple=True)[0])
     assert torch.all(tm.get_term("term_3")) and torch.all(~tm.get_term("term_5"))
     assert torch.all(out)
     assert torch.all(tm._last_episode_dones[:, 0]) and torch.all(~tm._last_episode_dones[:, 1])
@@ -102,6 +113,7 @@ def test_term_transitions_and_persistence(env):
     # step 5: only term_5 -> last_episode [False, True]
     env.counter = 5
     out = tm.compute()
+    tm.record_episode_terminations(out.nonzero(as_tuple=True)[0])
     assert torch.all(~tm.get_term("term_3")) and torch.all(tm.get_term("term_5"))
     assert torch.all(out)
     assert torch.all(~tm._last_episode_dones[:, 0]) and torch.all(tm._last_episode_dones[:, 1])
@@ -109,6 +121,7 @@ def test_term_transitions_and_persistence(env):
     # step 15: both -> last_episode [True, True]
     env.counter = 15
     out = tm.compute()
+    tm.record_episode_terminations(out.nonzero(as_tuple=True)[0])
     assert torch.all(tm.get_term("term_3")) and torch.all(tm.get_term("term_5"))
     assert torch.all(out)
     assert torch.all(tm._last_episode_dones[:, 0]) and torch.all(tm._last_episode_dones[:, 1])
@@ -119,6 +132,42 @@ def test_term_transitions_and_persistence(env):
     assert torch.all(~out)
     assert torch.all(~tm.get_term("term_3")) and torch.all(~tm.get_term("term_5"))
     assert torch.all(tm._last_episode_dones[:, 0]) and torch.all(tm._last_episode_dones[:, 1])
+
+
+def test_last_episode_dones_update_only_terminated_environments(env):
+    cfg = {
+        "even": TerminationTermCfg(func=fail_even_envs),
+        "first_half": TerminationTermCfg(func=fail_first_half),
+    }
+    tm = TerminationManager(cfg, env)
+    tm._last_episode_dones[:, 1] = True
+
+    tm.compute()
+    tm.record_episode_terminations(tm.dones.nonzero(as_tuple=True)[0])
+
+    expected = torch.zeros_like(tm._last_episode_dones)
+    expected[:, 1] = True
+    current_dones = torch.stack((fail_even_envs(env), fail_first_half(env)), dim=1)
+    expected[current_dones.any(dim=1)] = current_dones[current_dones.any(dim=1)]
+    assert torch.equal(tm._last_episode_dones, expected)
+
+    # Explicit/manual resets are not termination events and must not overwrite the last episode cause.
+    previous = tm._last_episode_dones.clone()
+    tm._term_dones.zero_()
+    tm.reset(torch.tensor([1, 3], device=env.device))
+    assert torch.equal(tm._last_episode_dones, previous)
+
+
+def test_reset_records_current_terminations_for_direct_manager_callers(env):
+    """Direct compute/reset use preserves episode-cause recording without an environment loop."""
+    tm = TerminationManager({"term_3": TerminationTermCfg(func=fail_every_3_steps)}, env)
+
+    env.counter = 3
+    tm.compute()
+    extras = tm.reset(torch.arange(env.num_envs, device=env.device))
+
+    assert torch.all(tm._last_episode_dones)
+    assert extras["Episode_Termination/term_3"] == 1.0
 
 
 def test_time_out_vs_terminated_split(env):

@@ -903,6 +903,52 @@ def test_cuda_graph_capture_uses_simulation_device(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+def test_device_predicated_reconciliation_skips_clean_state_and_consumes_dirty_state(monkeypatch):
+    """The captured predicate skips clean masks and consumes a device-authored invalidation once."""
+    world_mask = wp.array([False, False], dtype=wp.bool, device="cpu")
+    fk_mask = wp.array([False], dtype=wp.bool, device="cpu")
+    dirty = wp.array([0], dtype=wp.int32, device="cpu")
+    events: list[str] = []
+
+    monkeypatch.setattr(NewtonManager, "_world_reset_mask", world_mask, raising=False)
+    monkeypatch.setattr(NewtonManager, "_fk_reset_mask", fk_mask, raising=False)
+    monkeypatch.setattr(NewtonManager, "_authored_state_dirty", dirty, raising=False)
+    monkeypatch.setattr(
+        NewtonManager,
+        "_reset_solver_internals_delegate",
+        lambda mask: events.append("reset"),
+        raising=False,
+    )
+    monkeypatch.setattr(NewtonManager, "_eval_fk", lambda worlds, articulations: events.append("fk"), raising=False)
+    monkeypatch.setattr(
+        NewtonManager,
+        "_supports_device_predicated_reconciliation",
+        classmethod(lambda cls: True),
+    )
+
+    def eager_capture_if(condition, on_true):
+        if condition.numpy()[0]:
+            on_true()
+
+    monkeypatch.setattr(wp, "capture_if", eager_capture_if)
+
+    NewtonManager._capture_authored_state_reconciliation()
+    assert events == []
+
+    world_mask.fill_(True)
+    fk_mask.fill_(True)
+    dirty.fill_(1)
+    NewtonManager._capture_authored_state_reconciliation()
+
+    assert events == ["reset", "fk"]
+    assert world_mask.numpy().tolist() == [False, False]
+    assert fk_mask.numpy().tolist() == [False]
+    assert dirty.numpy().tolist() == [0]
+
+    NewtonManager._capture_authored_state_reconciliation()
+    assert events == ["reset", "fk"]
+
+
 def test_forward_consumes_existing_reset_masks(monkeypatch):
     """The existing device masks are the complete input to masked FK and the solver reset hook."""
     world_mask = wp.array([False, True], dtype=wp.bool, device="cpu")
@@ -959,6 +1005,49 @@ def test_forward_dispatches_active_mpm_reset_hook_through_base_manager(monkeypat
     NewtonManager.forward()
 
     assert world_mask.numpy().tolist() == [False, False]
+
+
+def test_step_consumes_reset_masks_once(monkeypatch):
+    """A physics step resets solver internals once through its forward boundary."""
+    world_mask = wp.array([True, False], dtype=wp.bool, device="cpu")
+    fk_mask = wp.array([True], dtype=wp.bool, device="cpu")
+    events: list[str] = []
+
+    class _PlayingSim:
+        @staticmethod
+        def is_playing() -> bool:
+            return True
+
+    monkeypatch.setattr(PhysicsManager, "_sim", _PlayingSim(), raising=False)
+    monkeypatch.setattr(PhysicsManager, "_cfg", SimpleNamespace(use_cuda_graph=False), raising=False)
+    monkeypatch.setattr(PhysicsManager, "_device", "cpu", raising=False)
+    monkeypatch.setattr(PhysicsManager, "_sim_time", 0.0, raising=False)
+    monkeypatch.setattr(NewtonManager, "_world_reset_mask", world_mask, raising=False)
+    monkeypatch.setattr(NewtonManager, "_fk_reset_mask", fk_mask, raising=False)
+    monkeypatch.setattr(
+        NewtonManager,
+        "_reset_solver_internals_delegate",
+        lambda mask: events.append("reset"),
+        raising=False,
+    )
+    monkeypatch.setattr(NewtonManager, "_eval_fk", lambda worlds, articulations: events.append("fk"), raising=False)
+    monkeypatch.setattr(NewtonManager, "_model_changes", set(), raising=False)
+    monkeypatch.setattr(NewtonManager, "_graph_capture_pending", False, raising=False)
+    monkeypatch.setattr(NewtonManager, "_graph", None, raising=False)
+    monkeypatch.setattr(NewtonManager, "_solver_dt", 0.01, raising=False)
+    monkeypatch.setattr(NewtonManager, "_num_substeps", 1, raising=False)
+    monkeypatch.setattr(NewtonManager, "_decimation", 1, raising=False)
+    monkeypatch.setattr(NewtonManager, "_usdrt_stage", None, raising=False)
+    monkeypatch.setattr(NewtonManager, "_particle_visual_prims", {}, raising=False)
+    monkeypatch.setattr(NewtonManager, "_is_all_graphable", classmethod(lambda cls: True))
+    monkeypatch.setattr(NewtonManager, "_simulate_full", classmethod(lambda cls: events.append("simulate")))
+    monkeypatch.setattr(NewtonManager, "_mark_sensor_state_dirty", classmethod(lambda cls: None))
+    monkeypatch.setattr(NewtonManager, "_check_solver_status", classmethod(lambda cls: None))
+    monkeypatch.setattr(NewtonManager, "_log_solver_debug", classmethod(lambda cls: None))
+
+    NewtonManager.step()
+
+    assert events == ["reset", "fk", "simulate"]
 
 
 # ---------------------------------------------------------------------------

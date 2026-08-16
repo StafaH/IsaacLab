@@ -3843,7 +3843,9 @@ class Articulation(BaseArticulation):
         self.newton_default_damping: torch.Tensor | None = None
         self.newton_managed_local_joints: torch.Tensor | slice | None = None
 
-        _use_newton_actuators = getattr(self._sim_cfg, "use_newton_actuators", False)
+        _use_newton_actuators = getattr(self._sim_cfg, "use_newton_actuators", False) or getattr(
+            getattr(self._sim_cfg, "physics", None), "use_newton_actuators", False
+        )
 
         if _use_newton_actuators and not _HAS_NEWTON_ACTUATORS:
             logger.warning(
@@ -4068,6 +4070,20 @@ class Articulation(BaseArticulation):
         self.write_joint_viscous_friction_coefficient_to_sim_index(
             joint_viscous_friction_coeff=actuator.viscous_friction,
             joint_ids=actuator.joint_indices,
+        )
+
+        # ``velocity_limit`` is actuator metadata consumed by task terms such as
+        # joint-velocity-limit terminations. Initialize it independently of the
+        # per-step actuator model, which the Newton-native fast path bypasses.
+        soft_limit_joint_ids = actuator.joint_indices
+        if isinstance(soft_limit_joint_ids, slice) or soft_limit_joint_ids is None:
+            soft_limit_joint_ids = self._ALL_JOINT_INDICES
+        wp.launch(
+            shared_kernels.write_2d_data_to_buffer_with_indices_kernel(self._ALL_INDICES, soft_limit_joint_ids),
+            dim=(self.num_instances, soft_limit_joint_ids.shape[0]),
+            inputs=[actuator.velocity_limit, self._ALL_INDICES, soft_limit_joint_ids],
+            outputs=[self.data._soft_joint_vel_limits],
+            device=self.device,
         )
 
         if properties_only:

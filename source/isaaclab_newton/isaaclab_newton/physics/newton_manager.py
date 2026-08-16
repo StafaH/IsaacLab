@@ -222,12 +222,15 @@ def _or_reset_masks_from_mask(
     articulation_ids: wp.array2d(dtype=int),
     world_mask: wp.array(dtype=wp.bool),
     fk_mask: wp.array(dtype=wp.bool),
+    authored_state_dirty: wp.array(dtype=wp.int32),
 ):
     """OR env_mask into world_mask and set corresponding articulation bits in fk_mask."""
     world, arti = wp.tid()
     if env_mask[world]:
         world_mask[world] = True
         fk_mask[articulation_ids[world, arti]] = True
+        if arti == 0:
+            wp.atomic_max(authored_state_dirty, 0, 1)
 
 
 @wp.kernel(enable_backward=False)
@@ -236,12 +239,15 @@ def _scatter_reset_masks_from_ids(
     articulation_ids: wp.array2d(dtype=int),
     world_mask: wp.array(dtype=wp.bool),
     fk_mask: wp.array(dtype=wp.bool),
+    authored_state_dirty: wp.array(dtype=wp.int32),
 ):
     """Scatter-set world_mask and fk_mask from sparse env_ids."""
     i, arti = wp.tid()
     world = wp.int32(env_ids[i])
     world_mask[world] = True
     fk_mask[articulation_ids[world, arti]] = True
+    if arti == 0:
+        wp.atomic_max(authored_state_dirty, 0, 1)
 
 
 _SCATTER_RESET_MASKS_FROM_IDS_DISPATCHER = IndexKernelDispatcher(_scatter_reset_masks_from_ids, ("env_ids",))
@@ -253,17 +259,27 @@ def _scatter_reset_masks_from_ids_kernel(env_ids: wp.array | torch.Tensor) -> wp
 
 
 @wp.kernel(enable_backward=False)
-def _or_world_reset_mask_from_mask(env_mask: wp.array(dtype=wp.bool), world_mask: wp.array(dtype=wp.bool)):
+def _or_world_reset_mask_from_mask(
+    env_mask: wp.array(dtype=wp.bool),
+    world_mask: wp.array(dtype=wp.bool),
+    authored_state_dirty: wp.array(dtype=wp.int32),
+):
     """Mark masked worlds for solver reset without requesting FK."""
     world = wp.tid()
     if env_mask[world]:
         world_mask[world] = True
+        wp.atomic_max(authored_state_dirty, 0, 1)
 
 
 @wp.kernel(enable_backward=False)
-def _scatter_world_reset_mask_from_ids(env_ids: wp.array(dtype=wp.int32), world_mask: wp.array(dtype=wp.bool)):
+def _scatter_world_reset_mask_from_ids(
+    env_ids: wp.array(dtype=wp.int32),
+    world_mask: wp.array(dtype=wp.bool),
+    authored_state_dirty: wp.array(dtype=wp.int32),
+):
     """Mark selected worlds for solver reset without requesting FK."""
     world_mask[env_ids[wp.tid()]] = True
+    wp.atomic_max(authored_state_dirty, 0, 1)
 
 
 class NewtonSceneDataBackend(SceneDataBackend):
@@ -395,6 +411,7 @@ class NewtonManager(PhysicsManager):
     # Newton reserves the final slot for global entities in world -1.
     _world_reset_mask: wp.array | None = None  # (num_envs + 1,) wp.bool
     _fk_reset_mask: wp.array | None = None  # (articulation_count,) wp.bool — for eval_fk(mask=...)
+    _authored_state_dirty: wp.array | None = None  # (1,) wp.int32 — device-authored reconciliation predicate
     # Solver-specialized FK delegate. Bound in initialize_solver() to the active subclass's choice of FK implementation.
     _eval_fk: Callable[[wp.array | None, wp.array | None], None] = _eval_fk_unbound
     # Solver-specialized reset delegate. Like _eval_fk, this must dispatch correctly through the base manager.
@@ -417,6 +434,7 @@ class NewtonManager(PhysicsManager):
     # CUDA graphing
     _graph = None
     _graph_capture_pending: bool = False
+    _authored_state_reconciliation_graph = None
 
     # Newton scene-query scheduling and graph execution.
     _sensor_tasks: dict[str, Callable[[], None]] = {}
@@ -550,6 +568,7 @@ class NewtonManager(PhysicsManager):
             # Release the cached collision pipeline, contacts and CUDA graph;
             # they point at the old model's freed buffers (CUDA 700 on next step).
             NewtonManager._graph = None
+            NewtonManager._authored_state_reconciliation_graph = None
             NewtonManager._graph_capture_pending = False
             NewtonManager._collision_pipeline = None
             NewtonManager._contacts = None
@@ -574,6 +593,60 @@ class NewtonManager(PhysicsManager):
         eval_fk(cls._model, cls._state_0.joint_q, cls._state_0.joint_qd, cls._state_0, fk_mask)
 
     @classmethod
+    def _reconcile_authored_state(cls) -> None:
+        """Reconcile solver and kinematic state selected by the device masks."""
+        cls._reset_solver_internals_delegate(cls._world_reset_mask)
+        cls._eval_fk(cls._world_reset_mask, cls._fk_reset_mask)
+        if cls._fk_reset_mask is not None:
+            cls._fk_reset_mask.zero_()
+        if cls._world_reset_mask is not None:
+            cls._world_reset_mask.zero_()
+        if cls._authored_state_dirty is not None:
+            cls._authored_state_dirty.zero_()
+
+    @classmethod
+    def _capture_authored_state_reconciliation(cls) -> None:
+        """Insert device-predicated authored-state reconciliation into the active capture."""
+        if cls._supports_device_predicated_reconciliation() and cls._authored_state_dirty is not None:
+            wp.capture_if(cls._authored_state_dirty, on_true=cls._reconcile_authored_state)
+
+    @classmethod
+    def _supports_device_predicated_reconciliation(cls) -> bool:
+        """Whether MJWarp reconciliation can use CUDA conditional graph nodes."""
+        cfg = PhysicsManager._cfg
+        device = PhysicsManager._device
+        return (
+            cfg is not None
+            and cfg.use_cuda_graph
+            and device is not None
+            and "cuda" in device
+            and isinstance(getattr(cfg, "solver_cfg", None), MJWarpSolverCfg)
+            and wp.is_conditional_graph_supported()
+        )
+
+    @classmethod
+    def _capture_authored_state_reconciliation_graph(cls) -> None:
+        """Capture the conditional graph used by public non-stepping refresh boundaries."""
+        NewtonManager._authored_state_reconciliation_graph = None
+        if not cls._supports_device_predicated_reconciliation():
+            return
+
+        device = PhysicsManager._device
+        # Warm the branch before capture so neither standard nor relaxed capture
+        # needs to compile a reset/FK kernel or allocate solver scratch.
+        with wp.ScopedDevice(device):
+            cls._reconcile_authored_state()
+        if cls._usdrt_stage is None:
+            with _paused_gc(), wp.ScopedCapture(device=device) as capture:
+                cls._capture_authored_state_reconciliation()
+            NewtonManager._authored_state_reconciliation_graph = capture.graph
+        else:
+            NewtonManager._authored_state_reconciliation_graph = cls._capture_relaxed_graph(
+                device,
+                capture_target=cls._capture_authored_state_reconciliation,
+            )
+
+    @classmethod
     def forward(cls) -> None:
         """Update articulation kinematics without stepping physics.
 
@@ -588,12 +661,13 @@ class NewtonManager(PhysicsManager):
         data layer invokes ``NewtonManager.forward()`` on the base class, where ``cls`` is the
         base ``NewtonManager``; the bound delegate dispatches to the concrete subclass override.
         """
-        cls._reset_solver_internals_delegate(cls._world_reset_mask)
-        cls._eval_fk(cls._world_reset_mask, cls._fk_reset_mask)
-        if cls._fk_reset_mask is not None:
-            cls._fk_reset_mask.zero_()
-        if cls._world_reset_mask is not None:
-            cls._world_reset_mask.zero_()
+        if cls._authored_state_reconciliation_graph is not None:
+            wp.capture_launch(cls._authored_state_reconciliation_graph)
+        else:
+            # Preserve the eager path when graphs are disabled or conditional
+            # nodes are unavailable. Reading the device predicate here would
+            # introduce the host synchronization this path is designed to avoid.
+            cls._reconcile_authored_state()
         cls._mark_sensor_state_dirty()
 
     @classmethod
@@ -929,8 +1003,6 @@ class NewtonManager(PhysicsManager):
         if sim is None or not sim.is_playing():
             return
 
-        cls._reset_solver_internals_delegate(cls._world_reset_mask)
-
         # Notify solver of model changes
         if cls._model_changes:
             with wp.ScopedDevice(PhysicsManager._device):
@@ -954,6 +1026,7 @@ class NewtonManager(PhysicsManager):
                 simulate = cls._simulate_full if cls._is_all_graphable() else cls._simulate_physics_only
                 with Timer(name="newton_cuda_graph", msg="CUDA graph took:"):
                     with _paused_gc(), wp.ScopedCapture(device=device, force_module_load=False) as capture:
+                        cls._capture_authored_state_reconciliation()
                         simulate()
                 NewtonManager._graph = capture.graph
                 logger.info("Newton CUDA graph captured (deferred standard mode)")
@@ -970,12 +1043,14 @@ class NewtonManager(PhysicsManager):
                 else:
                     logger.warning("Newton deferred CUDA graph capture failed; using eager execution")
 
-        # Reconcile authored state after any mutating graph warmup and before the requested physics step.
-        if not state_reconciled:
-            cls.forward()
-
         physics_dt = cls._solver_dt * cls._num_substeps
         use_graph = cfg is not None and cfg.use_cuda_graph and cls._graph is not None and "cuda" in device  # type: ignore[union-attr]
+
+        # Captured MJWarp graphs own the conditional reconciliation boundary.
+        # Eager and non-MJWarp paths retain the existing unconditional boundary.
+        reconciliation_in_graph = use_graph and cls._authored_state_reconciliation_graph is not None
+        if not state_reconciled and not reconciliation_in_graph:
+            cls.forward()
 
         if cls._is_all_graphable():
             # --- All actuators are graph-safe: actuators + solver in one graph ---
@@ -1088,7 +1163,9 @@ class NewtonManager(PhysicsManager):
         # Per-world reset masks
         NewtonManager._world_reset_mask = None
         NewtonManager._fk_reset_mask = None
+        NewtonManager._authored_state_dirty = None
         NewtonManager._graph = None
+        NewtonManager._authored_state_reconciliation_graph = None
         NewtonManager._graph_capture_pending = False
         NewtonManager._sensor_tasks = {}
         NewtonManager._invalidate_sensor_graph()
@@ -1397,7 +1474,7 @@ class NewtonManager(PhysicsManager):
         """
         cls._mark_transforms_dirty()
 
-        if cls._world_reset_mask is None or cls._fk_reset_mask is None:
+        if cls._world_reset_mask is None or cls._fk_reset_mask is None or cls._authored_state_dirty is None:
             return
 
         if articulation_ids is not None and env_mask is not None:
@@ -1405,7 +1482,11 @@ class NewtonManager(PhysicsManager):
                 _or_reset_masks_from_mask,
                 dim=articulation_ids.shape,
                 inputs=[env_mask, articulation_ids],
-                outputs=[NewtonManager._world_reset_mask, NewtonManager._fk_reset_mask],
+                outputs=[
+                    NewtonManager._world_reset_mask,
+                    NewtonManager._fk_reset_mask,
+                    NewtonManager._authored_state_dirty,
+                ],
                 device=PhysicsManager._device,
             )
         elif articulation_ids is not None and env_ids is not None:
@@ -1413,13 +1494,18 @@ class NewtonManager(PhysicsManager):
                 _scatter_reset_masks_from_ids_kernel(env_ids),
                 dim=(env_ids.shape[0], articulation_ids.shape[1]),
                 inputs=[env_ids, articulation_ids],
-                outputs=[NewtonManager._world_reset_mask, NewtonManager._fk_reset_mask],
+                outputs=[
+                    NewtonManager._world_reset_mask,
+                    NewtonManager._fk_reset_mask,
+                    NewtonManager._authored_state_dirty,
+                ],
                 device=PhysicsManager._device,
             )
         else:
             # Fallback: no topology info — mark everything dirty
             NewtonManager._world_reset_mask[: cls._model.world_count].fill_(True)
             NewtonManager._fk_reset_mask.fill_(True)
+            NewtonManager._authored_state_dirty.fill_(1)
 
     @classmethod
     def invalidate_body_state(
@@ -1434,14 +1520,14 @@ class NewtonManager(PhysicsManager):
             env_mask: Boolean mask of dirtied environments. Used by mask write methods.
         """
         cls._mark_transforms_dirty()
-        if cls._world_reset_mask is None:
+        if cls._world_reset_mask is None or cls._authored_state_dirty is None:
             return
         if env_mask is not None:
             wp.launch(
                 _or_world_reset_mask_from_mask,
                 dim=env_mask.shape[0],
                 inputs=[env_mask],
-                outputs=[NewtonManager._world_reset_mask],
+                outputs=[NewtonManager._world_reset_mask, NewtonManager._authored_state_dirty],
                 device=PhysicsManager._device,
             )
         elif env_ids is not None:
@@ -1449,11 +1535,12 @@ class NewtonManager(PhysicsManager):
                 _scatter_world_reset_mask_from_ids,
                 dim=env_ids.shape[0],
                 inputs=[env_ids],
-                outputs=[NewtonManager._world_reset_mask],
+                outputs=[NewtonManager._world_reset_mask, NewtonManager._authored_state_dirty],
                 device=PhysicsManager._device,
             )
         else:
             NewtonManager._world_reset_mask[: cls._model.world_count].fill_(True)
+            NewtonManager._authored_state_dirty.fill_(1)
 
     @classmethod
     def _drain_stale_cuda_error(cls) -> None:
@@ -1572,6 +1659,7 @@ class NewtonManager(PhysicsManager):
         # Isaac Lab resets local environments only, so that slot remains false.
         NewtonManager._world_reset_mask = wp.zeros(cls._model.world_count + 1, dtype=wp.bool, device=device)
         NewtonManager._fk_reset_mask = wp.zeros(cls._model.articulation_count, dtype=wp.bool, device=device)
+        NewtonManager._authored_state_dirty = wp.zeros(1, dtype=wp.int32, device=device)
 
         logger.info("Dispatching PHYSICS_READY callbacks")
         cls.dispatch_event(PhysicsEvent.PHYSICS_READY)
@@ -2131,6 +2219,7 @@ class NewtonManager(PhysicsManager):
         # Runs before graph capture below so the capture warmup sees a valid body_q.
         cls._eval_fk(None, None)
         cls._mark_transforms_dirty()
+        cls._capture_authored_state_reconciliation_graph()
 
         # Skip the initial graph capture when the Newton actuator fast path is
         # active. Capturing here would use ``cls._decimation`` (still its default
@@ -2179,6 +2268,7 @@ class NewtonManager(PhysicsManager):
                 if cls._usdrt_stage is None and not cls._requires_initial_reset_before_graph_capture():
                     simulate = cls._simulate_full if cls._is_all_graphable() else cls._simulate_physics_only
                     with _paused_gc(), wp.ScopedCapture(device=device) as capture:
+                        cls._capture_authored_state_reconciliation()
                         simulate()
                     NewtonManager._graph = capture.graph
                     logger.info("Newton CUDA graph captured (standard Warp mode)")
@@ -2298,6 +2388,8 @@ class NewtonManager(PhysicsManager):
             err_during_capture = None
             with wp.ScopedStream(fresh_stream, sync_enter=False):
                 try:
+                    if capture_target is None:
+                        cls._capture_authored_state_reconciliation()
                     simulate()
                 except Exception as exc:
                     err_during_capture = exc

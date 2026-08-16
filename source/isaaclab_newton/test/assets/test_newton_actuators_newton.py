@@ -247,6 +247,7 @@ def _run_simulation(
         "applied_torque": recorded_applied,
         "adapter_computed_effort": recorded_adapter_computed,
         "adapter_applied_effort": recorded_adapter_applied,
+        "soft_joint_vel_limits": articulation.data.soft_joint_vel_limits.torch.clone(),
         "target_pos": target_pos.clone(),
         "target_vel": target_vel.clone(),
         "effort_target": None if effort_target is None else effort_target.clone(),
@@ -436,6 +437,12 @@ class TestImplicitOnlyEquivalence(_EquivalenceTestBase):
 
     __test__ = True
     actuators = IMPLICIT_ONLY_ACTUATORS
+
+    def test_soft_joint_velocity_limits_match(self):
+        torch.testing.assert_close(
+            self.newton_result["soft_joint_vel_limits"],
+            self.lab_result["soft_joint_vel_limits"],
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -904,6 +911,29 @@ class TestDecimationDelayedPD(_DecimationMixin, TestDelayedPDEquivalence):
 
 class TestDecimationMixed(_DecimationMixin, TestMixedActuatorEquivalence):
     """Mixed (IdealPD + DCMotor) — decimation=2 + CUDA graph."""
+
+
+NEWTON_CFG_DEC_INTERVAL = NewtonCfg(
+    solver_cfg=MJWarpSolverCfg(
+        njmax=500,
+        nconmax=500,
+        ls_iterations=20,
+        cone="pyramidal",
+        impratio=1,
+        integrator="implicitfast",
+        update_data_interval=2,
+    ),
+    num_substeps=2,
+    debug_mode=False,
+    use_cuda_graph=True,
+)
+
+
+class TestDecimationImplicitOnly(_DecimationMixin, TestImplicitOnlyEquivalence):
+    """Implicit-only — decimation=4, solver substeps=2, sparse MJWarp data updates."""
+
+    newton_cfg = NEWTON_CFG_DEC_INTERVAL
+    decimation = 4
 
 
 # ---------------------------------------------------------------------------

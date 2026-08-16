@@ -137,14 +137,57 @@ def test_scatter_reset_masks_from_ids_accepts_index_dtype(index_dtype: type) -> 
     articulation_ids = wp.array(np.asarray([[0, 1], [2, 3], [4, 5]], dtype=np.int32), dtype=int, device="cpu")
     world_mask = wp.zeros(3, dtype=wp.bool, device="cpu")
     fk_mask = wp.zeros(6, dtype=wp.bool, device="cpu")
+    authored_state_dirty = wp.zeros(1, dtype=wp.int32, device="cpu")
 
     wp.launch(
         newton_manager._scatter_reset_masks_from_ids,
         dim=(env_ids.shape[0], articulation_ids.shape[1]),
         inputs=[env_ids, articulation_ids],
-        outputs=[world_mask, fk_mask],
+        outputs=[world_mask, fk_mask, authored_state_dirty],
         device="cpu",
     )
 
     np.testing.assert_array_equal(world_mask.numpy(), np.asarray([True, False, True]))
     np.testing.assert_array_equal(fk_mask.numpy(), np.asarray([True, True, False, False, True, True]))
+    np.testing.assert_array_equal(authored_state_dirty.numpy(), np.asarray([1], dtype=np.int32))
+
+
+def test_scatter_reset_masks_captured_replay_sets_device_dirty_predicate() -> None:
+    """A replayed reset writer must set the predicate without rerunning Python."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        from isaaclab_newton.physics import newton_manager
+
+    env_ids = wp.array(np.asarray([1], dtype=np.int32), dtype=wp.int32, device="cpu")
+    articulation_ids = wp.array(np.asarray([[0], [1]], dtype=np.int32), dtype=int, device="cpu")
+    world_mask = wp.zeros(2, dtype=wp.bool, device="cpu")
+    fk_mask = wp.zeros(2, dtype=wp.bool, device="cpu")
+    authored_state_dirty = wp.zeros(1, dtype=wp.int32, device="cpu")
+
+    # Warm the specialized kernel before APIC capture.
+    kernel = newton_manager._scatter_reset_masks_from_ids_kernel(env_ids)
+    wp.launch(
+        kernel,
+        dim=(env_ids.shape[0], articulation_ids.shape[1]),
+        inputs=[env_ids, articulation_ids],
+        outputs=[world_mask, fk_mask, authored_state_dirty],
+        device="cpu",
+    )
+    world_mask.zero_()
+    fk_mask.zero_()
+    authored_state_dirty.zero_()
+
+    with wp.ScopedCapture(device="cpu") as capture:
+        wp.launch(
+            kernel,
+            dim=(env_ids.shape[0], articulation_ids.shape[1]),
+            inputs=[env_ids, articulation_ids],
+            outputs=[world_mask, fk_mask, authored_state_dirty],
+            device="cpu",
+        )
+
+    np.testing.assert_array_equal(authored_state_dirty.numpy(), [0])
+    wp.capture_launch(capture.graph)
+    np.testing.assert_array_equal(world_mask.numpy(), [False, True])
+    np.testing.assert_array_equal(fk_mask.numpy(), [False, True])
+    np.testing.assert_array_equal(authored_state_dirty.numpy(), [1])

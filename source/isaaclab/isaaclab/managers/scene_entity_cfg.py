@@ -10,11 +10,29 @@ from __future__ import annotations
 from dataclasses import MISSING
 from typing import TYPE_CHECKING
 
+import torch
+
 from isaaclab.utils.configclass import configclass
 
 if TYPE_CHECKING:
     from isaaclab.assets import Articulation, RigidObject, RigidObjectCollection
     from isaaclab.scene import InteractiveScene
+
+
+def _as_device_indices(indices: list[int] | slice, device: str) -> torch.Tensor | slice:
+    if isinstance(indices, list):
+        return torch.tensor(indices, dtype=torch.long, device=device)
+    return indices
+
+
+def _as_device_mask(indices: list[int] | slice, count: int, device: str) -> torch.Tensor | None:
+    if indices == slice(None):
+        return torch.ones(count, dtype=torch.bool, device=device)
+    if not isinstance(indices, list):
+        return None
+    mask = torch.zeros(count, dtype=torch.bool, device=device)
+    mask[indices] = True
+    return mask
 
 
 @configclass
@@ -115,6 +133,25 @@ class SceneEntityCfg:
 
     """
 
+    @property
+    def body_ids_torch(self) -> list[int] | slice | torch.Tensor:
+        """Body indices cached on the scene device after resolution.
+
+        Before :meth:`resolve` is called, this returns :attr:`body_ids` unchanged.
+        """
+        source = self.__dict__.get("__body_ids_source")
+        if source is None or self.body_ids != source:
+            return self.body_ids
+        return self.__dict__["__body_ids_torch"]
+
+    @property
+    def joint_mask_torch(self) -> torch.Tensor | None:
+        """Boolean joint-selection mask cached on the scene device after resolution."""
+        source = self.__dict__.get("__joint_ids_source")
+        if source is None or self.joint_ids != source:
+            return None
+        return self.__dict__.get("__joint_mask_torch")
+
     def resolve(self, scene: InteractiveScene):
         """Resolves the scene entity and converts the joint and body names to indices.
 
@@ -148,6 +185,25 @@ class SceneEntityCfg:
 
         # convert object collection names to indices based on regex
         self._resolve_object_collection_names(scene)
+
+        # Preserve slice indexing because it returns views and avoids advanced-index gathers.
+        # Snapshot resolved lists on the device; the properties fall back if public fields are later mutated.
+        self.__dict__["__body_ids_source"] = self.body_ids.copy() if isinstance(self.body_ids, list) else self.body_ids
+        self.__dict__["__body_ids_torch"] = _as_device_indices(self.body_ids, scene.device)
+        entity = scene[self.name]
+        if hasattr(entity, "num_joints"):
+            self.__dict__["__joint_ids_source"] = (
+                self.joint_ids.copy() if isinstance(self.joint_ids, list) else self.joint_ids
+            )
+            normalized_joint_ids = (
+                [index % entity.num_joints for index in self.joint_ids] if isinstance(self.joint_ids, list) else None
+            )
+            has_duplicates = normalized_joint_ids is not None and len(set(normalized_joint_ids)) != len(
+                normalized_joint_ids
+            )
+            self.__dict__["__joint_mask_torch"] = (
+                None if has_duplicates else _as_device_mask(self.joint_ids, entity.num_joints, scene.device)
+            )
 
     def _resolve_joint_names(self, scene: InteractiveScene):
         # convert joint names to indices based on regex

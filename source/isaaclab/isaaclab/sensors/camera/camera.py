@@ -583,7 +583,7 @@ class Camera(SensorBase):
         self._create_buffers()
 
     def _update_buffers_impl(self, env_mask: wp.array):
-        if not self._env_mask_has_any(env_mask):
+        if not self._all_envs_outdated and not self._env_mask_has_any(env_mask):
             return
         # Increment frame count
         if self.cfg.update_latest_camera_pose:

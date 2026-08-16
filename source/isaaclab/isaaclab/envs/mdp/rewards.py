@@ -135,6 +135,15 @@ Joint penalties.
 """
 
 
+def _sum_selected_joints(values: torch.Tensor, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Sum per-joint values while excluding unselected values, including NaNs."""
+    if asset_cfg.joint_ids == slice(None):
+        return torch.sum(values, dim=1)
+    if asset_cfg.joint_mask_torch is None:
+        return torch.sum(values[:, asset_cfg.joint_ids], dim=1)
+    return torch.sum(torch.where(asset_cfg.joint_mask_torch, values, 0.0), dim=1)
+
+
 def joint_torques_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Penalize joint torques applied on the articulation using L2 squared kernel.
 
@@ -144,7 +153,7 @@ def joint_torques_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEn
     """
     # extract the used quantities (to enable type-hinting)
     asset: Articulation = env.scene[asset_cfg.name]
-    return torch.sum(torch.square(asset.data.applied_torque.torch[:, asset_cfg.joint_ids]), dim=1)
+    return _sum_selected_joints(torch.square(asset.data.applied_torque.torch), asset_cfg)
 
 
 def joint_vel_l1(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
@@ -175,7 +184,7 @@ def joint_acc_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntity
     """
     # extract the used quantities (to enable type-hinting)
     asset: Articulation = env.scene[asset_cfg.name]
-    return torch.sum(torch.square(asset.data.joint_acc.torch[:, asset_cfg.joint_ids]), dim=1)
+    return _sum_selected_joints(torch.square(asset.data.joint_acc.torch), asset_cfg)
 
 
 def joint_deviation_l1(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
@@ -183,10 +192,8 @@ def joint_deviation_l1(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = Scene
     # extract the used quantities (to enable type-hinting)
     asset: Articulation = env.scene[asset_cfg.name]
     # compute out of limits constraints
-    angle = (
-        asset.data.joint_pos.torch[:, asset_cfg.joint_ids] - asset.data.default_joint_pos.torch[:, asset_cfg.joint_ids]
-    )
-    return torch.sum(torch.abs(angle), dim=1)
+    angle = asset.data.joint_pos.torch - asset.data.default_joint_pos.torch
+    return _sum_selected_joints(torch.abs(angle), asset_cfg)
 
 
 def joint_pos_limits(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
@@ -197,15 +204,9 @@ def joint_pos_limits(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEn
     # extract the used quantities (to enable type-hinting)
     asset: Articulation = env.scene[asset_cfg.name]
     # compute out of limits constraints
-    out_of_limits = -(
-        asset.data.joint_pos.torch[:, asset_cfg.joint_ids]
-        - asset.data.soft_joint_pos_limits.torch[:, asset_cfg.joint_ids, 0]
-    ).clip(max=0.0)
-    out_of_limits += (
-        asset.data.joint_pos.torch[:, asset_cfg.joint_ids]
-        - asset.data.soft_joint_pos_limits.torch[:, asset_cfg.joint_ids, 1]
-    ).clip(min=0.0)
-    return torch.sum(out_of_limits, dim=1)
+    out_of_limits = -(asset.data.joint_pos.torch - asset.data.soft_joint_pos_limits.torch[..., 0]).clip(max=0.0)
+    out_of_limits += (asset.data.joint_pos.torch - asset.data.soft_joint_pos_limits.torch[..., 1]).clip(min=0.0)
+    return _sum_selected_joints(out_of_limits, asset_cfg)
 
 
 def joint_vel_limits(
@@ -277,7 +278,7 @@ def undesired_contacts(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: Sce
     # check if contact force is above threshold
     net_contact_forces = contact_sensor.data.net_forces_w_history.torch
     is_contact = (
-        torch.max(torch.linalg.norm(net_contact_forces[:, :, sensor_cfg.body_ids], dim=-1), dim=1)[0] > threshold
+        torch.max(torch.linalg.norm(net_contact_forces[:, :, sensor_cfg.body_ids_torch], dim=-1), dim=1)[0] > threshold
     )
     # sum over contacts for each environment
     return torch.sum(is_contact, dim=1)
@@ -287,7 +288,7 @@ def desired_contacts(env, sensor_cfg: SceneEntityCfg, threshold: float = 1.0) ->
     """Penalize if none of the desired contacts are present."""
     contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
     contacts = (
-        contact_sensor.data.net_forces_w_history.torch[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0]
+        contact_sensor.data.net_forces_w_history.torch[:, :, sensor_cfg.body_ids_torch, :].norm(dim=-1).max(dim=1)[0]
         > threshold
     )
     zero_contact = (~contacts).all(dim=1)
@@ -301,7 +302,7 @@ def contact_forces(env: ManagerBasedRLEnv, threshold: float, sensor_cfg: SceneEn
     net_contact_forces = contact_sensor.data.net_forces_w_history.torch
     # compute the violation
     violation = (
-        torch.max(torch.linalg.norm(net_contact_forces[:, :, sensor_cfg.body_ids], dim=-1), dim=1)[0] - threshold
+        torch.max(torch.linalg.norm(net_contact_forces[:, :, sensor_cfg.body_ids_torch], dim=-1), dim=1)[0] - threshold
     )
     # compute the penalty
     return torch.sum(violation.clip(min=0.0), dim=1)

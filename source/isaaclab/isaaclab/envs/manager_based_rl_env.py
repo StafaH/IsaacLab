@@ -262,6 +262,8 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
         # -- reset envs that terminated/timed-out and log the episode information
         reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1).int()
         if len(reset_env_ids) > 0:
+            # Reuse the required reset compaction for per-term episode bookkeeping.
+            self.termination_manager.record_episode_terminations(reset_env_ids)
             # capture the terminal observation before reset and expose it for Same-Step autoreset.
             if self.cfg.compute_final_obs:
                 self.extras["final_obs"] = self.observation_manager.compute()
@@ -441,7 +443,7 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
         info = self.event_manager.reset(env_ids)
         self.extras["log"].update(info)
         # -- termination manager
-        info = self.termination_manager.reset(env_ids)
+        info = self.termination_manager.reset(env_ids, record_terminations=False)
         self.extras["log"].update(info)
         # -- recorder manager
         info = self.recorder_manager.reset(env_ids)

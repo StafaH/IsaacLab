@@ -156,6 +156,15 @@ class NewtonCfg(PhysicsCfg):
     If set to False, the simulation performance will be severely degraded.
     """
 
+    use_newton_actuators: bool = False
+    """Whether this Newton backend preset uses Newton-native actuators.
+
+    This backend-scoped setting is combined with
+    :attr:`isaaclab.sim.SimulationCfg.use_newton_actuators`. It lets a Newton
+    physics preset enable the actuator fast path without changing sibling
+    PhysX presets in a multi-backend task.
+    """
+
     deterministic_mode: Literal["not_guaranteed", "run_to_run", "gpu_to_gpu"] = "not_guaranteed"
     """Determinism guarantee applied to the Newton solver and collision pipeline.
 

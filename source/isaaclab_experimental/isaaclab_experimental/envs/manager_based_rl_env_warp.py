@@ -345,6 +345,8 @@ class ManagerBasedRLEnvWarp(ManagerBasedEnvWarp, gym.Env):
                 wp.copy(self.reset_mask_wp, self.termination_manager.dones_wp)
             reset_env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(reset_env_ids) > 0:
+            if termination_manager_mode == ManagerCallMode.STABLE:
+                self.termination_manager.record_episode_terminations(reset_env_ids)
             # trigger recorder terms for pre-reset calls
             self.recorder_manager.record_pre_reset(reset_env_ids)
 
@@ -600,7 +602,10 @@ class ManagerBasedRLEnvWarp(ManagerBasedEnvWarp, gym.Env):
         termination_info = self._manager_call_switch.call_stage(
             stage="TerminationManager_reset",
             warp_call={"fn": self.termination_manager.reset, "kwargs": {"env_mask": env_mask}},
-            stable_call={"fn": self.termination_manager.reset, "kwargs": {"env_ids": env_ids}},
+            stable_call={
+                "fn": self.termination_manager.reset,
+                "kwargs": {"env_ids": env_ids, "record_terminations": False},
+            },
             timer=DEBUG_TIMER_RESET,
         )
 

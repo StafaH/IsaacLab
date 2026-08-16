@@ -98,6 +98,9 @@ class SimulationCfg:
     :class:`ImplicitActuatorCfg` entries are still instantiated normally and
     their gains are written to the simulation, so joints that use implicit
     actuation continue to work as expected.
+
+    Newton physics presets can enable the same behavior only for that backend
+    through :attr:`isaaclab_newton.physics.NewtonCfg.use_newton_actuators`.
     """
 
     physics: PhysicsCfg | None = None

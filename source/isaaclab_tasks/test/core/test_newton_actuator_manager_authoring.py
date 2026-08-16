@@ -37,6 +37,7 @@ _NEWTON_CFG = NewtonCfg(
     ),
     num_substeps=1,
     debug_mode=False,
+    use_newton_actuators=True,
 )
 
 
@@ -51,7 +52,7 @@ class TestManagerBasedSceneNewtonActuatorAuthoring(unittest.TestCase):
         env_cfg.rewards.feet_air_time = None
         env_cfg.rewards.feet_slide = None
         env_cfg.terminations.base_contact = None
-        env_cfg.sim = SimulationCfg(physics=_NEWTON_CFG, use_newton_actuators=True)
+        env_cfg.sim = SimulationCfg(physics=_NEWTON_CFG)
         env_cfg.scene.robot.actuators = {
             "legs": DCMotorCfg(
                 joint_names_expr=[

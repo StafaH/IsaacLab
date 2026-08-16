@@ -27,6 +27,7 @@ from typing import Any
 from pxr import Sdf, Usd
 
 from isaaclab.actuators import ImplicitActuator
+from isaaclab.utils.assets import read_file
 from isaaclab.utils.string import resolve_matching_names
 
 logger = logging.getLogger(__name__)
@@ -95,8 +96,8 @@ def define_actuator_properties(
 
     No-ops (returns immediately) when:
 
-    * the active :class:`~isaaclab.sim.SimulationContext` was configured
-      with ``use_newton_actuators=False`` (or no context is active), or
+    * neither the active :class:`~isaaclab.sim.SimulationContext` nor its
+      physics backend enables ``use_newton_actuators`` (or no context is active), or
     * *prim_path* does not resolve to a valid prim on the stage.
 
     Must be called **after** the articulation is spawned (joint prims
@@ -116,7 +117,11 @@ def define_actuator_properties(
 
     sim_ctx = SimulationContext.instance()
     sim_cfg = sim_ctx.cfg if sim_ctx is not None else None
-    if sim_cfg is None or not getattr(sim_cfg, "use_newton_actuators", False):
+    use_newton_actuators = sim_cfg is not None and (
+        getattr(sim_cfg, "use_newton_actuators", False)
+        or getattr(getattr(sim_cfg, "physics", None), "use_newton_actuators", False)
+    )
+    if not use_newton_actuators:
         return
 
     from isaaclab.sim.utils.queries import find_first_matching_prim  # noqa: PLC0415
@@ -356,14 +361,16 @@ def _resave_checkpoint_with_metadata(
 
     import torch  # noqa: PLC0415
 
+    checkpoint_source = read_file(original_path)
     extra_files: dict[str, str] = {"metadata.json": ""}
     is_torchscript = True
     try:
-        net = torch.jit.load(original_path, map_location="cpu", _extra_files=extra_files)
+        net = torch.jit.load(checkpoint_source, map_location="cpu", _extra_files=extra_files)
         existing_meta = json.loads(extra_files["metadata.json"]) if extra_files["metadata.json"] else {}
     except Exception:
         is_torchscript = False
-        checkpoint = torch.load(original_path, map_location="cpu", weights_only=False)
+        checkpoint_source.seek(0)
+        checkpoint = torch.load(checkpoint_source, map_location="cpu", weights_only=False)
         if not isinstance(checkpoint, dict) or "model" not in checkpoint:
             raise ValueError(
                 f"Cannot load checkpoint at '{original_path}'; "

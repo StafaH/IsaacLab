@@ -47,7 +47,7 @@ def object_ee_distance(
     """
     asset: RigidObject = env.scene[asset_cfg.name]
     obj: RigidObject = env.scene[object_cfg.name]
-    asset_pos = asset.data.body_pos_w.torch[:, asset_cfg.body_ids]
+    asset_pos = asset.data.body_pos_w.torch[:, asset_cfg.body_ids_torch]
     object_pos = obj.data.root_pos_w.torch
     distance = torch.linalg.norm(asset_pos - object_pos[:, None, :], dim=-1).max(dim=-1).values
     contact_bonus = contacts(env, contact_threshold, thumb_name, finger_names).float().clamp(0.1, 1.0)
@@ -277,13 +277,14 @@ class _ProgressReward(ManagerTermBase):
         # longer applies; dropping it to inf re-seeds from the first error under the new command
         if self._prev_command is None:
             self._prev_command = command.clone()
+            unseeded = torch.isinf(self.best_error)
         else:
-            self.best_error[(self._prev_command != command).any(dim=1)] = float("inf")
+            changed = (self._prev_command != command).any(dim=1)
             self._prev_command.copy_(command)
-        unseeded = torch.isinf(self.best_error)
-        self.best_error[unseeded] = error[unseeded]
-        improved = gate & (error < self.best_error - min_improvement)
-        self.best_error[improved] = error[improved]
+            unseeded = changed | torch.isinf(self.best_error)
+        baseline = torch.where(unseeded, error, self.best_error)
+        improved = gate & (error < baseline - min_improvement)
+        self.best_error.copy_(torch.where(improved, error, baseline))
         return improved.float()
 
 

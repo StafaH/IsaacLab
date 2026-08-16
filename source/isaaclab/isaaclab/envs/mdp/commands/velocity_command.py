@@ -181,21 +181,15 @@ class UniformVelocityCommand(CommandTerm):
         """
         # Compute angular velocity from heading direction
         if self.cfg.heading_command:
-            # resolve indices of heading envs
-            env_ids = self.is_heading_env.nonzero(as_tuple=False).flatten()
-            # compute angular velocity
-            heading_error = math_utils.wrap_to_pi(
-                self.heading_target[env_ids] - self.robot.data.heading_w.torch[env_ids]
-            )
-            self.vel_command_b[env_ids, 2] = torch.clip(
+            heading_error = math_utils.wrap_to_pi(self.heading_target - self.robot.data.heading_w.torch)
+            heading_command = torch.clip(
                 self.cfg.heading_control_stiffness * heading_error,
                 min=self.cfg.ranges.ang_vel_z[0],
                 max=self.cfg.ranges.ang_vel_z[1],
             )
+            torch.where(self.is_heading_env, heading_command, self.vel_command_b[:, 2], out=self.vel_command_b[:, 2])
         # Enforce standing (i.e., zero velocity command) for standing envs
-        # TODO: check if conversion is needed
-        standing_env_ids = self.is_standing_env.nonzero(as_tuple=False).flatten()
-        self.vel_command_b[standing_env_ids, :] = 0.0
+        self.vel_command_b.masked_fill_(self.is_standing_env.unsqueeze(-1), 0.0)
 
     def _set_debug_vis_impl(self, debug_vis: bool):
         # set visibility of markers
@@ -316,15 +310,8 @@ class NormalVelocityCommand(UniformVelocityCommand):
 
     def _update_command(self):
         """Sets velocity command to zero for standing envs."""
-        # Enforce standing (i.e., zero velocity command) for standing envs
-        standing_env_ids = self.is_standing_env.nonzero(as_tuple=False).flatten()  # TODO check if conversion is needed
-        self.vel_command_b[standing_env_ids, :] = 0.0
-
-        # Enforce zero velocity for individual elements
-        # TODO: check if conversion is needed
-        zero_vel_x_env_ids = self.is_zero_vel_x_env.nonzero(as_tuple=False).flatten()
-        zero_vel_y_env_ids = self.is_zero_vel_y_env.nonzero(as_tuple=False).flatten()
-        zero_vel_yaw_env_ids = self.is_zero_vel_yaw_env.nonzero(as_tuple=False).flatten()
-        self.vel_command_b[zero_vel_x_env_ids, 0] = 0.0
-        self.vel_command_b[zero_vel_y_env_ids, 1] = 0.0
-        self.vel_command_b[zero_vel_yaw_env_ids, 2] = 0.0
+        zero_velocity_envs = torch.stack(
+            (self.is_zero_vel_x_env, self.is_zero_vel_y_env, self.is_zero_vel_yaw_env), dim=-1
+        )
+        zero_velocity_envs.logical_or_(self.is_standing_env.unsqueeze(-1))
+        self.vel_command_b.masked_fill_(zero_velocity_envs, 0.0)
