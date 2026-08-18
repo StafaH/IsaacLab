@@ -68,6 +68,19 @@ class DummyClass:
         self.b = 2
 
 
+class CopyCounter:
+    """Mutable object that records deepcopy calls."""
+
+    count = 0
+
+    def __deepcopy__(self, memo):
+        """Return an independent instance and record the copy."""
+        type(self).count += 1
+        copied = type(self)()
+        memo[id(self)] = copied
+        return copied
+
+
 """
 Dummy configuration: Basic
 """
@@ -755,10 +768,45 @@ def test_multiple_instances():
     assert id(cfg1.robot_default_state.dof_pos) == id(cfg2.robot_default_state.dof_pos)
     assert id(cfg1.env.num_envs) == id(cfg2.env.num_envs)
     assert id(cfg1.device_id) == id(cfg2.device_id)
-
     # check values
     assert cfg1.env.to_dict() == cfg2.env.to_dict()
     assert cfg1.robot_default_state.to_dict() == cfg2.robot_default_state.to_dict()
+
+
+def test_inherited_post_init_does_not_repeat_configclass_copy_pass():
+    """Ensure a subclass does not repeat the parent's configclass copy pass."""
+
+    @configclass
+    class ParentCfg:
+        value: CopyCounter = CopyCounter()
+
+    @configclass
+    class ChildCfg(ParentCfg):
+        pass
+
+    CopyCounter.count = 0
+    cfg = ChildCfg()
+
+    assert isinstance(cfg.value, CopyCounter)
+    # One deepcopy is required for the dataclass default factory and one for
+    # configclass' per-instance isolation pass. A third would mean that the
+    # inherited configclass post-init was wrapped and invoked again.
+    assert CopyCounter.count == 2
+
+
+def test_inherited_user_post_init_is_preserved():
+    """Ensure a subclass retains its parent's user-defined post-init."""
+
+    @configclass
+    class ParentCfg:
+        def __post_init__(self):
+            self.parent_post_init_ran = True
+
+    @configclass
+    class ChildCfg(ParentCfg):
+        pass
+
+    assert ChildCfg().parent_post_init_ran
 
 
 def test_alter_values_multiple_instances():

@@ -12,6 +12,7 @@ import types
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import MISSING, Field, dataclass, field, replace
+from functools import cache
 from typing import Any, ClassVar
 
 from .dict import class_to_dict, update_class_from_dict
@@ -99,10 +100,19 @@ def configclass(cls, **kwargs):
     _add_annotation_types(cls)
     # add field factory
     _process_mutable_types(cls)
-    # copy mutable members
-    # note: we check if user defined __post_init__ function exists and augment it with our own
-    if hasattr(cls, "__post_init__"):
-        setattr(cls, "__post_init__", _combined_function(cls.__post_init__, _custom_post_init))
+    # Copy mutable members after an optional user-defined post-init.  Inspect only
+    # this class body: ``hasattr`` also finds a configclass parent's generated
+    # post-init, which already runs _custom_post_init. Re-wrapping it made every
+    # inheritance level deep-copy and resolve the complete config tree again.
+    user_post_init = cls.__dict__.get("__post_init__")
+    if user_post_init is None:
+        # Preserve a user-defined post-init from a configclass parent without
+        # inheriting its generated copy pass. For a non-configclass parent,
+        # retain dataclasses' regular inherited post-init behavior.
+        user_post_init = getattr(cls, "__configclass_user_post_init__", getattr(cls, "__post_init__", None))
+    cls.__configclass_user_post_init__ = user_post_init
+    if user_post_init is not None:
+        setattr(cls, "__post_init__", _combined_function(user_post_init, _custom_post_init))
     else:
         setattr(cls, "__post_init__", _custom_post_init)
     # add helper functions for dictionary conversion
@@ -187,7 +197,12 @@ def _copy_class(obj: object) -> object:
 
 def _field_module_dir(obj: Any, key: str | None = None) -> str | None:
     """Return module parent package path for an object or one of its declared fields."""
-    cls = type(obj)
+    return _field_module_dir_for_type(type(obj), key)
+
+
+@cache
+def _field_module_dir_for_type(cls: type, key: str | None = None) -> str | None:
+    """Return a config field's defining module directory for a class."""
     if key is not None:
         # Use nearest declaration in MRO (subclass override wins).
         # We prefer __configclass_own_fields__ (the snapshot taken before
@@ -492,18 +507,9 @@ def _custom_post_init(obj):
     proxy type i.e. a read only proxy for mapping objects. The error is thrown when using hierarchical data-classes
     for configuration.
     """
-    for key in dir(obj):
-        # skip dunder members
-        if key.startswith("__"):
-            continue
-        # get data member
-        value = getattr(obj, key)
-        # check annotation
-        ann = obj.__class__.__dict__.get(key)
-        # duplicate data members that are mutable
-        if not callable(value) and not isinstance(ann, property):
-            copied_value = deepcopy(value)
-            setattr(obj, key, _wrap_resolvable_strings(copied_value, module_dir=_field_module_dir(obj, key)))
+    for key, value in obj.__dict__.items():
+        copied_value = deepcopy(value)
+        setattr(obj, key, _wrap_resolvable_strings(copied_value, module_dir=_field_module_dir(obj, key)))
 
 
 def _combined_function(f1: Callable, f2: Callable) -> Callable:
