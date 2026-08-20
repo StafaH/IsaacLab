@@ -435,14 +435,16 @@ html[data-theme="dark"] .environment-browser {
 
 .environment-benchmark-toolbar {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 0.75rem;
     margin: 0 0 0.5rem;
 }
 
 .environment-benchmark-legend {
     display: flex;
+    flex: 1 1 32rem;
     flex-wrap: wrap;
     gap: 0.75rem 1.25rem;
     color: var(--environment-muted);
@@ -541,45 +543,21 @@ html[data-theme="dark"] .environment-browser {
     font-weight: 750;
 }
 
-.environment-chart-backend-isaacsim-physx {
-    --environment-series-color: #d97706;
-    fill: var(--environment-series-color);
-    stroke: var(--environment-series-color);
-}
-
-.environment-chart-backend-newton-kamino {
-    --environment-series-color: #1677b8;
-    fill: var(--environment-series-color);
-    stroke: var(--environment-series-color);
-}
-
-.environment-chart-backend-newton-mjwarp {
-    --environment-series-color: #5a9200;
-    fill: var(--environment-series-color);
-    stroke: var(--environment-series-color);
-}
-
-.environment-chart-backend-ovphysx {
-    --environment-series-color: var(--environment-renderer);
-    fill: var(--environment-series-color);
-    stroke: var(--environment-series-color);
-}
-
-.environment-legend-swatch[class*="environment-chart-backend-"] {
+.environment-legend-swatch {
     background: var(--environment-series-color);
 }
 
-.environment-chart-line[class*="environment-chart-backend-"] {
+.environment-chart-line {
     fill: none;
     stroke: var(--environment-series-color);
 }
 
-.environment-chart-point[class*="environment-chart-backend-"] {
+.environment-chart-point {
     fill: var(--environment-series-color);
     stroke: var(--pst-color-background);
 }
 
-.environment-chart-value[class*="environment-chart-backend-"] {
+.environment-chart-value {
     fill: var(--environment-series-color);
     stroke: none;
 }

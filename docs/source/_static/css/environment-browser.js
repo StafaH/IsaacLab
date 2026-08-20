@@ -353,7 +353,11 @@
         preview.querySelector("[data-preview-renderer]").textContent = fields.renderer.value || "Default";
         preview.querySelector("[data-preview-presets]").textContent = fields.presets.value || "Default";
         const latestVramRows = benchmarkRows
-            .filter((row) => row.task === state.task && row.physics_backend === fields.physics.value)
+            .filter((row) => row.task === state.task
+                && row.physics_backend === fields.physics.value
+                && (!row.rendering_backend || row.rendering_backend === "none"
+                    || row.rendering_backend === fields.renderer.value)
+                && (!row.task_presets || taskPresets(row).includes(fields.presets.value)))
             .sort((left, right) => right.recorded_at_utc.localeCompare(left.recorded_at_utc));
         const latestTraining = latestVramRows.find((row) => row.workload === "training");
         const vram = preview.querySelector("[data-preview-vram]");
@@ -473,7 +477,34 @@
         ovphysx: "OV PhysX",
     };
     const backendOrder = Object.keys(backendLabels);
-    const backendClass = (backend) => `environment-chart-backend-${backend.replaceAll("_", "-")}`;
+    const rendererLabels = {
+        isaacsim_rtx: "Isaac RTX",
+        newton_renderer: "Newton Renderer",
+        ovrtx: "OVRTX",
+    };
+    const backendColors = {
+        isaacsim_physx: "#d97706",
+        newton_kamino: "#1677b8",
+        newton_mjwarp: "#5a9200",
+        ovphysx: "#7c3aed",
+    };
+    const seriesColors = ["#d97706", "#1677b8", "#5a9200", "#7c3aed", "#dc2626", "#0891b2", "#be185d"];
+    const taskPresets = (row) => (row.task_presets || "").split(",").filter(Boolean).sort();
+    const seriesKey = (row) => [row.physics_backend, row.rendering_backend, ...taskPresets(row)].join(":");
+    const seriesLabel = (row) => {
+        const labels = [backendLabels[row.physics_backend] || row.physics_backend];
+        if (row.rendering_backend && row.rendering_backend !== "none") {
+            labels.push(rendererLabels[row.rendering_backend] || row.rendering_backend);
+        }
+        labels.push(...taskPresets(row).map((preset) => preset.replaceAll("_", " ")));
+        return labels.join(" · ");
+    };
+    const seriesStyle = (row, index) => {
+        const color = !row.rendering_backend || row.rendering_backend === "none"
+            ? backendColors[row.physics_backend]
+            : seriesColors[index % seriesColors.length];
+        return `--environment-series-color: ${color}`;
+    };
 
     const renderBenchmarkChart = (rows, maximum) => {
         const namespace = "http://www.w3.org/2000/svg";
@@ -496,8 +527,11 @@
         const dateKeys = [...new Set(rows.map(benchmarkDate))].sort();
         const latestBySeriesAndDate = new Map();
         for (const row of rows) {
-            const key = `${row.physics_backend}:${benchmarkDate(row)}`;
-            if (!latestBySeriesAndDate.has(key) || latestBySeriesAndDate.get(key).recorded_at_utc < row.recorded_at_utc) {
+            const key = `${seriesKey(row)}:${benchmarkDate(row)}`;
+            if (
+                !latestBySeriesAndDate.has(key)
+                || latestBySeriesAndDate.get(key).recorded_at_utc < row.recorded_at_utc
+            ) {
                 latestBySeriesAndDate.set(key, row);
             }
         }
@@ -540,20 +574,27 @@
             svg.appendChild(label);
         }
 
-        const backends = [...new Set(plottedRows.map((row) => row.physics_backend))]
-            .sort((left, right) => backendOrder.indexOf(left) - backendOrder.indexOf(right));
-        for (const backend of backends) {
+        const seriesKeys = [...new Set(plottedRows.map(seriesKey))]
+            .sort((left, right) => {
+                const leftRow = plottedRows.find((row) => seriesKey(row) === left);
+                const rightRow = plottedRows.find((row) => seriesKey(row) === right);
+                const backendComparison = backendOrder.indexOf(leftRow.physics_backend)
+                    - backendOrder.indexOf(rightRow.physics_backend);
+                return backendComparison || seriesLabel(leftRow).localeCompare(seriesLabel(rightRow));
+            });
+        const endpointLabels = [];
+        for (const [seriesIndex, key] of seriesKeys.entries()) {
             const series = plottedRows
-                .filter((row) => row.physics_backend === backend)
+                .filter((row) => seriesKey(row) === key)
                 .sort((left, right) => benchmarkDate(left).localeCompare(benchmarkDate(right)));
-            const seriesClass = backendClass(backend);
+            const style = seriesStyle(series[0], seriesIndex);
             if (series.length > 1) {
                 const points = series.map((row) => {
                     const date = benchmarkDate(row);
                     return `${xPosition(date)},${yPosition(Number(row.total_fps_mean))}`;
                 }).join(" ");
                 svg.appendChild(createSvgElement("polyline", {
-                    points, class: `environment-chart-line ${seriesClass}`,
+                    points, class: "environment-chart-line", style,
                 }));
             }
             for (const [index, row] of series.entries()) {
@@ -562,33 +603,55 @@
                 const x = xPosition(date);
                 const y = yPosition(value);
                 const circle = createSvgElement("circle", {
-                    cx: x, cy: y, r: 5, class: `environment-chart-point ${seriesClass}`,
+                    cx: x, cy: y, r: 5, class: "environment-chart-point", style,
                 });
                 const title = createSvgElement("title");
                 const tooltipWorkload = state.benchmarkWorkload === "runtime" ? "Collection" : "Training";
-                title.textContent = `${backendLabels[backend] || backend} · ${tooltipWorkload}: ${Math.round(value).toLocaleString()} FPS on ${date}`;
+                title.textContent = `${seriesLabel(row)} · ${tooltipWorkload}: `
+                    + `${Math.round(value).toLocaleString()} FPS on ${date}`;
                 circle.appendChild(title);
                 svg.appendChild(circle);
                 if (index === series.length - 1) {
-                    const valueLabel = createSvgElement("text", {
-                        x, y: y - 11, class: `environment-chart-value ${seriesClass}`, "text-anchor": "middle",
-                    });
-                    valueLabel.textContent = formatFps(value);
-                    svg.appendChild(valueLabel);
+                    endpointLabels.push({x, y: y - 11, value, style});
                 }
             }
+        }
+        endpointLabels.sort((left, right) => left.y - right.y);
+        const labelGap = 14;
+        for (let index = 1; index < endpointLabels.length; index += 1) {
+            endpointLabels[index].y = Math.max(endpointLabels[index].y, endpointLabels[index - 1].y + labelGap);
+        }
+        const overflow = endpointLabels.at(-1)?.y - (height - margins.bottom - 5) || 0;
+        if (overflow > 0) {
+            for (const endpoint of endpointLabels) {
+                endpoint.y -= overflow;
+            }
+        }
+        for (const endpoint of endpointLabels) {
+            const valueLabel = createSvgElement("text", {
+                x: endpoint.x, y: endpoint.y, class: "environment-chart-value", "text-anchor": "middle",
+                style: endpoint.style,
+            });
+            valueLabel.textContent = formatFps(endpoint.value);
+            svg.appendChild(valueLabel);
         }
         return svg;
     };
 
     const renderBenchmarkLegend = (rows) => {
         const legend = benchmarks.querySelector(".environment-benchmark-legend");
-        const backends = [...new Set(rows.map((row) => row.physics_backend))]
-            .sort((left, right) => backendOrder.indexOf(left) - backendOrder.indexOf(right));
-        const entries = backends.map((backend) => {
+        const firstRowBySeries = new Map(rows.map((row) => [seriesKey(row), row]));
+        const sortedRows = [...firstRowBySeries.values()].sort((left, right) => {
+            const backendComparison = backendOrder.indexOf(left.physics_backend)
+                - backendOrder.indexOf(right.physics_backend);
+            return backendComparison || seriesLabel(left).localeCompare(seriesLabel(right));
+        });
+        const entries = sortedRows.map((row, index) => {
             const entry = document.createElement("span");
-            entry.innerHTML = `<i class="environment-legend-swatch ${backendClass(backend)}"></i>`;
-            entry.append(backendLabels[backend] || backend);
+            const swatch = document.createElement("i");
+            swatch.className = "environment-legend-swatch";
+            swatch.setAttribute("style", seriesStyle(row, index));
+            entry.append(swatch, seriesLabel(row));
             return entry;
         });
         legend.replaceChildren(...entries);
