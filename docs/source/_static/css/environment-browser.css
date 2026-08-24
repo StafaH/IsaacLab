@@ -545,18 +545,31 @@ html[data-theme="dark"] .environment-browser {
 
 .environment-benchmark-results {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(18rem, 23rem);
-    align-items: start;
+    grid-template-columns: minmax(0, 1fr) minmax(17rem, 21rem);
+    align-items: stretch;
     gap: 1rem;
 }
 
 .environment-benchmark-values {
     min-width: 0;
-    overflow: hidden;
+    max-height: 26rem;
+    overflow-x: hidden;
+    overflow-y: auto;
     border: 1px solid var(--environment-border);
     border-radius: 7px;
     background: var(--pst-color-background);
     box-shadow: 0 3px 10px color-mix(in srgb, var(--pst-color-shadow) 14%, transparent);
+    scrollbar-color: var(--environment-border) transparent;
+    scrollbar-width: thin;
+}
+
+.environment-benchmark-values::-webkit-scrollbar {
+    width: 0.45rem;
+}
+
+.environment-benchmark-values::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: var(--environment-border);
 }
 
 .environment-benchmark-values table {
@@ -567,9 +580,13 @@ html[data-theme="dark"] .environment-browser {
 }
 
 .environment-benchmark-values caption {
+    position: sticky;
+    z-index: 2;
+    top: 0;
     padding: 0.8rem 0.85rem 0.65rem;
     border-bottom: 1px solid var(--environment-border);
     color: var(--pst-color-text-base);
+    background: var(--pst-color-background);
     font-size: 0.85rem;
     font-weight: 700;
     text-align: left;
@@ -584,6 +601,9 @@ html[data-theme="dark"] .environment-browser {
 }
 
 .environment-benchmark-values th {
+    position: sticky;
+    z-index: 1;
+    top: 2.55rem;
     color: var(--environment-muted);
     background: color-mix(in srgb, var(--environment-panel) 72%, var(--pst-color-background));
     font-size: 0.68rem;
@@ -606,6 +626,17 @@ html[data-theme="dark"] .environment-browser {
 .environment-benchmark-values td:last-child {
     font-variant-numeric: tabular-nums;
     font-weight: 650;
+    white-space: nowrap;
+}
+
+.environment-benchmark-value-swatch {
+    display: inline-block;
+    width: 0.55rem;
+    height: 0.55rem;
+    margin-right: 0.45rem;
+    border-radius: 50%;
+    background: var(--environment-series-color);
+    vertical-align: 0.02rem;
 }
 
 .environment-benchmark-values tbody tr:nth-child(even) {
@@ -780,11 +811,17 @@ html[data-theme="dark"] .environment-browser {
     }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 900px) {
     .environment-benchmark-results {
         grid-template-columns: minmax(0, 1fr);
     }
 
+    .environment-benchmark-values {
+        max-height: 18rem;
+    }
+}
+
+@media (max-width: 640px) {
     .environment-command-panel {
         padding: 0.85rem;
     }

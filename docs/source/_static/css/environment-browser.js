@@ -195,6 +195,7 @@
         benchmarkWorkload: "runtime",
     };
     let benchmarkRows = [];
+    let cameraBenchmarkRows = [];
 
     const categoryFor = (task) => {
         if (/Velocity|Navigation|TrackPosition|Locomanip|Humanoid/.test(task)) {
@@ -375,7 +376,7 @@
         preview.querySelector("[data-preview-physics]").textContent = fields.physics.value || "Default";
         preview.querySelector("[data-preview-renderer]").textContent = fields.renderer.value || "Default";
         preview.querySelector("[data-preview-presets]").textContent = fields.presets.value || "Default";
-        const latestVramRows = benchmarkRows
+        const latestVramRows = benchmarkRowsForTask(state.task)
             .filter((row) => row.task === state.task && row.physics_backend === fields.physics.value)
             .sort((left, right) => right.recorded_at_utc.localeCompare(left.recorded_at_utc));
         const latestTraining = latestVramRows.find((row) => row.workload === "training");
@@ -508,6 +509,7 @@
     };
     const rendererOrder = Object.keys(rendererLabels);
     const isCameraTask = (task) => task.includes("-Camera");
+    const benchmarkRowsForTask = (task) => isCameraTask(task) ? cameraBenchmarkRows : benchmarkRows;
     const benchmarkBackend = (row) => isCameraTask(row.task)
         ? `${row.physics_backend}:${row.rendering_backend || "none"}`
         : row.physics_backend;
@@ -531,6 +533,20 @@
     const backendClass = (backend) => {
         const {physics} = backendParts(backend);
         return `environment-chart-backend-${physics.replaceAll("_", "-")}`;
+    };
+    const cameraBackendColors = {
+        "isaacsim_physx:isaacsim_rtx": "#d97706",
+        "isaacsim_physx:newton_renderer": "#f59e0b",
+        "newton_mjwarp:isaacsim_rtx": "#65a30d",
+        "newton_mjwarp:newton_renderer": "#15803d",
+        "newton_mjwarp:ovrtx": "#0891b2",
+        "ovphysx:ovrtx": "#7c3aed",
+    };
+    const applyBackendColor = (element, backend) => {
+        const color = cameraBackendColors[backend];
+        if (color) {
+            element.style.setProperty("--environment-series-color", color);
+        }
     };
 
     const renderBenchmarkChart = (rows, maximum) => {
@@ -609,9 +625,11 @@
                     const date = benchmarkDate(row);
                     return `${xPosition(date)},${yPosition(Number(row.total_fps_mean))}`;
                 }).join(" ");
-                svg.appendChild(createSvgElement("polyline", {
+                const line = createSvgElement("polyline", {
                     points, class: `environment-chart-line ${seriesClass}`,
-                }));
+                });
+                applyBackendColor(line, backend);
+                svg.appendChild(line);
             }
             for (const [index, row] of series.entries()) {
                 const date = benchmarkDate(row);
@@ -621,15 +639,17 @@
                 const circle = createSvgElement("circle", {
                     cx: x, cy: y, r: 5, class: `environment-chart-point ${seriesClass}`,
                 });
+                applyBackendColor(circle, backend);
                 const title = createSvgElement("title");
                 const tooltipWorkload = state.benchmarkWorkload === "runtime" ? "Collection" : "Training";
                 title.textContent = `${backendLabel(backend)} · ${tooltipWorkload}: ${Math.round(value).toLocaleString()} FPS on ${date}`;
                 circle.appendChild(title);
                 svg.appendChild(circle);
-                if (index === series.length - 1) {
+                if (index === series.length - 1 && !isCameraTask(row.task)) {
                     const valueLabel = createSvgElement("text", {
                         x, y: y - 11, class: `environment-chart-value ${seriesClass}`, "text-anchor": "middle",
                     });
+                    applyBackendColor(valueLabel, backend);
                     valueLabel.textContent = formatFps(value);
                     svg.appendChild(valueLabel);
                 }
@@ -644,21 +664,11 @@
         const entries = backends.map((backend) => {
             const entry = document.createElement("span");
             entry.innerHTML = `<i class="environment-legend-swatch ${backendClass(backend)}"></i>`;
+            applyBackendColor(entry.querySelector("i"), backend);
             entry.append(backendLabel(backend));
             return entry;
         });
         legend.replaceChildren(...entries);
-    };
-
-    const expectedBenchmarkBackends = () => {
-        const task = selectedTask();
-        if (!task) {
-            return [];
-        }
-        if (isCameraTask(task.task)) {
-            return task.physics.flatMap((physics) => task.renderer.map((renderer) => `${physics}:${renderer}`));
-        }
-        return task.physics;
     };
 
     const renderBenchmarkValues = (rows) => {
@@ -669,7 +679,7 @@
                 latestByBackend.set(backend, row);
             }
         }
-        const backends = [...new Set([...expectedBenchmarkBackends(), ...latestByBackend.keys()])].sort(compareBackends);
+        const backends = [...latestByBackend.keys()].sort(compareBackends);
         const table = document.createElement("table");
         const caption = document.createElement("caption");
         caption.textContent = "Latest throughput";
@@ -681,8 +691,11 @@
             const tableRow = document.createElement("tr");
             const name = document.createElement("td");
             const value = document.createElement("td");
-            name.textContent = backendLabel(backend);
-            value.textContent = row ? Math.round(Number(row.total_fps_mean)).toLocaleString() : "N/A";
+            const marker = document.createElement("i");
+            marker.className = `environment-benchmark-value-swatch ${backendClass(backend)}`;
+            applyBackendColor(marker, backend);
+            name.append(marker, backendLabel(backend));
+            value.textContent = Math.round(Number(row.total_fps_mean)).toLocaleString();
             tableRow.append(name, value);
             body.append(tableRow);
         }
@@ -710,7 +723,7 @@
         if (!benchmarks) {
             return;
         }
-        const taskRows = benchmarkRows.filter((row) => row.task === state.task);
+        const taskRows = benchmarkRowsForTask(state.task).filter((row) => row.task === state.task);
         const rows = taskRows.filter((row) => row.workload === state.benchmarkWorkload);
         const chart = benchmarks.querySelector("[data-benchmark-chart]");
         const values = benchmarkValuesContainer();
@@ -731,12 +744,18 @@
             return;
         }
         try {
-            const source = new URL(benchmarks.dataset.benchmarkSource, window.location.href);
-            const response = await fetch(source);
-            if (!response.ok) {
-                throw new Error(`Benchmark request failed with ${response.status}`);
+            const sources = [benchmarks.dataset.benchmarkSource, benchmarks.dataset.cameraBenchmarkSource]
+                .map((path) => new URL(path, window.location.href));
+            const responses = await Promise.all(sources.map((source) => fetch(source)));
+            const failedResponse = responses.find((response) => !response.ok);
+            if (failedResponse) {
+                throw new Error(`Benchmark request failed with ${failedResponse.status}`);
             }
-            benchmarkRows = parseCsv(await response.text()).filter((row) => row.data_origin === "measured");
+            const [benchmarkContents, cameraBenchmarkContents] = await Promise.all(
+                responses.map((response) => response.text())
+            );
+            benchmarkRows = parseCsv(benchmarkContents).filter((row) => row.data_origin === "measured");
+            cameraBenchmarkRows = parseCsv(cameraBenchmarkContents).filter((row) => row.data_origin === "measured");
             updatePreview();
         } catch (error) {
             benchmarks.querySelector("[data-benchmark-chart]").hidden = true;

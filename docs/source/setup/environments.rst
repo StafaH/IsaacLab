@@ -105,7 +105,8 @@ Benchmarks
 .. raw:: html
 
    <div class="environment-browser" data-environment-benchmarks
-        data-benchmark-source="../../_static/environment-performance.csv">
+        data-benchmark-source="../../_static/environment-performance.csv"
+        data-camera-benchmark-source="../../_static/environment-camera-performance.csv">
      <section class="environment-benchmark-panel">
        <div class="environment-benchmark-toolbar">
          <div class="environment-benchmark-legend" aria-label="Benchmark series"></div>
