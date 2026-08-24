@@ -535,11 +535,85 @@ html[data-theme="dark"] .environment-browser {
 }
 
 .environment-benchmark-chart {
+    flex: 1 1 38rem;
     min-width: 0;
     padding: 0.5rem 0.7rem 0.2rem;
     border: 1px solid var(--environment-border);
     border-radius: 7px;
     background: var(--pst-color-background);
+}
+
+.environment-benchmark-results {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 23rem);
+    align-items: start;
+    gap: 1rem;
+}
+
+.environment-benchmark-values {
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--environment-border);
+    border-radius: 7px;
+    background: var(--pst-color-background);
+    box-shadow: 0 3px 10px color-mix(in srgb, var(--pst-color-shadow) 14%, transparent);
+}
+
+.environment-benchmark-values table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 0.78rem;
+}
+
+.environment-benchmark-values caption {
+    padding: 0.8rem 0.85rem 0.65rem;
+    border-bottom: 1px solid var(--environment-border);
+    color: var(--pst-color-text-base);
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-align: left;
+}
+
+.environment-benchmark-values th,
+.environment-benchmark-values td {
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid var(--environment-border);
+    text-align: left;
+    vertical-align: top;
+}
+
+.environment-benchmark-values th {
+    color: var(--environment-muted);
+    background: color-mix(in srgb, var(--environment-panel) 72%, var(--pst-color-background));
+    font-size: 0.68rem;
+    font-weight: 750;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.environment-benchmark-values th:first-child,
+.environment-benchmark-values td:first-child {
+    border-right: 1px solid var(--environment-border);
+}
+
+.environment-benchmark-values th:last-child,
+.environment-benchmark-values td:last-child {
+    width: 6.8rem;
+    text-align: right;
+}
+
+.environment-benchmark-values td:last-child {
+    font-variant-numeric: tabular-nums;
+    font-weight: 650;
+}
+
+.environment-benchmark-values tbody tr:nth-child(even) {
+    background: color-mix(in srgb, var(--environment-panel) 50%, transparent);
+}
+
+.environment-benchmark-values tbody tr:last-child td {
+    border-bottom: 0;
 }
 
 .environment-benchmark-chart svg {
@@ -707,6 +781,10 @@ html[data-theme="dark"] .environment-browser {
 }
 
 @media (max-width: 640px) {
+    .environment-benchmark-results {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
     .environment-command-panel {
         padding: 0.85rem;
     }

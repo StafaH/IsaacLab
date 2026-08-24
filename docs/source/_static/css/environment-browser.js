@@ -500,7 +500,38 @@
         ovphysx: "OV PhysX",
     };
     const backendOrder = Object.keys(backendLabels);
-    const backendClass = (backend) => `environment-chart-backend-${backend.replaceAll("_", "-")}`;
+    const rendererLabels = {
+        isaacsim_rtx: "Isaac Sim RTX",
+        newton_renderer: "Newton Renderer",
+        ovrtx: "OV RTX",
+        none: "N/A",
+    };
+    const rendererOrder = Object.keys(rendererLabels);
+    const isCameraTask = (task) => task.includes("-Camera");
+    const benchmarkBackend = (row) => isCameraTask(row.task)
+        ? `${row.physics_backend}:${row.rendering_backend || "none"}`
+        : row.physics_backend;
+    const backendParts = (backend) => {
+        const [physics, renderer] = backend.split(":");
+        return {physics, renderer};
+    };
+    const backendLabel = (backend) => {
+        const {physics, renderer} = backendParts(backend);
+        return renderer === undefined
+            ? backendLabels[physics] || physics
+            : `${backendLabels[physics] || physics} + ${rendererLabels[renderer] || renderer}`;
+    };
+    const compareBackends = (left, right) => {
+        const leftParts = backendParts(left);
+        const rightParts = backendParts(right);
+        return backendOrder.indexOf(leftParts.physics) - backendOrder.indexOf(rightParts.physics)
+            || rendererOrder.indexOf(leftParts.renderer) - rendererOrder.indexOf(rightParts.renderer)
+            || left.localeCompare(right);
+    };
+    const backendClass = (backend) => {
+        const {physics} = backendParts(backend);
+        return `environment-chart-backend-${physics.replaceAll("_", "-")}`;
+    };
 
     const renderBenchmarkChart = (rows, maximum) => {
         const namespace = "http://www.w3.org/2000/svg";
@@ -523,7 +554,7 @@
         const dateKeys = [...new Set(rows.map(benchmarkDate))].sort();
         const latestBySeriesAndDate = new Map();
         for (const row of rows) {
-            const key = `${row.physics_backend}:${benchmarkDate(row)}`;
+            const key = `${benchmarkBackend(row)}:${benchmarkDate(row)}`;
             if (!latestBySeriesAndDate.has(key) || latestBySeriesAndDate.get(key).recorded_at_utc < row.recorded_at_utc) {
                 latestBySeriesAndDate.set(key, row);
             }
@@ -567,11 +598,10 @@
             svg.appendChild(label);
         }
 
-        const backends = [...new Set(plottedRows.map((row) => row.physics_backend))]
-            .sort((left, right) => backendOrder.indexOf(left) - backendOrder.indexOf(right));
+        const backends = [...new Set(plottedRows.map(benchmarkBackend))].sort(compareBackends);
         for (const backend of backends) {
             const series = plottedRows
-                .filter((row) => row.physics_backend === backend)
+                .filter((row) => benchmarkBackend(row) === backend)
                 .sort((left, right) => benchmarkDate(left).localeCompare(benchmarkDate(right)));
             const seriesClass = backendClass(backend);
             if (series.length > 1) {
@@ -593,7 +623,7 @@
                 });
                 const title = createSvgElement("title");
                 const tooltipWorkload = state.benchmarkWorkload === "runtime" ? "Collection" : "Training";
-                title.textContent = `${backendLabels[backend] || backend} · ${tooltipWorkload}: ${Math.round(value).toLocaleString()} FPS on ${date}`;
+                title.textContent = `${backendLabel(backend)} · ${tooltipWorkload}: ${Math.round(value).toLocaleString()} FPS on ${date}`;
                 circle.appendChild(title);
                 svg.appendChild(circle);
                 if (index === series.length - 1) {
@@ -610,15 +640,70 @@
 
     const renderBenchmarkLegend = (rows) => {
         const legend = benchmarks.querySelector(".environment-benchmark-legend");
-        const backends = [...new Set(rows.map((row) => row.physics_backend))]
-            .sort((left, right) => backendOrder.indexOf(left) - backendOrder.indexOf(right));
+        const backends = [...new Set(rows.map(benchmarkBackend))].sort(compareBackends);
         const entries = backends.map((backend) => {
             const entry = document.createElement("span");
             entry.innerHTML = `<i class="environment-legend-swatch ${backendClass(backend)}"></i>`;
-            entry.append(backendLabels[backend] || backend);
+            entry.append(backendLabel(backend));
             return entry;
         });
         legend.replaceChildren(...entries);
+    };
+
+    const expectedBenchmarkBackends = () => {
+        const task = selectedTask();
+        if (!task) {
+            return [];
+        }
+        if (isCameraTask(task.task)) {
+            return task.physics.flatMap((physics) => task.renderer.map((renderer) => `${physics}:${renderer}`));
+        }
+        return task.physics;
+    };
+
+    const renderBenchmarkValues = (rows) => {
+        const latestByBackend = new Map();
+        for (const row of rows) {
+            const backend = benchmarkBackend(row);
+            if (!latestByBackend.has(backend) || latestByBackend.get(backend).recorded_at_utc < row.recorded_at_utc) {
+                latestByBackend.set(backend, row);
+            }
+        }
+        const backends = [...new Set([...expectedBenchmarkBackends(), ...latestByBackend.keys()])].sort(compareBackends);
+        const table = document.createElement("table");
+        const caption = document.createElement("caption");
+        caption.textContent = "Latest throughput";
+        const head = document.createElement("thead");
+        head.innerHTML = "<tr><th scope=\"col\">Backend</th><th scope=\"col\">FPS</th></tr>";
+        const body = document.createElement("tbody");
+        for (const backend of backends) {
+            const row = latestByBackend.get(backend);
+            const tableRow = document.createElement("tr");
+            const name = document.createElement("td");
+            const value = document.createElement("td");
+            name.textContent = backendLabel(backend);
+            value.textContent = row ? Math.round(Number(row.total_fps_mean)).toLocaleString() : "N/A";
+            tableRow.append(name, value);
+            body.append(tableRow);
+        }
+        table.append(caption, head, body);
+        return table;
+    };
+
+    const benchmarkValuesContainer = () => {
+        const existingValues = benchmarks.querySelector("[data-benchmark-values]");
+        if (existingValues) {
+            return existingValues;
+        }
+        const chart = benchmarks.querySelector("[data-benchmark-chart]");
+        const results = document.createElement("div");
+        const values = document.createElement("div");
+        results.className = "environment-benchmark-results";
+        values.className = "environment-benchmark-values";
+        values.dataset.benchmarkValues = "";
+        chart.replaceWith(results);
+        results.append(chart, values);
+        return values;
     };
 
     const updateBenchmark = () => {
@@ -628,14 +713,17 @@
         const taskRows = benchmarkRows.filter((row) => row.task === state.task);
         const rows = taskRows.filter((row) => row.workload === state.benchmarkWorkload);
         const chart = benchmarks.querySelector("[data-benchmark-chart]");
+        const values = benchmarkValuesContainer();
         const empty = benchmarks.querySelector("[data-benchmark-empty]");
         const toolbar = benchmarks.querySelector(".environment-benchmark-toolbar");
         const maximum = standardFpsScale(Math.max(...taskRows.map((row) => Number(row.total_fps_mean))));
         chart.hidden = rows.length === 0;
+        values.hidden = rows.length === 0;
         empty.hidden = rows.length !== 0;
         toolbar.hidden = taskRows.length === 0;
         renderBenchmarkLegend(rows);
         chart.replaceChildren(...(rows.length ? [renderBenchmarkChart(rows, maximum)] : []));
+        values.replaceChildren(...(rows.length ? [renderBenchmarkValues(rows)] : []));
     };
 
     const renderBenchmarks = async () => {
@@ -652,6 +740,10 @@
             updatePreview();
         } catch (error) {
             benchmarks.querySelector("[data-benchmark-chart]").hidden = true;
+            const values = benchmarks.querySelector("[data-benchmark-values]");
+            if (values) {
+                values.hidden = true;
+            }
             benchmarks.querySelector("[data-benchmark-empty]").hidden = true;
             benchmarks.querySelector(".environment-benchmark-toolbar").hidden = true;
             benchmarks.querySelector("[data-benchmark-error]").hidden = false;
