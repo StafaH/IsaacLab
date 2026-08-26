@@ -2,22 +2,22 @@
 
 These results reproduce the `SSFM` view from the database's **Isaac Lab v3 — All Tasks FPS Overview** using the complete August 26, 2026 run for Isaac Lab commit `079ec904662750a9ef44dbcec7ef80e32dcdd25a`. The Newton Renderer columns use the overview's plain `PHYSX_WARP` and `NEWTON_WARP` rows because Newton Renderer supports RGB as its only camera output and therefore has no separate SSFM group.
 
-- Metric: Mean Environment Step FPS
+- Metric: Total Mean FPS
 - Workload: Warm non-RL camera collection
 - Environments: 8,192
 - Output: Simple Shading Full MDL for Isaac Sim RTX and OV RTX; RGB for Newton Renderer, 64×64
 - Hardware: 1× NVIDIA RTX PRO 6000 Blackwell Server Edition
 
-## Environment step FPS and backend coverage
+## Total mean FPS and backend coverage
 
 | Camera task | PhysX + Isaac Sim RTX | PhysX + Newton Renderer | Newton MJWarp + Isaac Sim RTX | Newton MJWarp + Newton Renderer | Newton MJWarp + OV RTX | OV PhysX + OV RTX |
 |---|---:|---:|---:|---:|---:|---:|
-| Isaac-Cartpole-Camera | 12.46 | 44.33 | 13.97 | **59.97** | **21.09** | 19.21 |
-| Isaac-Cartpole-Camera-Direct | 15.35 | 86.49 | 17.56 | **164.60** | **30.87** | 26.98 |
-| Isaac-Lift-KukaAllegro-Camera | 1.73 | 8.20 | 2.05 | **20.46** | **12.84** | 3.31 |
-| Isaac-Reorient-Cube-Shadow-Camera | 3.54 | 4.91 | 3.57 | **6.16** | **5.03** | 4.24 |
-| Isaac-Reorient-Cube-Shadow-Camera-Direct | 5.33 | 10.90 | 5.15 | **16.07** | **9.45** | 7.08 |
-| Isaac-Reorient-KukaAllegro-Camera | 1.74 | 8.02 | 2.09 | **19.43** | **12.90** | 3.39 |
+| Isaac-Cartpole-Camera | 102,094.47 | 363,126.04 | 114,430.50 | **491,267.77** | **172,781.78** | 157,376.84 |
+| Isaac-Cartpole-Camera-Direct | 125,742.84 | 708,485.18 | 143,856.05 | **1,348,363.78** | **252,878.31** | 221,056.87 |
+| Isaac-Lift-KukaAllegro-Camera | 14,138.08 | 67,166.45 | 16,793.50 | **167,596.04** | **105,144.37** | 27,141.03 |
+| Isaac-Reorient-Cube-Shadow-Camera | 29,008.07 | 40,263.00 | 29,245.16 | **50,490.71** | **41,244.13** | 34,732.17 |
+| Isaac-Reorient-Cube-Shadow-Camera-Direct | 43,639.25 | 89,267.72 | 42,163.83 | **131,617.82** | **77,421.83** | 57,972.04 |
+| Isaac-Reorient-KukaAllegro-Camera | 14,244.23 | 65,736.49 | 17,089.60 | **159,176.68** | **105,710.71** | 27,797.46 |
 
 ## Primary Newton Renderer comparison
 
@@ -29,12 +29,12 @@ This comparison holds Newton MJWarp physics constant and measures Newton Rendere
 
 | Camera task | Newton + Newton Renderer | Newton + OV RTX | Newton Renderer uplift |
 |---|---:|---:|---:|
-| Isaac-Cartpole-Camera | 59.97 | 21.09 | **+184.33%** |
-| Isaac-Cartpole-Camera-Direct | 164.60 | 30.87 | **+433.21%** |
-| Isaac-Lift-KukaAllegro-Camera | 20.46 | 12.84 | **+59.40%** |
-| Isaac-Reorient-Cube-Shadow-Camera | 6.16 | 5.03 | **+22.42%** |
-| Isaac-Reorient-Cube-Shadow-Camera-Direct | 16.07 | 9.45 | **+70.00%** |
-| Isaac-Reorient-KukaAllegro-Camera | 19.43 | 12.90 | **+50.58%** |
+| Isaac-Cartpole-Camera | 491,267.77 | 172,781.78 | **+184.33%** |
+| Isaac-Cartpole-Camera-Direct | 1,348,363.78 | 252,878.31 | **+433.21%** |
+| Isaac-Lift-KukaAllegro-Camera | 167,596.04 | 105,144.37 | **+59.40%** |
+| Isaac-Reorient-Cube-Shadow-Camera | 50,490.71 | 41,244.13 | **+22.42%** |
+| Isaac-Reorient-Cube-Shadow-Camera-Direct | 131,617.82 | 77,421.83 | **+70.00%** |
+| Isaac-Reorient-KukaAllegro-Camera | 159,176.68 | 105,710.71 | **+50.58%** |
 
 ## Available same-physics renderer comparison
 
@@ -46,12 +46,12 @@ The available comparison holds Newton MJWarp physics constant and measures OV RT
 
 | Camera task | Newton + Isaac Sim RTX | Newton + OV RTX | OV RTX uplift |
 |---|---:|---:|---:|
-| Isaac-Cartpole-Camera | 13.97 | 21.09 | **+50.99%** |
-| Isaac-Cartpole-Camera-Direct | 17.56 | 30.87 | **+75.79%** |
-| Isaac-Lift-KukaAllegro-Camera | 2.05 | 12.84 | **+526.10%** |
-| Isaac-Reorient-Cube-Shadow-Camera | 3.57 | 5.03 | **+41.03%** |
-| Isaac-Reorient-Cube-Shadow-Camera-Direct | 5.15 | 9.45 | **+83.62%** |
-| Isaac-Reorient-KukaAllegro-Camera | 2.09 | 12.90 | **+518.57%** |
+| Isaac-Cartpole-Camera | 114,430.50 | 172,781.78 | **+50.99%** |
+| Isaac-Cartpole-Camera-Direct | 143,856.05 | 252,878.31 | **+75.79%** |
+| Isaac-Lift-KukaAllegro-Camera | 16,793.50 | 105,144.37 | **+526.10%** |
+| Isaac-Reorient-Cube-Shadow-Camera | 29,245.16 | 41,244.13 | **+41.03%** |
+| Isaac-Reorient-Cube-Shadow-Camera-Direct | 42,163.83 | 77,421.83 | **+83.62%** |
+| Isaac-Reorient-KukaAllegro-Camera | 17,089.60 | 105,710.71 | **+518.57%** |
 
 ## Presentation assets
 

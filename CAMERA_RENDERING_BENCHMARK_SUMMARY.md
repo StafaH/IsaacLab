@@ -32,10 +32,11 @@ Because percentage comparisons are directional, the final column also reports th
 | Isaac-Reorient-Cube-Shadow-Camera-Direct | 33,279.39 | 89,752.33 | 33,688.72 | **131,706.89** | **62,080.29** | 48,579.13 |
 | Isaac-Reorient-KukaAllegro-Camera | 12,881.41 | 63,412.39 | 14,848.44 | **160,231.39** | **76,390.97** | 24,883.49 |
 
-All values are total mean FPS. The charts use a logarithmic horizontal scale so every backend combination remains legible despite the large throughput range.
+All values are total mean FPS. The charts use linear horizontal axes with comma-separated FPS ticks and print the exact two-decimal FPS value on every bar.
 
 ## Presentation figures
 
+- [Combined RGB overview](camera_benchmark_figures/rgb-overview.png) ([editable SVG](camera_benchmark_figures/rgb-overview.svg))
 - [Isaac-Cartpole-Camera](camera_benchmark_figures/isaac-cartpole-camera.png) ([editable SVG](camera_benchmark_figures/isaac-cartpole-camera.svg))
 - [Isaac-Cartpole-Camera-Direct](camera_benchmark_figures/isaac-cartpole-camera-direct.png) ([editable SVG](camera_benchmark_figures/isaac-cartpole-camera-direct.svg))
 - [Isaac-Lift-KukaAllegro-Camera](camera_benchmark_figures/isaac-lift-kukaallegro-camera.png) ([editable SVG](camera_benchmark_figures/isaac-lift-kukaallegro-camera.svg))
