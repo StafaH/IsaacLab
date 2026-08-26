@@ -1,29 +1,40 @@
 # Simple Shading Full MDL benchmark summary
 
-These results reproduce the `SSFM` filter from the database's **Isaac Lab v3 — All Tasks FPS Overview** using the complete August 26, 2026 run for Isaac Lab commit `079ec904662750a9ef44dbcec7ef80e32dcdd25a`.
+These results reproduce the `SSFM` view from the database's **Isaac Lab v3 — All Tasks FPS Overview** using the complete August 26, 2026 run for Isaac Lab commit `079ec904662750a9ef44dbcec7ef80e32dcdd25a`. The Newton Renderer columns use the overview's plain `PHYSX_WARP` and `NEWTON_WARP` rows because Newton Renderer supports RGB as its only camera output and therefore has no separate SSFM group.
 
 - Metric: Mean Environment Step FPS
 - Workload: Warm non-RL camera collection
 - Environments: 8,192
-- Output: Simple Shading Full MDL, 64×64
+- Output: Simple Shading Full MDL for Isaac Sim RTX and OV RTX; RGB for Newton Renderer, 64×64
 - Hardware: 1× NVIDIA RTX PRO 6000 Blackwell Server Edition
 
 ## Environment step FPS and backend coverage
 
 | Camera task | PhysX + Isaac Sim RTX | PhysX + Newton Renderer | Newton MJWarp + Isaac Sim RTX | Newton MJWarp + Newton Renderer | Newton MJWarp + OV RTX | OV PhysX + OV RTX |
 |---|---:|---:|---:|---:|---:|---:|
-| Isaac-Cartpole-Camera | 12.46 | N/A | 13.97 | **N/A** | **21.09** | 19.21 |
-| Isaac-Cartpole-Camera-Direct | 15.35 | N/A | 17.56 | **N/A** | **30.87** | 26.98 |
-| Isaac-Lift-KukaAllegro-Camera | 1.73 | N/A | 2.05 | **N/A** | **12.84** | 3.31 |
-| Isaac-Reorient-Cube-Shadow-Camera | 3.54 | N/A | 3.57 | **N/A** | **5.03** | 4.24 |
-| Isaac-Reorient-Cube-Shadow-Camera-Direct | 5.33 | N/A | 5.15 | **N/A** | **9.45** | 7.08 |
-| Isaac-Reorient-KukaAllegro-Camera | 1.74 | N/A | 2.09 | **N/A** | **12.90** | 3.39 |
+| Isaac-Cartpole-Camera | 12.46 | 44.33 | 13.97 | **59.97** | **21.09** | 19.21 |
+| Isaac-Cartpole-Camera-Direct | 15.35 | 86.49 | 17.56 | **164.60** | **30.87** | 26.98 |
+| Isaac-Lift-KukaAllegro-Camera | 1.73 | 8.20 | 2.05 | **20.46** | **12.84** | 3.31 |
+| Isaac-Reorient-Cube-Shadow-Camera | 3.54 | 4.91 | 3.57 | **6.16** | **5.03** | 4.24 |
+| Isaac-Reorient-Cube-Shadow-Camera-Direct | 5.33 | 10.90 | 5.15 | **16.07** | **9.45** | 7.08 |
+| Isaac-Reorient-KukaAllegro-Camera | 1.74 | 8.02 | 2.09 | **19.43** | **12.90** | 3.39 |
 
 ## Primary Newton Renderer comparison
 
-The database contains no comparable SSFM measurements for either PhysX + Newton Renderer or Newton MJWarp + Newton Renderer on this hardware. The expected `PHYSX_WARP_SSFM` and `NEWTON_WARP_SSFM` comparison groups are absent, so a Newton MJWarp + Newton Renderer versus Newton MJWarp + OV RTX percentage cannot be calculated honestly.
+This comparison holds Newton MJWarp physics constant and measures Newton Renderer relative to OV RTX. Per the overview convention, the Newton Renderer value comes from the plain `NEWTON_WARP` RGB row while the OV RTX value comes from its SSFM row:
 
-The figures retain both missing combinations as explicit `N/A` rows. Mixing the existing RGB Newton Renderer values with SSFM OV RTX values would compare different camera outputs and is not valid.
+\[
+\text{Newton Renderer uplift} = \left(\frac{\text{Newton + Newton Renderer}}{\text{Newton + OV RTX}} - 1\right) \times 100
+\]
+
+| Camera task | Newton + Newton Renderer | Newton + OV RTX | Newton Renderer uplift |
+|---|---:|---:|---:|
+| Isaac-Cartpole-Camera | 59.97 | 21.09 | **+184.33%** |
+| Isaac-Cartpole-Camera-Direct | 164.60 | 30.87 | **+433.21%** |
+| Isaac-Lift-KukaAllegro-Camera | 20.46 | 12.84 | **+59.40%** |
+| Isaac-Reorient-Cube-Shadow-Camera | 6.16 | 5.03 | **+22.42%** |
+| Isaac-Reorient-Cube-Shadow-Camera-Direct | 16.07 | 9.45 | **+70.00%** |
+| Isaac-Reorient-KukaAllegro-Camera | 19.43 | 12.90 | **+50.58%** |
 
 ## Available same-physics renderer comparison
 
