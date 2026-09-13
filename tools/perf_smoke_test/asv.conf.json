@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "project": "Isaac Lab performance smoke tests",
+  "project_url": "https://github.com/isaac-sim/IsaacLab",
+  "repo": "../..",
+  "branches": ["HEAD"],
+  "benchmark_dir": "benchmarks",
+  "results_dir": "results",
+  "environment_type": "existing",
+  "show_commit_url": "https://github.com/isaac-sim/IsaacLab/commit/"
+}
