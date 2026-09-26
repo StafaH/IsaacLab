@@ -7,15 +7,21 @@
 
 from __future__ import annotations
 
+import logging
+import math
+import re
+from types import ModuleType
 from typing import TYPE_CHECKING, Literal
 
 import torch
 import warp as wp
 
 from isaaclab import assets
+from isaaclab import sim as sim_utils
 from isaaclab.envs.mdp.events import _GravityRandomization, _randomize_prop_by_op
 from isaaclab.managers import EventTermCfg, ManagerTermBase, SceneEntityCfg
 from isaaclab.utils import math as math_utils
+from isaaclab.utils.version import compare_versions
 
 if TYPE_CHECKING:
     from isaaclab.assets import Articulation, RigidObject
@@ -210,11 +216,7 @@ class randomize_physics_scene_gravity(_GravityRandomization):
             cfg: Event configuration.
             env: Environment owning this term.
         """
-        # Carb is available only after Isaac Sim starts; material terms also support kitless use.
-        import carb
-
         super().__init__(cfg, env, device="cpu")
-        self._carb = carb
         self._physics_sim_view = env.sim.physics_sim_view
 
     def __call__(
@@ -236,4 +238,249 @@ class randomize_physics_scene_gravity(_GravityRandomization):
         """
         gravity = torch.tensor(env.sim.cfg.gravity, device="cpu").unsqueeze(0)
         gravity = self._sample_gravity(gravity, gravity_distribution_params, operation)[0].tolist()
-        self._physics_sim_view.set_gravity(self._carb.Float3(*gravity))
+        self._physics_sim_view.set_gravity(gravity)
+
+
+class randomize_visual_color(ManagerTermBase):
+    """Randomize USD mesh colors with Replicator."""
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedEnv) -> None:
+        """Initialize the randomization term.
+
+        Args:
+            cfg: The configuration of the event term.
+            env: The environment instance.
+        """
+        super().__init__(cfg, env)
+
+        self._rep = rep = _get_replicator()
+
+        asset_cfg: SceneEntityCfg = cfg.params.get("asset_cfg")
+        mesh_name: str = cfg.params.get("mesh_name", "")  # type: ignore
+
+        # EventManager checks replication only for prestartup terms.
+        if env.cfg.scene.replicate_physics:
+            raise RuntimeError(
+                "Unable to randomize visual color with scene replication enabled."
+                " For stable USD-level randomization, please disable scene replication"
+                " by setting 'replicate_physics' to False in 'InteractiveSceneCfg'."
+            )
+
+        asset = env.scene[asset_cfg.name]
+
+        # Binding materials on the articulation root invalidates its PhysX view.
+        if mesh_name:
+            if not mesh_name.startswith("/"):
+                mesh_name = "/" + mesh_name
+            mesh_prim_path = f"{asset.cfg.prim_path}{mesh_name}"
+        else:
+            body_names = asset_cfg.body_names
+            body_names_regex = "|".join(body_names) if isinstance(body_names, list) else body_names
+            body_names_regex = f"(?:{body_names_regex})" if isinstance(body_names_regex, str) else ".*"
+            pattern_with_visuals = f"{asset.cfg.prim_path}/{body_names_regex}/visuals"
+            if sim_utils.resolve_matching_prims_from_source(pattern_with_visuals, raise_if_no_matches=False):
+                mesh_prim_path = pattern_with_visuals
+            else:
+                mesh_prim_path = f"{asset.cfg.prim_path}/.*"
+                logging.info(
+                    f"Pattern '{pattern_with_visuals}' found no prims. Falling back to '{mesh_prim_path}'"
+                    " for color randomization."
+                )
+
+        version = re.match(r"^(\d+\.\d+\.\d+)", rep.__file__.split("/")[-5][21:]).group(1)
+
+        if compare_versions(version, "1.12.4") < 0:
+            colors = cfg.params.get("colors")
+            event_name = cfg.params.get("event_name")
+            if isinstance(colors, dict):
+                color_low = [colors[key][0] for key in ["r", "g", "b"]]
+                color_high = [colors[key][1] for key in ["r", "g", "b"]]
+                colors = rep.distribution.uniform(color_low, color_high)
+            else:
+                colors = list(colors)
+
+            def rep_color_randomization():
+                prims_group = rep.get.prims(path_pattern=mesh_prim_path)
+                with prims_group:
+                    rep.randomizer.color(colors=colors)
+
+                return prims_group.node
+
+            with rep.trigger.on_custom_event(event_name=event_name):
+                rep_color_randomization()
+        else:
+            stage = env.sim.stage
+            prims_group = rep.functional.get.prims(path_pattern=mesh_prim_path, stage=stage)
+
+            num_prims = len(prims_group)
+            self.color_rng = rep.rng.ReplicatorRNG()
+
+            for i, prim in enumerate(prims_group):
+                if prim.IsInstanceable():
+                    prim.SetInstanceable(False)
+
+            omni_pbr_mdl = _get_omni_pbr_mdl()
+
+            self.material_prims = rep.functional.create_batch.material(
+                mdl=omni_pbr_mdl, bind_prims=prims_group, count=num_prims, project_uvw=True
+            )
+
+    def __call__(
+        self,
+        env: ManagerBasedEnv,
+        env_ids: torch.Tensor | slice,
+        event_name: str,
+        asset_cfg: SceneEntityCfg,
+        colors: list[tuple[float, float, float]] | dict[str, tuple[float, float]],
+        mesh_name: str = "",
+    ) -> None:
+        # Replicator updates all matched prims; env_ids do not restrict the update.
+        rep = self._rep
+
+        version = re.match(r"^(\d+\.\d+\.\d+)", rep.__file__.split("/")[-5][21:]).group(1)
+
+        if compare_versions(version, "1.12.4") < 0:
+            rep.utils.send_og_event(event_name)
+        else:
+            colors = colors if colors else self._cfg.params.get("colors")
+
+            if isinstance(colors, dict):
+                color_low = [colors[key][0] for key in ["r", "g", "b"]]
+                color_high = [colors[key][1] for key in ["r", "g", "b"]]
+                colors = [color_low, color_high]
+            else:
+                colors = list(colors)
+
+            num_prims = len(self.material_prims)
+            random_colors = self.color_rng.generator.uniform(colors[0], colors[1], size=(num_prims, 3))
+
+            rep.functional.modify.attribute(self.material_prims, "diffuse_color_constant", random_colors)
+
+
+class randomize_visual_texture_material(ManagerTermBase):
+    """Randomize USD mesh textures with Replicator."""
+
+    def __init__(self, cfg: EventTermCfg, env: ManagerBasedEnv) -> None:
+        """Initialize the term.
+
+        Args:
+            cfg: The configuration of the event term.
+            env: The environment instance.
+        """
+        super().__init__(cfg, env)
+
+        # EventManager checks replication only for prestartup terms.
+        if env.cfg.scene.replicate_physics:
+            raise RuntimeError(
+                "Unable to randomize visual texture material with scene replication enabled."
+                " For stable USD-level randomization, please disable scene replication"
+                " by setting 'replicate_physics' to False in 'InteractiveSceneCfg'."
+            )
+
+        self._rep = rep = _get_replicator()
+
+        asset_cfg: SceneEntityCfg = cfg.params.get("asset_cfg")
+        asset = env.scene[asset_cfg.name]
+
+        body_names = asset_cfg.body_names
+        body_names_regex = "|".join(body_names) if isinstance(body_names, list) else body_names
+        body_names_regex = f"(?:{body_names_regex})" if isinstance(body_names_regex, str) else ".*"
+
+        asset_main_prim_path = asset.cfg.prim_path
+        pattern_with_visuals = f"{asset_main_prim_path}/{body_names_regex}/visuals"
+        matching_prims = sim_utils.resolve_matching_prims_from_source(pattern_with_visuals, raise_if_no_matches=False)
+        if matching_prims:
+            prim_path = pattern_with_visuals
+        else:
+            prim_path = f"{asset_main_prim_path}/.*"
+            logging.info(
+                f"Pattern '{pattern_with_visuals}' found no prims. Falling back to '{prim_path}' for texture"
+                " randomization."
+            )
+
+        version = re.match(r"^(\d+\.\d+\.\d+)", rep.__file__.split("/")[-5][21:]).group(1)
+
+        if compare_versions(version, "1.12.4") < 0:
+            texture_paths = cfg.params.get("texture_paths")
+            event_name = cfg.params.get("event_name")
+            texture_rotation = cfg.params.get("texture_rotation", (0.0, 0.0))
+
+            texture_rotation = tuple(math.degrees(angle) for angle in texture_rotation)
+
+            def rep_texture_randomization():
+                prims_group = rep.get.prims(path_pattern=prim_path)
+
+                with prims_group:
+                    rep.randomizer.texture(
+                        textures=texture_paths,
+                        project_uvw=True,
+                        texture_rotate=rep.distribution.uniform(*texture_rotation),
+                    )
+                return prims_group.node
+
+            with rep.trigger.on_custom_event(event_name=event_name):
+                rep_texture_randomization()
+        else:
+            stage = env.sim.stage
+            prims_group = rep.functional.get.prims(path_pattern=prim_path, stage=stage)
+
+            num_prims = len(prims_group)
+            self.texture_rng = rep.rng.ReplicatorRNG()
+
+            for i, prim in enumerate(prims_group):
+                if prim.IsInstanceable():
+                    prim.SetInstanceable(False)
+
+            omni_pbr_mdl = _get_omni_pbr_mdl()
+
+            self.material_prims = rep.functional.create_batch.material(
+                mdl=omni_pbr_mdl, bind_prims=prims_group, count=num_prims, project_uvw=True
+            )
+
+    def __call__(
+        self,
+        env: ManagerBasedEnv,
+        env_ids: torch.Tensor | slice,
+        event_name: str,
+        asset_cfg: SceneEntityCfg,
+        texture_paths: list[str],
+        texture_rotation: tuple[float, float] = (0.0, 0.0),
+    ) -> None:
+        # Replicator updates all matched prims; env_ids do not restrict the update.
+        rep = self._rep
+
+        version = re.match(r"^(\d+\.\d+\.\d+)", rep.__file__.split("/")[-5][21:]).group(1)
+
+        if compare_versions(version, "1.12.4") < 0:
+            rep.utils.send_og_event(event_name)
+        else:
+            texture_paths = texture_paths if texture_paths else self._cfg.params.get("texture_paths")
+            texture_rotation = (
+                texture_rotation if texture_rotation else self._cfg.params.get("texture_rotation", (0.0, 0.0))
+            )
+
+            texture_rotation = tuple(math.degrees(angle) for angle in texture_rotation)
+
+            num_prims = len(self.material_prims)
+            random_textures = self.texture_rng.generator.choice(texture_paths, size=num_prims)
+            random_rotations = self.texture_rng.generator.uniform(
+                texture_rotation[0], texture_rotation[1], size=num_prims
+            )
+
+            rep.functional.modify.attribute(self.material_prims, "diffuse_texture", random_textures)
+            rep.functional.modify.attribute(self.material_prims, "texture_rotate", random_rotations)
+
+
+def _get_replicator() -> ModuleType:
+    """Import Replicator after enabling its Kit extension."""
+    sim_utils.enable_extension("omni.replicator.core")
+    import omni.replicator.core as rep
+
+    return rep
+
+
+def _get_omni_pbr_mdl() -> str:
+    """Resolve an absolute MDL path; Kit may bypass built-in MDL short names."""
+    import carb.tokens
+
+    return carb.tokens.get_tokens_interface().resolve("${kit}/mdl/core/Base/OmniPBR.mdl")

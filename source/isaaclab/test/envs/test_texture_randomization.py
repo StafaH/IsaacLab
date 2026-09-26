@@ -182,6 +182,21 @@ def test_texture_randomization(device):
                 ]
                 assert len(applied) == env.num_envs
                 assert all(texture is not None and texture.path in texture_paths for texture in applied), applied
+
+            color_params = {
+                "event_name": "cart_color_randomizer",
+                "asset_cfg": SceneEntityCfg("robot", body_names=["cart"]),
+                "colors": {"r": (0.25, 0.25), "g": (0.5, 0.5), "b": (0.75, 0.75)},
+            }
+            color_term = mdp.randomize_visual_color(
+                EventTerm(func=mdp.randomize_visual_color, mode="reset", params=color_params), env
+            )
+            color_term(env, None, **color_params)
+            assert color_term.material_prims
+            for material in color_term.material_prims:
+                color = material.GetChild("Shader").GetAttribute("inputs:diffuse_color_constant").Get()
+                assert tuple(color) == pytest.approx((0.25, 0.5, 0.75))
+            env.step(torch.zeros_like(env.action_manager.action))
         finally:
             env.close()
     finally:

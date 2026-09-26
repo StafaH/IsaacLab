@@ -6,7 +6,6 @@
 """Tests for gravity randomization and observations."""
 
 import math
-import sys
 from types import SimpleNamespace
 
 import pytest
@@ -22,7 +21,7 @@ from isaaclab.managers import EventManager, EventTermCfg, SceneEntityCfg
 
 
 @pytest.mark.parametrize("backend", ["physx", "ovphysx"])
-def test_scene_wide_backends_use_configured_distribution(monkeypatch: pytest.MonkeyPatch, backend: str) -> None:
+def test_scene_wide_backends_use_configured_distribution(backend: str) -> None:
     """PhysX and OvPhysX should use the distribution configured at initialization."""
     gravity_sink = SimpleNamespace()
     physics_manager = type(
@@ -30,7 +29,6 @@ def test_scene_wide_backends_use_configured_distribution(monkeypatch: pytest.Mon
         (),
         {"set_gravity": staticmethod(lambda gravity: setattr(gravity_sink, "value", gravity))},
     )
-    monkeypatch.setitem(sys.modules, "carb", SimpleNamespace(Float3=lambda *values: values))
     physics_cfg = PhysxCfg() if backend == "physx" else OvPhysxCfg()
     env = SimpleNamespace(
         device="cpu",

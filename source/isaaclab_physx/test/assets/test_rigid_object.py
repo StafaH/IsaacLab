@@ -18,6 +18,7 @@ simulation_app = AppLauncher(headless=True, device=resolve_test_sim_device()).ap
 """Rest everything follows."""
 
 import sys
+from types import SimpleNamespace
 from typing import Literal
 
 import pytest
@@ -28,6 +29,8 @@ from isaaclab_physx.assets import RigidObject
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import RigidObjectCfg
+from isaaclab.envs.mdp import randomize_physics_scene_gravity
+from isaaclab.managers import EventTermCfg
 from isaaclab.sim import build_simulation_context
 from isaaclab.sim.spawners import materials
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
@@ -609,6 +612,16 @@ def test_gravity_vec_w(num_cubes, device, gravity_enabled):
                 gravity[:, :, 2] = -9.81
             # Check the body accelerations are correct
             torch.testing.assert_close(cube_object.data.body_acc_w.torch, gravity)
+
+        env = SimpleNamespace(sim=sim, device=device, num_envs=num_cubes)
+        params = {"gravity_distribution_params": ((0.0, 0.0, -3.0), (0.0, 0.0, -3.0)), "operation": "abs"}
+        event = randomize_physics_scene_gravity(EventTermCfg(func=randomize_physics_scene_gravity, params=params), env)
+        event(env, torch.tensor([0], device=device), **params)
+        sim.step()
+        cube_object.update(sim.cfg.dt)
+        gravity.zero_()
+        gravity[:, :, 2] = -3.0
+        torch.testing.assert_close(cube_object.data.body_acc_w.torch, gravity)
 
 
 @pytest.mark.parametrize("num_cubes", [2])

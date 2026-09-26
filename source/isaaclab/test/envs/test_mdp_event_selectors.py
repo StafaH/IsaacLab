@@ -6,8 +6,7 @@
 """CPU-only tests for MDP event selector classification."""
 
 import pytest
-
-from isaaclab.envs.mdp.events import _is_all_body_selection
+from isaaclab_ov.envs.mdp.events import _is_all_body_selection
 
 
 @pytest.mark.parametrize(
