@@ -8,8 +8,8 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, TypeVar
 
 import numpy as np
 import torch
@@ -23,6 +23,29 @@ from .manager_term_cfg import ObservationGroupCfg, ObservationTermCfg
 
 if TYPE_CHECKING:
     from ..envs import ManagerBasedEnv
+
+
+_ObservationCallable = TypeVar("_ObservationCallable", bound=Callable)
+
+
+def observation_output_owned(func: _ObservationCallable) -> _ObservationCallable:
+    """Declare that an observation function or callable class transfers ownership of its output.
+
+    The caller may modify the returned tensor, and subsequent calls or resets must not change it.
+    This guarantee must hold for every supported parameter combination, including subclass overrides.
+    Views of fresh storage are allowed, but views of sensor data or reusable buffers are not.
+
+    The observation manager uses this guarantee to avoid redundant copies. Unmarked terms are
+    treated conservatively. This decorator preserves the callable and its tensor return type.
+
+    Args:
+        func: Observation function or callable class providing the ownership guarantee.
+
+    Returns:
+        The unchanged callable with its output ownership declared.
+    """
+    setattr(func, "_isaaclab_observation_output_owned", True)
+    return func
 
 
 class ObservationManager(ManagerBase):
@@ -61,6 +84,11 @@ class ObservationManager(ManagerBase):
     If a noise model or custom modifier is registered for a term, the function is called to corrupt
     the observation. The corruption function is expected to return a tensor with the same shape as the observation.
     The observations are clipped and scaled as per the configuration settings.
+
+    Returned observations are independent snapshots, including dictionary entries and history.
+    Copies are made before mutating borrowed storage or retaining it across term evaluations.
+    Terms decorated with :func:`observation_output_owned` allow the manager to reuse their output;
+    clipping and scaling can also establish ownership through an out-of-place operation.
     """
 
     def __init__(self, cfg: object, env: ManagerBasedEnv):
@@ -415,27 +443,38 @@ class ObservationManager(ManagerBase):
         # evaluate terms: compute, add noise, clip, scale, custom modifiers
         for term_name, term_cfg in obs_terms:
             obs: torch.Tensor = term_cfg.func(self._env, **term_cfg.params)
-            if term_cfg.clone_output:
-                obs = obs.clone()
+            owned = getattr(term_cfg.func, "_isaaclab_observation_output_owned", False)
             # apply post-processing
             if term_cfg.modifiers is not None:
                 for modifier in term_cfg.modifiers:
+                    if not owned:
+                        obs = obs.clone()
                     if isinstance(modifier.func, modifiers.ModifierBase):
                         obs = modifier.func(obs)
                     else:
                         obs = modifier.func(obs, **modifier.params)
+                    # Custom callbacks may retain their input or return persistent storage.
+                    owned = False
             if isinstance(term_cfg.noise, noise.NoiseCfg):
-                obs = term_cfg.noise.func(obs, term_cfg.noise)
+                obs = term_cfg.noise.func(obs if owned else obs.clone(), term_cfg.noise)
+                owned = False
             elif isinstance(term_cfg.noise, noise.NoiseModelCfg) and term_cfg.noise.func is not None:
-                obs = term_cfg.noise.func(obs)
+                obs = term_cfg.noise.func(obs if owned else obs.clone())
+                owned = False
             if term_cfg.clip:
-                obs = obs.clip_(min=term_cfg.clip[0], max=term_cfg.clip[1])
+                if owned:
+                    obs = obs.clip_(min=term_cfg.clip[0], max=term_cfg.clip[1])
+                else:
+                    obs = obs.clip(min=term_cfg.clip[0], max=term_cfg.clip[1])
+                    owned = True
             if term_cfg.scale is not None:
-                obs = obs.mul_(term_cfg.scale)
+                obs = obs.mul_(term_cfg.scale) if owned else obs * term_cfg.scale
+                owned = True
             if term_name in self._group_obs_term_delay_buffer[group_name]:
                 obs = self._group_obs_term_delay_buffer[group_name][term_name].compute(
                     obs, update_history=update_history
                 )
+                owned = False
             # Update the history buffer if observation term has history enabled
             if term_cfg.history_length > 0:
                 circular_buffer = self._group_obs_term_history_buffer[group_name][term_name]
@@ -453,24 +492,17 @@ class ObservationManager(ManagerBase):
                     circular_buffer.append(obs)
 
                 if term_cfg.flatten_history_dim:
-                    group_obs[term_name] = circular_buffer.buffer.reshape(self._env.num_envs, -1)
+                    obs = circular_buffer.buffer.reshape(self._env.num_envs, -1)
                 else:
-                    group_obs[term_name] = circular_buffer.buffer
-            else:
-                group_obs[term_name] = obs
+                    obs = circular_buffer.buffer
+                owned = False
+            # Secure borrowed storage before another term can overwrite it, including shared scratch buffers.
+            group_obs[term_name] = obs if owned else obs.clone()
 
         # concatenate all observations in the group together
         if self._group_obs_concatenate[group_name]:
-            # Post-processing and history may return persistent buffers instead of owned outputs.
             if len(group_obs) == 1:
-                term_cfg = self._group_obs_term_cfgs[group_name][0]
-                if (
-                    term_cfg.history_length == 0
-                    and not term_cfg.modifiers
-                    and term_cfg.noise is None
-                    and term_cfg.delay_max_lag == 0
-                ):
-                    return next(iter(group_obs.values()))
+                return next(iter(group_obs.values()))
             # set the concatenate dimension, account for the batch dimension if positive dimension is given
             return torch.cat(list(group_obs.values()), dim=self._group_obs_concatenate_dim[group_name])
         else:

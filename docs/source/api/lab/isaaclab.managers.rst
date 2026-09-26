@@ -94,6 +94,14 @@ For a delay buffer with no recorded sample after initialization or reset, the cu
 without recording it. Once recording starts, delays exceeding the available history return the oldest
 sample. Partial resets invalidate only the selected environments' histories.
 
+Observation outputs are independent snapshots: later simulation steps, modifier updates, and resets
+do not overwrite previously returned tensors. The manager automatically copies borrowed storage before
+mutation or retention. Custom terms can declare independent outputs with
+:func:`observation_output_owned`; no task-level copy setting is needed. Unmarked terms and custom
+modifiers and noise callbacks are handled conservatively.
+
+.. autofunction:: observation_output_owned
+
 .. autoclass:: ObservationManager
     :members:
     :inherited-members:

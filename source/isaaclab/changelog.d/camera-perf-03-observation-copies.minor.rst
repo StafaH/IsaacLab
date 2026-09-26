@@ -1,11 +1,13 @@
 Added
 ^^^^^
 
-* Added :attr:`~isaaclab.managers.ObservationTermCfg.clone_output` to skip the observation manager's
-  copy for terms that return a new tensor on every call, such as normalized images.
+* Added :func:`~isaaclab.managers.observation_output_owned` for observation implementations that
+  transfer independent outputs to their callers. The observation pipeline used this guarantee
+  to avoid redundant copies automatically; task configurations required no copy setting.
 
 Changed
 ^^^^^^^
 
-* Removed redundant image copies: single-term observation groups without history skipped the
-  concatenation copy, and ``image_features`` created its normalization statistics once.
+* Made observation clipping and scaling allocate only when processing borrowed storage, and
+  returned independent snapshots for single-term groups, dictionary outputs, and history.
+* Created ``image_features`` normalization statistics once instead of on every inference call.

@@ -1,4 +1,5 @@
 Changed
 ^^^^^^^
 
-* Disabled redundant observation clones for owned Cartpole camera outputs and relative joint observations in Cartpole and velocity tasks.
+* Automatically avoided redundant observation clones for independent Cartpole camera outputs,
+  relative joint observations, and height scans without task-level copy settings.

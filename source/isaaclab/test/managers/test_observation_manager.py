@@ -22,6 +22,7 @@ from isaaclab.managers import (
     ObservationManager,
     ObservationTermCfg,
     RewardTermCfg,
+    observation_output_owned,
 )
 from isaaclab.utils import DelayBuffer, configclass, modifiers, noise
 
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
 
 
+@observation_output_owned
 def grilled_chicken(env):
     return torch.ones(env.num_envs, 4, device=env.device)
 
@@ -55,6 +57,7 @@ def grilled_chicken_image(env, bland: float, channel: int = 1):
     return bland * torch.ones(env.num_envs, 128, 256, channel, device=env.device)
 
 
+@observation_output_owned
 class complex_function_class(ManagerTermBase):
     def __init__(self, cfg: ObservationTermCfg, env: object):
         self.cfg = cfg
@@ -272,6 +275,7 @@ def test_compute(setup_env):
     """Test the observation computation."""
 
     pos_scale_tuple = (2.0, 3.0, 1.0)
+    original_pos = env.data.pos_w.clone()
 
     @configclass
     class MyObservationManagerCfg:
@@ -283,7 +287,7 @@ def test_compute(setup_env):
 
             term_1 = ObservationTermCfg(func=grilled_chicken, scale=10)
             term_2 = ObservationTermCfg(func=grilled_chicken_with_curry, scale=0.0, params={"hot": False})
-            term_3 = ObservationTermCfg(func=pos_w_data, scale=pos_scale_tuple)
+            term_3 = ObservationTermCfg(func=pos_w_data, clip=(0.0, 0.5), scale=pos_scale_tuple)
             term_4 = ObservationTermCfg(func=lin_vel_w_data, scale=1.5)
 
         @configclass
@@ -325,8 +329,28 @@ def test_compute(setup_env):
     assert torch.equal(obs_critic[:, 0:3], obs_critic[:, 6:9])
     assert torch.equal(obs_critic[:, 3:6], obs_critic[:, 9:12])
     # -- between groups
-    assert torch.equal(obs_policy[:, 5:8], obs_critic[:, 0:3])
+    torch.testing.assert_close(env.data.pos_w, original_pos)
+    torch.testing.assert_close(obs_policy[:, 5:8], original_pos.clamp(0.0, 0.5) * torch.tensor(pos_scale_tuple))
     assert torch.equal(obs_policy[:, 8:11], obs_critic[:, 3:6])
+
+
+def test_compute_preserves_shared_scratch_outputs(setup_env):
+    """Term results are secured before the next term overwrites shared scratch storage."""
+    env = setup_env
+
+    def scratch_term(env, value):
+        return env.data.pos_w.fill_(value)
+
+    cfg = ObservationGroupCfg()
+    cfg.first = ObservationTermCfg(func=scratch_term, params={"value": 1.0})
+    cfg.second = ObservationTermCfg(func=scratch_term, params={"value": 2.0})
+    manager = ObservationManager({"policy": cfg}, env)
+    result = manager.compute()["policy"]
+    torch.testing.assert_close(result[:, :3], torch.ones_like(env.data.pos_w))
+    torch.testing.assert_close(result[:, 3:], torch.full_like(env.data.pos_w, 2.0))
+    env.data.pos_w.zero_()
+    torch.testing.assert_close(result[:, :3], torch.ones_like(env.data.pos_w))
+    torch.testing.assert_close(result[:, 3:], torch.full_like(env.data.pos_w, 2.0))
 
 
 def test_compute_with_2d_history(setup_env):
@@ -516,15 +540,23 @@ def test_modifier_compute(setup_env):
     assert torch.min(obs_critic["term_4"]) >= -0.5
     assert torch.max(obs_critic["term_4"]) <= 0.5
 
+    # Dictionary outputs must also survive updates to a modifier's internal state.
+    expected_integral = 0.5 * (env.data.pos_w + 1.0) * env.dt
+    obs_man.compute()
+    obs_man.reset()
+    torch.testing.assert_close(obs_policy["term_3"], expected_integral)
+
     # A concatenated observation must survive subsequent updates to a modifier's internal state.
     cfg.policy.term_1 = None
     cfg.policy.term_2 = None
     cfg.policy.concatenate_terms = True
+    cfg.policy.term_3.scale = 2.0
     obs_man = ObservationManager(cfg, env)
     first = obs_man.compute()["policy"]
-    expected = 0.5 * (env.data.pos_w + 1.0) * env.dt
+    expected = (env.data.pos_w + 1.0) * env.dt
     torch.testing.assert_close(first, expected)
-    obs_man.compute()
+    second = obs_man.compute()["policy"]
+    torch.testing.assert_close(second, 3.0 * expected)
     torch.testing.assert_close(first, expected)
     obs_man.reset()
     torch.testing.assert_close(first, expected)
@@ -773,6 +805,7 @@ def test_compute_updates_history_only_when_requested(lag, history_length, term_h
     A group history length overrides the term's own history length; without one, the term history applies.
     """
     cfg = HistoryObservationsCfg()
+    cfg.policy.concatenate_terms = not term_history
     if term_history:
         cfg.policy.history_length = None
         cfg.policy.dummy.history_length = history_length
@@ -795,6 +828,10 @@ def test_compute_updates_history_only_when_requested(lag, history_length, term_h
     if history:
         assert torch.all(history.current_length == 0)
 
+    def compute_output(update_history=False):
+        output = manager.compute(update_history=update_history)["policy"]
+        return output["dummy"] if term_history else output
+
     outputs = []
     for step in range(6):
         if step == 3:
@@ -802,7 +839,7 @@ def test_compute_updates_history_only_when_requested(lag, history_length, term_h
         env.observation.fill_(step)
         # Delay retains each sample's noise; history stacks the delayed, scaled outputs.
         manager.cfg.policy.dummy.noise.bias = float(step)
-        output = manager.compute(update_history=True)["policy"]
+        output = compute_output(update_history=True)
         sample_steps = torch.arange(step - max(1, history_length) + 1, step + 1)
         expected = 4.0 * (sample_steps - lag).clamp_min(0).expand(env.num_envs, -1).clone()
         if step >= 3:
@@ -811,8 +848,9 @@ def test_compute_updates_history_only_when_requested(lag, history_length, term_h
         outputs.append((output, expected))
         env.observation.fill_(-100.0)
         rng_state = torch.get_rng_state()
-        torch.testing.assert_close(manager.compute()["policy"], expected)
-        torch.testing.assert_close(manager.compute_group("policy"), expected)
+        torch.testing.assert_close(compute_output(), expected)
+        group_output = manager.compute_group("policy")
+        torch.testing.assert_close(group_output["dummy"] if term_history else group_output, expected)
         assert torch.equal(torch.get_rng_state(), rng_state)
     # returned observations must not alias the manager's history or delay storage
     for output, expected in outputs:
