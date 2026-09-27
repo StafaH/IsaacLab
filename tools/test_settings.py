@@ -131,8 +131,6 @@ Docker image.
 """
 
 QUARANTINED_TESTS: list[str] = [
-    # Mimic dataset generation needs several Kit launches and minutes of GPU time.
-    # Keep these integration tests available for manual runs while Mimic is being deprecated.
     "test_generate_dataset_franka_state.py",
     "test_generate_dataset_franka_visuomotor.py",
     "test_generate_dataset_gr1t2_nutpour.py",
