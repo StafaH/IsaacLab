@@ -7,9 +7,9 @@ This note lists every part of the experimental Warp environment system, i.e. the
 
 .. important::
 
-   **Status: the Warp frontend system is retained.** The runtime replaces the Cartpole task and the warp-rl
-   training path. It does not yet replace the other 17 task paths or the RL-library entry points listed
-   below. Removing the old system now would be a deliberate loss of support for all of them, so it is not
+   **Status: the Warp frontend system is retained.** The runtime replaces the Cartpole, Go2 flat velocity, and
+   Franka reach tasks, and the warp-rl Cartpole training path. It does not yet replace the other 14 task paths
+   or the RL-library entry points listed below. Removing the old system now would be a deliberate loss of support for all of them, so it is not
    done in this change. The `Removal plan`_ lists the gates.
 
 
@@ -25,13 +25,21 @@ What is replaced
      - Status
    * - ``Isaac-Cartpole`` and ``Isaac-Cartpole-Direct`` with ``--frontend warp`` (Newton/MJWarp)
      - ``isaaclab_tasks_experimental.mdp_runtime.cartpole.CartpoleMdpCfg`` +
-       :class:`~isaaclab_experimental.mdp_runtime.NewtonArticulationPhysics`, Warp or Torch backend
+       :class:`~isaaclab_experimental.mdp_runtime.NewtonPhysics`, Warp or Torch backend
      - Replaced. Same terms and parameters as the stable manager-based task, except the logging-only
        ``success_rate`` reward.
    * - warp-rl ``integrations/isaaclab.py`` (``IsaacLabDirectEnv``) for Cartpole
      - :class:`~isaaclab_experimental.mdp_runtime.MdpEnv`, used by
        ``scripts/benchmarks/benchmark_mdp_runtime_capture.py --boundary training``
      - Replaced for Cartpole (physics, MDP, and PPO in one graph).
+   * - ``Isaac-Velocity-Flat-UnitreeGo2`` with ``--frontend warp``
+     - ``isaaclab_tasks_experimental.mdp_runtime.go2_velocity.Go2FlatVelocityMdpCfg`` +
+       :class:`~isaaclab_experimental.mdp_runtime.NewtonPhysics` with the ``contact_forces`` sensor
+     - Replaced, except the startup randomization of friction, base mass, and base COM.
+   * - ``Isaac-Reach-Franka`` with ``--frontend warp``
+     - ``isaaclab_tasks_experimental.mdp_runtime.franka_reach.FrankaReachMdpCfg`` +
+       :class:`~isaaclab_experimental.mdp_runtime.NewtonPhysics`
+     - Replaced, except the reward-weight curriculum (use ``set_reward_weight``).
    * - Per-manager graph capture (``ManagerCallSwitch``, ``WarpGraphCache``)
      - :meth:`MdpProgram.capture <isaaclab_experimental.mdp_runtime.MdpProgram.capture>` (whole step)
      - Replaced for runtime tasks.
@@ -51,14 +59,15 @@ registrations; there are no ``gym.register`` calls in ``isaaclab_tasks_experimen
   ``source/isaaclab_experimental/test/envs/test_frontend_cfg_conversion.py``):
 
   * ``Isaac-Ant``, ``Isaac-Humanoid``
-  * ``Isaac-Reach-Franka``, ``Isaac-Reach-UR10``
+  * ``Isaac-Reach-UR10`` (the Franka reach terms apply; it needs a runtime configuration)
   * ``Isaac-Velocity-Flat-AnymalD``, ``Isaac-Velocity-Flat-Cassie``, ``Isaac-Velocity-Flat-G1``,
-    ``Isaac-Velocity-Flat-H1``, ``Isaac-Velocity-Flat-UnitreeGo2``
+    ``Isaac-Velocity-Flat-H1`` (the Go2 terms apply; each needs a runtime configuration, and some use
+    stateful actuators or terms such as ``undesired_contacts`` and ``joint_deviation_l1``)
   * ``IsaacContrib-Velocity-Flat-AnymalB``, ``IsaacContrib-Velocity-Flat-AnymalC``,
     ``IsaacContrib-Velocity-Flat-UnitreeA1``, ``IsaacContrib-Velocity-Flat-UnitreeGo1``
 
-  Missing in the runtime: commands, root and body state terms, contact-sensor terms, curricula, noise models,
-  and event terms on rigid bodies and materials.
+  Missing in the runtime: curricula, startup events on rigid bodies and materials, stateful actuators, and
+  several reward terms of the other robots.
 
 * **Direct** (``DirectRLEnvWarp`` subclasses, resolved by ``_mirror_direct_warp_class``):
 
@@ -200,8 +209,8 @@ Removal plan
 Remove the old system when each item below has a runtime replacement, or when a release decides to drop it
 explicitly:
 
-#. Root-state, body-state, command, and contact-sensor fields and terms. This unlocks Ant, Humanoid,
-   locomotion velocity tasks, and Reach.
+#. Runtime configurations for the remaining velocity and reach robots, and the Ant and Humanoid terms
+   (root-state progress rewards, joint gears).
 #. A Gym-compatible wrapper around :class:`~isaaclab_experimental.mdp_runtime.MdpProgram`, so the ``isaaclab_rl``
    entry points can select it instead of ``--frontend warp``.
 #. A public, capture-safe stepping API in the Newton manager, replacing the private ``_simulate_full`` call.

@@ -11,6 +11,7 @@ isaaclab\_experimental.mdp\_runtime
    MdpCfg
    TermCfg
    ActionTermCfg
+   CommandTermCfg
    ObservationTermCfg
    ObservationGroupCfg
    RewardTermCfg
@@ -28,11 +29,12 @@ isaaclab\_experimental.mdp\_runtime
    Stage
    TermSpec
    TermContext
+   CompileInfo
    define_term
    implement
    registered_terms
    PhysicsBinding
-   NewtonArticulationPhysics
+   NewtonPhysics
    PointMassPhysics
    MdpEnv
    HeterogeneousProgram
@@ -46,6 +48,10 @@ isaaclab\_experimental.mdp\_runtime
    :show-inheritance:
 
 .. autoclass:: ActionTermCfg
+   :members:
+   :show-inheritance:
+
+.. autoclass:: CommandTermCfg
    :members:
    :show-inheritance:
 
@@ -113,6 +119,10 @@ isaaclab\_experimental.mdp\_runtime
    :members:
    :show-inheritance:
 
+.. autoclass:: CompileInfo
+   :members:
+   :show-inheritance:
+
 .. autofunction:: define_term
 
 .. autofunction:: implement
@@ -123,7 +133,7 @@ isaaclab\_experimental.mdp\_runtime
    :members:
    :show-inheritance:
 
-.. autoclass:: NewtonArticulationPhysics
+.. autoclass:: NewtonPhysics
    :members:
    :show-inheritance:
 
