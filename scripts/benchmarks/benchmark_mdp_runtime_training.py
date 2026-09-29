@@ -18,6 +18,8 @@ Environments (``--env``):
 * ``runtime_go2`` / ``runtime_reach`` / ``runtime_cartpole``: the experimental MDP runtime (Warp backend) on the
   stable task scene, exposed through :class:`~isaaclab_experimental.mdp_runtime.MdpEnv`.
 * ``warprl_isaac_go2``: warp-rl's Isaac-Lab-hosted direct Go2 (``warp_rl.integrations.go2``).
+* ``runtime_go2_warprl_mdp``: warp-rl's Go2 MDP written as a runtime configuration (:func:`warprl_go2_mdp`), on
+  warp-rl's Go2 scene and physics: the same workload as ``warprl_isaac_go2``, declared instead of hand-written.
 
 Requires the sibling warp-rl checkout:
 
@@ -44,6 +46,82 @@ RUNTIME_TASKS = {
     "runtime_go2": ("isaaclab_tasks_experimental.mdp_runtime.go2_velocity", "Go2FlatVelocityMdpCfg", "contact_forces"),
     "runtime_reach": ("isaaclab_tasks_experimental.mdp_runtime.franka_reach", "FrankaReachMdpCfg", None),
 }
+
+
+def warprl_go2_mdp(seed: int):
+    """warp-rl's Isaac-hosted Go2 MDP (``warp_rl.integrations.go2``) as runtime terms.
+
+    Differences: raw actions are stored unclamped (warp-rl stores them clamped to [-5, 5]; the target is clamped
+    in both), resets clamp joint positions to the soft limits, and there is no non-finite-height termination.
+    """
+    import math
+
+    from isaaclab_experimental.mdp_runtime import (
+        ActionTermCfg,
+        CommandTermCfg,
+        EventTermCfg,
+        MdpCfg,
+        ObservationGroupCfg,
+        ObservationTermCfg,
+        RewardTermCfg,
+        TerminationTermCfg,
+    )
+
+    command = {"command": "base_velocity"}
+    return MdpCfg(
+        episode_length_s=20.0,
+        seed=seed,
+        commands={
+            "base_velocity": CommandTermCfg(
+                term="uniform_velocity",
+                resampling_time_range=(8.0, 8.0),
+                params={"lin_vel_x": (-1.0, 1.0), "lin_vel_y": (-0.4, 0.4), "ang_vel_z": (-1.0, 1.0)},
+            )
+        },
+        actions={
+            "joint_pos": ActionTermCfg(
+                term="joint_position", scale=0.25, clip=(-1.25, 1.25), params={"use_default_offset": True}
+            )
+        },
+        observations={
+            "policy": ObservationGroupCfg(
+                terms={
+                    "base_lin_vel": ObservationTermCfg(term="base_lin_vel"),
+                    "base_ang_vel": ObservationTermCfg(term="base_ang_vel", scale=0.25),
+                    "projected_gravity": ObservationTermCfg(term="projected_gravity"),
+                    "commands": ObservationTermCfg(term="generated_commands", params=command),
+                    "joint_pos": ObservationTermCfg(term="joint_pos_rel"),
+                    "joint_vel": ObservationTermCfg(term="joint_vel_rel", scale=0.05),
+                    "actions": ObservationTermCfg(term="last_action"),
+                }
+            )
+        },
+        rewards={
+            "track_lin_vel": RewardTermCfg(term="track_lin_vel_xy_exp", weight=1.5, params={"std": 0.5, **command}),
+            "track_ang_vel": RewardTermCfg(term="track_ang_vel_z_exp", weight=0.75, params={"std": 0.5, **command}),
+            "lin_vel_z": RewardTermCfg(term="lin_vel_z_l2", weight=-2.0),
+            "ang_vel_xy": RewardTermCfg(term="ang_vel_xy_l2", weight=-0.05),
+            "torques": RewardTermCfg(term="joint_torques_l2", weight=-2.5e-5),
+            "action_rate": RewardTermCfg(term="action_rate_l2", weight=-0.01),
+            "orientation": RewardTermCfg(term="flat_orientation_l2", weight=-2.0),
+            "height": RewardTermCfg(term="base_height_l2", weight=-5.0, params={"target_height": 0.34}),
+            "terminated": RewardTermCfg(term="is_terminated", weight=-5.0),
+        },
+        terminations={
+            "time_out": TerminationTermCfg(term="time_out", time_out=True),
+            "height": TerminationTermCfg(term="root_height_below_minimum", params={"minimum_height": 0.18}),
+            "orientation": TerminationTermCfg(term="bad_orientation", params={"limit_angle": math.pi / 3.0}),
+        },
+        events={
+            "reset_base": EventTermCfg(
+                term="reset_root_state_uniform",
+                params={"pose_range": {"yaw": (-math.pi, math.pi)}, "velocity_range": {}},
+            ),
+            "reset_joints": EventTermCfg(
+                term="reset_joints_by_offset", params={"position_range": (-0.05, 0.05), "velocity_range": (0.0, 0.0)}
+            ),
+        },
+    )
 
 
 def capture(fn):
@@ -89,14 +167,20 @@ def build_env(args):
     from isaaclab.sim import SimulationContext
     from isaaclab.utils import instantiate
 
-    module_name, cfg_name, sensor = RUNTIME_TASKS[args.env]
-    module = importlib.import_module(module_name)
-    sim_cfg, scene_cfg = args.sim_cfg, args.scene_cfg
-    sim = SimulationContext(sim_cfg)
-    scene = instantiate(scene_cfg)
+    sim = SimulationContext(args.sim_cfg)
+    scene = instantiate(args.scene_cfg)
     sim.reset()
-    physics = NewtonPhysics(scene, "robot", args.decimation, contact_sensor=sensor)
-    cfg = getattr(module, cfg_name)(seed=args.seed)
+    if args.env == "runtime_go2_warprl_mdp":
+        plan = compile_plan(warprl_go2_mdp(args.seed), NewtonPhysics(scene, "robot", args.decimation), "warp")
+        return MdpEnv(plan.bind(*plan.allocate())), plan.step_dt, lambda: None
+    module_name, cfg_name, sensor = RUNTIME_TASKS[args.env]
+    cfg = getattr(importlib.import_module(module_name), cfg_name)(seed=args.seed)
+    for name in args.drop_terms:
+        for section in (cfg.rewards, cfg.terminations, cfg.events):
+            section.pop(name, None)
+    contact_terms = ("feet_air_time", "illegal_contact")
+    uses_contacts = any(t.term in contact_terms for t in (*cfg.rewards.values(), *cfg.terminations.values()))
+    physics = NewtonPhysics(scene, "robot", args.decimation, contact_sensor=sensor if uses_contacts else None)
     for term in cfg.actions.values():
         # warp-rl samples unbounded Gaussian actions; bound the raw action to [-5, 5] as warp-rl's Go2 does.
         term.clip = tuple(term.scale * bound + term.offset for bound in (-5.0, 5.0))
@@ -106,13 +190,24 @@ def build_env(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--env", choices=[*RUNTIME_TASKS, "warprl_isaac_go2"], default="runtime_go2")
+    parser.add_argument(
+        "--env", choices=[*RUNTIME_TASKS, "runtime_go2_warprl_mdp", "warprl_isaac_go2"], default="runtime_go2"
+    )
     parser.add_argument("--num_envs", type=int, default=4096)
     parser.add_argument("--horizon", type=int, default=32)
     parser.add_argument("--width", type=int, default=128)
     parser.add_argument("--iterations", type=int, default=20, help="Graph replays per timing sample.")
     parser.add_argument("--samples", type=int, default=5)
     parser.add_argument("--num_substeps", type=int, default=None, help="Override the Newton solver substeps.")
+    parser.add_argument(
+        "--physics",
+        choices=["stable", "warp_rl"],
+        default="stable",
+        help="Physics of the stable task, or warp-rl's Isaac-hosted Go2 settings (MJWarp contacts, 1 substep).",
+    )
+    parser.add_argument(
+        "--drop_terms", nargs="*", default=[], help="Remove reward, termination, or event terms by name (ablation)."
+    )
     parser.add_argument("--train_iterations", type=int, default=0, help="Also train and report learning metrics.")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", type=Path, default=None)
@@ -127,11 +222,26 @@ def main():
         from warp_rl.integrations.factory import make_config
 
         launch_cfg, _ = make_config("go2", args.num_envs, args.seed)
+    elif args.env == "runtime_go2_warprl_mdp":
+        from warp_rl.integrations.go2 import Go2VelocityEnvCfg
+
+        env_cfg = Go2VelocityEnvCfg()
+        env_cfg.scene.num_envs = args.num_envs
+        args.sim_cfg, args.scene_cfg, args.decimation = env_cfg.sim, env_cfg.scene, env_cfg.decimation
+        launch_cfg = args.sim_cfg
     else:
         from isaaclab_tasks_experimental.mdp_runtime.stable import stable_physics_cfgs
 
         module = importlib.import_module(RUNTIME_TASKS[args.env][0])
         args.sim_cfg, args.scene_cfg, args.decimation = stable_physics_cfgs(module.STABLE_TASK, args.num_envs)
+        if args.physics == "warp_rl":
+            from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg
+
+            # The solver settings of warp_rl.integrations.go2.Go2VelocityEnvCfg.
+            args.sim_cfg.physics = NewtonCfg(
+                solver_cfg=MJWarpSolverCfg(njmax=64, nconmax=32, integrator="implicitfast", cone="pyramidal"),
+                num_substeps=1,
+            )
         if args.num_substeps is not None:
             args.sim_cfg.physics.num_substeps = args.num_substeps
         launch_cfg = args.sim_cfg

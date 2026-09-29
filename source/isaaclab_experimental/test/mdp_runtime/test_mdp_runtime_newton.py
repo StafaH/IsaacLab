@@ -12,7 +12,7 @@ import importlib
 import numpy as np
 import pytest
 import torch
-from isaaclab_experimental.mdp_runtime import NewtonPhysics, compile_plan
+from isaaclab_experimental.mdp_runtime import NewtonPhysics, RewardTermCfg, TerminationTermCfg, compile_plan
 from isaaclab_tasks_experimental.mdp_runtime.stable import stable_physics_cfgs
 
 from isaaclab.sim import build_simulation_context
@@ -116,6 +116,11 @@ def test_newton_mdp_capture_and_backend_agreement(task, cfg_name, sensor):
     """
     module, (sim_cfg, scene_cfg, decimation) = _scene(task)
     cfg = getattr(module, cfg_name)(seed=3, episode_length_s=0.2)
+    if task == "go2_velocity":
+        # Root terms that the stable Go2 task does not use.
+        cfg.rewards["height"] = RewardTermCfg(term="base_height_l2", weight=-5.0, params={"target_height": 0.34})
+        cfg.terminations["low"] = TerminationTermCfg(term="root_height_below_minimum", params={"minimum_height": 0.2})
+        cfg.terminations["tilt"] = TerminationTermCfg(term="bad_orientation", params={"limit_angle": 0.5})
     with build_simulation_context(sim_cfg=sim_cfg) as sim:
         scene = instantiate(scene_cfg)
         sim.reset()

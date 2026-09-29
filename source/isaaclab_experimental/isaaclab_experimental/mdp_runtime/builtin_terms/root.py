@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
 import torch
 import warp as wp
 
@@ -333,3 +334,81 @@ def _(ctx: TermContext):
         root_vel.copy_(torch.where(mask[:, None], root_vel + offset, root_vel))
 
     return run
+
+
+# -- height and orientation ----------------------------------------------------------------------------
+
+define_term(
+    "base_height_l2",
+    Stage.REWARD,
+    params={"target_height": REQUIRED},
+    reads=("root_pose_w",),
+    doc="Squared deviation of the root height (world z, flat terrain) from a target [m^2].",
+)
+define_term(
+    "root_height_below_minimum",
+    Stage.TERMINATION,
+    params={"minimum_height": REQUIRED},
+    reads=("root_pose_w",),
+    doc="Root height (world z, flat terrain) is below the minimum.",
+)
+define_term(
+    "bad_orientation",
+    Stage.TERMINATION,
+    params={"limit_angle": REQUIRED},
+    reads=("root_pose_w",),
+    doc="The root z axis is tilted from the world z axis by more than the limit angle [rad].",
+)
+
+
+@implement("base_height_l2", "warp")
+def _(ctx: TermContext):
+    target = float(ctx.params["target_height"])
+
+    @wp.func
+    def term(env: int, f: Any) -> float:
+        d = f.root_pose_w[env, 2] - wp.static(target)
+        return d * d
+
+    return term
+
+
+@implement("root_height_below_minimum", "warp")
+def _(ctx: TermContext):
+    minimum = float(ctx.params["minimum_height"])
+
+    @wp.func
+    def term(env: int, f: Any) -> bool:
+        return f.root_pose_w[env, 2] < wp.static(minimum)
+
+    return term
+
+
+@implement("bad_orientation", "warp")
+def _(ctx: TermContext):
+    limit = float(ctx.params["limit_angle"])
+
+    @wp.func
+    def term(env: int, f: Any) -> bool:
+        return wp.abs(wp.acos(-projected_gravity_b(f, env)[2])) > wp.static(limit)
+
+    return term
+
+
+@implement("base_height_l2", "torch")
+def _(ctx: TermContext):
+    pose, out, target = ctx.fields["root_pose_w"], ctx.out, float(np.float32(ctx.params["target_height"]))
+    return lambda: torch.square(pose[:, 2] - target, out=out)
+
+
+@implement("root_height_below_minimum", "torch")
+def _(ctx: TermContext):
+    pose, out, minimum = ctx.fields["root_pose_w"], ctx.out, float(np.float32(ctx.params["minimum_height"]))
+    return lambda: torch.lt(pose[:, 2], minimum, out=out)
+
+
+@implement("bad_orientation", "torch")
+def _(ctx: TermContext):
+    pose, out, down = ctx.fields["root_pose_w"], ctx.out, _down(ctx)
+    limit = float(np.float32(ctx.params["limit_angle"]))
+    return lambda: torch.gt(torch.acos(-_gravity(pose, down)[:, 2]).abs(), limit, out=out)
