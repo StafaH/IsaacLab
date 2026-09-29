@@ -48,11 +48,15 @@ RUNTIME_TASKS = {
 }
 
 
+ACTION_BOUNDS = (-5.0, 5.0)
+"""warp-rl samples unbounded Gaussian actions; its Go2 bounds the raw action to [-5, 5] before use."""
+
+
 def warprl_go2_mdp(seed: int):
     """warp-rl's Isaac-hosted Go2 MDP (``warp_rl.integrations.go2``) as runtime terms.
 
-    Differences: raw actions are stored unclamped (warp-rl stores them clamped to [-5, 5]; the target is clamped
-    in both), resets clamp joint positions to the soft limits, and there is no non-finite-height termination.
+    With ``MdpEnv(action_bounds=(-5, 5))`` the raw action is bounded as in warp-rl. Differences: resets clamp joint
+    positions to the soft limits, and there is no non-finite-height termination.
     """
     import math
 
@@ -78,11 +82,7 @@ def warprl_go2_mdp(seed: int):
                 params={"lin_vel_x": (-1.0, 1.0), "lin_vel_y": (-0.4, 0.4), "ang_vel_z": (-1.0, 1.0)},
             )
         },
-        actions={
-            "joint_pos": ActionTermCfg(
-                term="joint_position", scale=0.25, clip=(-1.25, 1.25), params={"use_default_offset": True}
-            )
-        },
+        actions={"joint_pos": ActionTermCfg(term="joint_position", scale=0.25, params={"use_default_offset": True})},
         observations={
             "policy": ObservationGroupCfg(
                 terms={
@@ -172,7 +172,7 @@ def build_env(args):
     sim.reset()
     if args.env == "runtime_go2_warprl_mdp":
         plan = compile_plan(warprl_go2_mdp(args.seed), NewtonPhysics(scene, "robot", args.decimation), "warp")
-        return MdpEnv(plan.bind(*plan.allocate())), plan.step_dt, lambda: None
+        return MdpEnv(plan.bind(*plan.allocate()), action_bounds=ACTION_BOUNDS), plan.step_dt, lambda: None
     module_name, cfg_name, sensor = RUNTIME_TASKS[args.env]
     cfg = getattr(importlib.import_module(module_name), cfg_name)(seed=args.seed)
     for name in args.drop_terms:
@@ -181,11 +181,8 @@ def build_env(args):
     contact_terms = ("feet_air_time", "illegal_contact")
     uses_contacts = any(t.term in contact_terms for t in (*cfg.rewards.values(), *cfg.terminations.values()))
     physics = NewtonPhysics(scene, "robot", args.decimation, contact_sensor=sensor if uses_contacts else None)
-    for term in cfg.actions.values():
-        # warp-rl samples unbounded Gaussian actions; bound the raw action to [-5, 5] as warp-rl's Go2 does.
-        term.clip = tuple(term.scale * bound + term.offset for bound in (-5.0, 5.0))
     plan = compile_plan(cfg, physics, "warp")
-    return MdpEnv(plan.bind(*plan.allocate())), plan.step_dt, lambda: None
+    return MdpEnv(plan.bind(*plan.allocate()), action_bounds=ACTION_BOUNDS), plan.step_dt, lambda: None
 
 
 def main():
@@ -208,6 +205,8 @@ def main():
     parser.add_argument(
         "--drop_terms", nargs="*", default=[], help="Remove reward, termination, or event terms by name (ablation)."
     )
+    parser.add_argument("--eager", action="store_true", help="Train without graph capture (with --skip_probes).")
+    parser.add_argument("--skip_probes", action="store_true", help="Only train (fresh learner).")
     parser.add_argument("--train_iterations", type=int, default=0, help="Also train and report learning metrics.")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", type=Path, default=None)
@@ -256,7 +255,7 @@ def main():
             config = PPOConfig(hidden_sizes=(args.width, args.width), horizon=args.horizon, reward_scale=1.0 / step_dt)
             ppo = PPO(env, config)
             start = time.perf_counter()
-            runner = OnPolicyRunner(ppo)
+            runner = OnPolicyRunner(ppo, capture=not args.eager)
             report["capture_s"] = time.perf_counter() - start
             count = args.num_envs * args.horizon
 
@@ -265,33 +264,34 @@ def main():
                 report["phases"][name] = result
                 print(f"{name}: {result['median_gpu_ms']:.3f} ms, {result['fps']:,.0f} FPS", flush=True)
 
-            probe("full_training", runner.step)
-            probe("collection", capture(ppo.collect))
-            actions = [wp.clone(a) for a in ppo.storage.action_views]
-            probe("learning", capture(ppo.update))
+            if not args.skip_probes:
+                probe("full_training", runner.step)
+                probe("collection", capture(ppo.collect))
+                actions = [wp.clone(a) for a in ppo.storage.action_views]
+                probe("learning", capture(ppo.update))
 
-            def environment():
-                for t in range(args.horizon):
-                    env.step(actions[t])
+                def environment():
+                    for t in range(args.horizon):
+                        env.step(actions[t])
 
-            env.reset()
-            graph = capture(environment)
-            probe("environment_action_tape", graph)
-            for a in actions:
-                a.zero_()
-            env.reset()
-            probe("environment_zero_actions", graph)
-            phases = report["phases"]
-            report["interpretation"] = {
-                "training_fraction_of_action_tape_ceiling": phases["environment_action_tape"]["median_gpu_ms"]
-                / phases["full_training"]["median_gpu_ms"],
-                "speedup_if_learning_were_free": phases["full_training"]["median_gpu_ms"]
-                / phases["collection"]["median_gpu_ms"],
-            }
-            print(json.dumps(report["interpretation"], indent=2))
+                env.reset()
+                graph = capture(environment)
+                probe("environment_action_tape", graph)
+                for a in actions:
+                    a.zero_()
+                env.reset()
+                probe("environment_zero_actions", graph)
+                phases = report["phases"]
+                report["interpretation"] = {
+                    "training_fraction_of_action_tape_ceiling": phases["environment_action_tape"]["median_gpu_ms"]
+                    / phases["full_training"]["median_gpu_ms"],
+                    "speedup_if_learning_were_free": phases["full_training"]["median_gpu_ms"]
+                    / phases["collection"]["median_gpu_ms"],
+                }
+                print(json.dumps(report["interpretation"], indent=2))
 
             if args.train_iterations:
-                # Fresh learner state is not restored: training continues from the probes' updates.
+                # With probes, training continues from the probes' updates; use --skip_probes for a fresh learner.
                 env.reset()
                 history = []
                 wp.synchronize()

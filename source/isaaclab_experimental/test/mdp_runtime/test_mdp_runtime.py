@@ -255,3 +255,17 @@ def test_heterogeneous_population():
         "gantry: observations.policy.pos: unknown term 'nope'.",
         "agent types must use distinct physics bindings.",
     ]
+
+
+def test_programs_differing_only_in_constants_do_not_share_kernels():
+    """Generated kernels bake constants in: programs that differ only in a constant must not reuse each other's code."""
+    observations = {}
+    for scale in (0.5, 2.0):
+        cfg = _cfg()
+        cfg.observations["policy"].terms["vel"].scale = scale
+        cfg.observations["policy"].terms["vel"].clip = None
+        program = _program("warp", cfg)
+        program.reset()
+        observations[scale] = program.outputs.observations["policy"].numpy()[:, 3:6]
+    np.testing.assert_allclose(observations[2.0], 4.0 * observations[0.5], rtol=1e-6)
+    assert np.abs(observations[0.5]).max() > 0.0

@@ -114,7 +114,11 @@ class WarpBackend:
 
 
 def _field_struct(arrays: dict[str, wp.array]):
-    """Generate the field struct type; its name is derived from the member types so kernels cache on disk."""
+    """Generate the field struct type; its name is derived from the member types so kernels cache on disk.
+
+    Returns:
+        The struct type, an instance holding the arrays, and the layout key.
+    """
     annotations = {name: wp.array(dtype=a.dtype, ndim=a.ndim) for name, a in arrays.items()}
     key = ",".join(f"{n}:{wp.types.type_repr(a.dtype)}:{a.ndim}" for n, a in arrays.items())
     name = "MdpFields_" + hashlib.sha256(key.encode()).hexdigest()[:16]
@@ -122,7 +126,28 @@ def _field_struct(arrays: dict[str, wp.array]):
     instance = struct_type()
     for member, array in arrays.items():
         setattr(instance, member, array)
-    return struct_type, instance
+    return struct_type, instance, key
+
+
+def _module_name(plan, layout_key: str) -> str:
+    """Name the Warp module of a program's kernels after everything baked into them.
+
+    Term functions capture parameters, columns, and flags as compile-time constants through ``wp.static``. Warp's
+    module hash does not cover those values in nested functions, so kernels of programs that differ only in
+    constants would share a cache entry. A module per program signature keeps them apart, while identical
+    programs still reuse the kernel cache.
+    """
+    info = plan.info
+    parts = [
+        layout_key,
+        repr((info.step_dt, info.physics_dt, info.max_episode_length, info.num_actions)),
+        repr((sorted(info.command_columns.items()), info.termination_names, plan.compute_final_observations)),
+        repr(sorted(plan.observation_columns.items())),
+    ]
+    for term in plan.terms:
+        params = sorted((k, repr(v)) for k, v in term.params.items())
+        parts.append(repr((term.path, term.spec.name, params, term.columns, term.state_columns, repr(term.cfg))))
+    return "isaaclab_mdp_runtime_" + hashlib.sha256("\n".join(parts).encode()).hexdigest()[:24]
 
 
 def _make_observe(terms: "list[ResolvedTerm]", funcs: list):
@@ -192,7 +217,8 @@ class WarpExecutor:
         collisions = sorted(set(runtime) & set(plan.physics.fields))
         if collisions:
             raise ValueError(f"Physics fields {collisions} collide with runtime field names.")
-        self.fields_type, self.fields = _field_struct({**plan.physics.fields, **runtime})
+        self.fields_type, self.fields, layout_key = _field_struct({**plan.physics.fields, **runtime})
+        self.module = _module_name(plan, layout_key)
 
         def build(term: "ResolvedTerm"):
             ctx = TermContext(
@@ -264,7 +290,7 @@ class WarpExecutor:
         scale, offset, lo, hi = vec(*scale), vec(*offset), vec(*lo), vec(*hi)
         num_actions = plan.num_actions
 
-        @wp.kernel(module="unique")
+        @wp.kernel(module=self.module)
         def pre(f: fields_type):
             env = wp.tid()
             for c in range(num_actions):
@@ -322,7 +348,7 @@ class WarpExecutor:
         interval_hi = [float(t.cfg.interval_range_s[1]) for t in plan.interval_events]
         interval_writes = [bool(t.spec.writes) for t in plan.interval_events]
 
-        @wp.kernel(module="unique")
+        @wp.kernel(module=self.module)
         def post(f: fields_type):
             env = wp.tid()
             s = f.rng[env]
@@ -386,7 +412,7 @@ class WarpExecutor:
     def _make_observe_kernel(self, observe):
         fields_type = self.fields_type
 
-        @wp.kernel(module="unique")
+        @wp.kernel(module=self.module)
         def observe_all(f: fields_type):
             env = wp.tid()
             f.rng[env] = observe(env, f, f.observations, f.rng[env])
@@ -396,7 +422,7 @@ class WarpExecutor:
     def _make_reset_kernel(self, reset_env):
         fields_type = self.fields_type
 
-        @wp.kernel(module="unique")
+        @wp.kernel(module=self.module)
         def reset_requested(f: fields_type):
             env = wp.tid()
             if f.reset_request[env]:

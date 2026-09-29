@@ -58,9 +58,14 @@ class NewtonPhysics:
             raise ValueError(
                 f"Only stateless actuators (implicit, DC motor) are supported; '{articulation}' has {stateful}."
             )
-        if decimation % NewtonManager._decimation:
-            raise ValueError(f"decimation {decimation} is not a multiple of Newton's {NewtonManager._decimation}.")
-        self._repeats = decimation // NewtonManager._decimation
+        # Step physics like Isaac Lab environments do: when Newton runs every actuator inside the solver step, it
+        # executes the whole decimation loop per call, and data is updated once per control step; otherwise
+        # actions are applied, physics stepped, and data updated once per physics step.
+        NewtonManager.set_decimation(decimation)
+        self._fused = NewtonManager.handles_decimation()
+        if not self._fused:
+            NewtonManager.set_decimation(1)
+        self._repeats = 1 if self._fused else decimation
         self.physics_dt = scene.physics_dt
         self.step_dt = self.physics_dt * decimation
         self.num_envs = scene.num_envs
@@ -105,7 +110,6 @@ class NewtonPhysics:
             )
         self._apply_position = self._apply_effort = self._read_contacts = self._read_bodies = False
         self._write_root_pose = self._write_root_vel = self._write_joints = False
-        self._submit_every_substep = self._update_every_substep = True
 
     def prepare(self, reads: set[str], writes: set[str]) -> None:
         """Apply only the commands that terms write, refresh only the data that terms read."""
@@ -116,26 +120,13 @@ class NewtonPhysics:
         self._write_root_pose = "root_pose_w" in writes
         self._write_root_vel = "root_vel_w" in writes
         self._write_joints = bool({"joint_pos", "joint_vel"} & writes)
-        # Targets are constant over a control step. They must be resubmitted every physics step only if
-        # actuators are computed outside the solver step (Isaac Lab explicit actuators, not Newton-native ones).
-        implicit = all(isinstance(cfg, ImplicitActuatorCfg) for cfg in self._robot.cfg.actuators.values())
-        self._submit_every_substep = not (implicit or self._manager._is_all_graphable())
-        # Joint accelerations are finite differences over the data update interval: refresh the data every
-        # physics step only if a term reads them (as the stable environment does), else once per control step.
-        self._update_every_substep = "joint_acc" in reads
 
     def step(self) -> None:
         dt = self.physics_dt * self._manager._decimation
-        if not self._submit_every_substep:
-            self._submit()
         for _ in range(self._repeats):
-            if self._submit_every_substep:
-                self._submit()
+            self._submit()
             self._manager._simulate_full()
-            if self._update_every_substep:
-                self._scene.update(dt=dt)
-        if not self._update_every_substep:
-            self._scene.update(dt=self.step_dt)
+            self._scene.update(dt=dt)
         self._refresh()
 
     def _submit(self) -> None:
