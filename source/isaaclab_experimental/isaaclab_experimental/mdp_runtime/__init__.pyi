@@ -5,6 +5,7 @@
 
 __all__ = [
     "ActionTermCfg",
+    "CommandTermCfg",
     "EventTermCfg",
     "MdpCfg",
     "ObservationGroupCfg",
@@ -14,7 +15,7 @@ __all__ = [
     "TerminationTermCfg",
     "MdpEnv",
     "HeterogeneousProgram",
-    "NewtonArticulationPhysics",
+    "NewtonPhysics",
     "PhysicsBinding",
     "PointMassPhysics",
     "CapturedStep",
@@ -27,6 +28,7 @@ __all__ = [
     "capture_step",
     "compile_plan",
     "REQUIRED",
+    "CompileInfo",
     "Stage",
     "TermContext",
     "TermSpec",
@@ -37,6 +39,7 @@ __all__ = [
 
 from .cfg import (
     ActionTermCfg,
+    CommandTermCfg,
     EventTermCfg,
     MdpCfg,
     ObservationGroupCfg,
@@ -47,7 +50,7 @@ from .cfg import (
 )
 from .env import MdpEnv
 from .heterogeneous import HeterogeneousProgram
-from .newton import NewtonArticulationPhysics
+from .newton import NewtonPhysics
 from .physics import PhysicsBinding, PointMassPhysics
 from .plan import (
     CapturedStep,
@@ -60,4 +63,4 @@ from .plan import (
     capture_step,
     compile_plan,
 )
-from .terms import REQUIRED, Stage, TermContext, TermSpec, define_term, implement, registered_terms
+from .terms import REQUIRED, CompileInfo, Stage, TermContext, TermSpec, define_term, implement, registered_terms

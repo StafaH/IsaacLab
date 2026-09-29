@@ -3,15 +3,15 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Configuration compilation, buffer allocation, and the fixed per-step operation list.
+"""Configuration compilation, buffer allocation, and program binding.
 
 The lifecycle has three explicit phases:
 
 1. :func:`compile_plan` validates an :class:`~isaaclab_experimental.mdp_runtime.MdpCfg` against a physics
    binding and a backend, and resolves it into an immutable :class:`ExecutionPlan` (no device memory).
 2. :meth:`ExecutionPlan.allocate` creates the input, state, and output buffers.
-3. :meth:`ExecutionPlan.bind` records every operation against those buffers and returns an
-   :class:`MdpProgram` whose step replays the same operation list with the same arguments every time.
+3. :meth:`ExecutionPlan.bind` builds the backend executor for those buffers and returns an :class:`MdpProgram`.
+   The Warp executor generates three fused kernels; the Torch executor records a list of tensor functions.
 """
 
 from __future__ import annotations
@@ -27,9 +27,18 @@ import warp as wp
 from isaaclab.utils.string import resolve_matching_names
 
 from . import builtin_terms  # noqa: F401  (registers the built-in terms)
-from .cfg import ActionTermCfg, EventTermCfg, MdpCfg, ObservationTermCfg, RewardTermCfg, TermCfg, TerminationTermCfg
+from .cfg import (
+    ActionTermCfg,
+    CommandTermCfg,
+    EventTermCfg,
+    MdpCfg,
+    ObservationTermCfg,
+    RewardTermCfg,
+    TermCfg,
+    TerminationTermCfg,
+)
 from .physics import PhysicsBinding
-from .terms import BACKENDS, REQUIRED, RUNTIME_FIELDS, Stage, TermContext, TermSpec, get_impl, get_spec
+from .terms import BACKENDS, REQUIRED, RUNTIME_FIELDS, STATE, CompileInfo, Stage, TermSpec, get_impl, get_spec
 from .torch_backend import TorchBackend, warp_stream
 from .warp_backend import WarpBackend
 
@@ -44,16 +53,22 @@ class MdpConfigError(ValueError):
 
 @dataclass(frozen=True)
 class ResolvedTerm:
-    """A validated term with resolved parameters and its output columns."""
+    """A validated term with resolved parameters and its columns."""
 
     path: str
-    """Configuration path, e.g. ``"rewards.alive"``. Used in operation names and errors."""
+    """Configuration path, e.g. ``"rewards.alive"``. Used in errors and the schedule."""
     name: str
     spec: TermSpec
     cfg: TermCfg
     params: Mapping[str, Any]
-    columns: tuple[int, int] | None
-    """Column range in the action or observation-group buffer, else None."""
+    columns: tuple[int, int] | None = None
+    """Column range in the action, observation, or command buffer."""
+    state_columns: tuple[int, int] | None = None
+    """Column range of a command term's private state."""
+
+    @property
+    def width(self) -> int:
+        return self.columns[1] - self.columns[0]
 
 
 @dataclass
@@ -78,6 +93,12 @@ class MdpState:
     """Steps since the last reset ``(N,)`` int32."""
     rng: Any
     """Per-environment PCG32 stream ``(N,)``: ``uint32`` (Warp) or ``int64`` holding ``uint32`` (Torch)."""
+    commands: Any
+    """Command values ``(N, C)``; each command term owns a column range."""
+    command_state: Any
+    """Private command state ``(N, S)``."""
+    command_time_left: Any
+    """Time until each command resamples ``(num_commands, N)`` [s]."""
     termination_values: Any
     """Per-term termination flags ``(T, N)`` bool."""
     reward_values: Any
@@ -87,21 +108,27 @@ class MdpState:
     reward_weights: Any
     """Reward weights ``(K,)`` float32 on the device."""
     interval_time_left: Any
-    """Time until each interval event fires ``(E, N)`` float32 [s]."""
+    """Time until each interval event fires ``(E, N)`` [s]."""
     interval_fired: Any
     """Interval events that fired this step ``(E, N)`` bool."""
     reset_request: Any
     """Mask used by :meth:`MdpProgram.reset` ``(N,)`` bool."""
+    commit_mask: Any
+    """Environments whose physics state events changed this step ``(N,)`` bool."""
 
 
 @dataclass
 class MdpOutputs:
     """Buffers written by a step."""
 
+    observation_buffer: Any
+    """All observation groups side by side ``(N, W)`` float32."""
+    final_observation_buffer: Any
+    """Pre-reset observations ``(N, W)``, or None unless ``compute_final_observations``."""
     observations: dict[str, Any]
-    """Post-reset observations per group ``(N, width)`` float32."""
+    """Post-reset observations per group: column views of :attr:`observation_buffer`."""
     final_observations: dict[str, Any]
-    """Pre-reset observations per group, empty unless ``compute_final_observations``."""
+    """Pre-reset observations per group: column views of :attr:`final_observation_buffer`."""
     reward: Any
     """``(N,)`` float32."""
     terminated: Any
@@ -118,13 +145,11 @@ class ExecutionPlan:
 
     backend: str
     physics: PhysicsBinding = field(repr=False)
-    num_envs: int
-    step_dt: float
-    max_episode_length: int
-    num_actions: int
+    info: CompileInfo
     actions: tuple[ResolvedTerm, ...]
+    commands: tuple[ResolvedTerm, ...]
     observations: Mapping[str, tuple[ResolvedTerm, ...]]
-    observation_widths: Mapping[str, int]
+    observation_columns: Mapping[str, tuple[int, int]]
     terminations: tuple[ResolvedTerm, ...]
     rewards: tuple[ResolvedTerm, ...]
     reset_events: tuple[ResolvedTerm, ...]
@@ -133,8 +158,54 @@ class ExecutionPlan:
     seed: int
 
     @property
+    def num_envs(self) -> int:
+        return self.info.num_envs
+
+    @property
+    def num_actions(self) -> int:
+        return self.info.num_actions
+
+    @property
+    def step_dt(self) -> float:
+        return self.info.step_dt
+
+    @property
+    def max_episode_length(self) -> int:
+        return self.info.max_episode_length
+
+    @property
     def device(self) -> str:
-        return self.physics.device
+        return self.info.device
+
+    @property
+    def observation_widths(self) -> dict[str, int]:
+        return {g: stop - start for g, (start, stop) in self.observation_columns.items()}
+
+    @property
+    def observation_width(self) -> int:
+        return max((stop for _, stop in self.observation_columns.values()), default=0)
+
+    @property
+    def num_command_columns(self) -> int:
+        return self.commands[-1].columns[1] if self.commands else 0
+
+    @property
+    def num_command_state(self) -> int:
+        return self.commands[-1].state_columns[1] if self.commands else 0
+
+    @property
+    def terms(self) -> tuple[ResolvedTerm, ...]:
+        """Every term of the plan."""
+        groups = tuple(t for terms in self.observations.values() for t in terms)
+        return (
+            self.actions
+            + self.commands
+            + groups
+            + self.terminations
+            + self.rewards
+            + self.reset_events
+            + self.interval_events
+        )
 
     def make_backend(self) -> WarpBackend | TorchBackend:
         return (WarpBackend if self.backend == "warp" else TorchBackend)(self.device)
@@ -151,6 +222,9 @@ class ExecutionPlan:
             processed_actions=be.zeros((n, a), "float32"),
             episode_length=be.zeros((n,), "int32"),
             rng=be.zeros((n,), "rng"),
+            commands=be.zeros((n, self.num_command_columns), "float32"),
+            command_state=be.zeros((n, self.num_command_state), "float32"),
+            command_time_left=be.zeros((len(self.commands), n), "float32"),
             termination_values=be.zeros((t, n), "bool"),
             reward_values=be.zeros((k, n), "float32"),
             episode_sums=be.zeros((k, n), "float32"),
@@ -158,6 +232,7 @@ class ExecutionPlan:
             interval_time_left=be.zeros((e, n), "float32"),
             interval_fired=be.zeros((e, n), "bool"),
             reset_request=be.zeros((n,), "bool"),
+            commit_mask=be.zeros((n,), "bool"),
         )
         be.seed(state.rng, self.seed)
         return state
@@ -165,19 +240,19 @@ class ExecutionPlan:
     def allocate_outputs(self, **shared: Any) -> MdpOutputs:
         """Allocate outputs. ``reward``, ``terminated``, ``truncated``, ``reset_mask`` may be passed as
         caller-owned ``(N,)`` views, e.g. slices of population-wide buffers."""
-        be, n = self.make_backend(), self.num_envs
+        be, n, w = self.make_backend(), self.num_envs, self.observation_width
         unknown = set(shared) - {"reward", "terminated", "truncated", "reset_mask"}
         if unknown:
             raise ValueError(f"Unknown shared outputs: {sorted(unknown)}")
-        obs = {g: be.zeros((n, w), "float32") for g, w in self.observation_widths.items()}
-        final = (
-            {g: be.zeros((n, w), "float32") for g, w in self.observation_widths.items()}
-            if self.compute_final_observations
-            else {}
-        )
+        obs = be.zeros((n, w), "float32")
+        final = be.zeros((n, w), "float32") if self.compute_final_observations else None
         return MdpOutputs(
-            observations=obs,
-            final_observations=final,
+            observation_buffer=obs,
+            final_observation_buffer=final,
+            observations={g: be.columns(obs, *c) for g, c in self.observation_columns.items()},
+            final_observations={g: be.columns(final, *c) for g, c in self.observation_columns.items()}
+            if final is not None
+            else {},
             reward=shared["reward"] if "reward" in shared else be.zeros((n,), "float32"),
             terminated=shared["terminated"] if "terminated" in shared else be.zeros((n,), "bool"),
             truncated=shared["truncated"] if "truncated" in shared else be.zeros((n,), "bool"),
@@ -188,7 +263,7 @@ class ExecutionPlan:
         return self.allocate_inputs(), self.allocate_state(), self.allocate_outputs()
 
     def bind(self, inputs: MdpInputs, state: MdpState, outputs: MdpOutputs) -> MdpProgram:
-        """Record every operation against the given buffers. Buffers must outlive the program."""
+        """Build the executor for the given buffers. Buffers must outlive the program."""
         return MdpProgram(self, inputs, state, outputs)
 
 
@@ -202,8 +277,37 @@ def _check_range(path: str, name: str, value: Any, errors: list[str]) -> None:
         errors.append(f"{path}: '{name}' lower bound {value[0]} exceeds upper bound {value[1]}.")
 
 
+def _resolve_names(path: str, params: dict, physics: PhysicsBinding, info: CompileInfo, stage: Stage, errors):
+    """Resolve the name parameters documented in :class:`~isaaclab_experimental.mdp_runtime.TermCfg`."""
+    for key, target, names in (
+        ("joints", "joint_ids", physics.joint_names),
+        ("bodies", "body_ids", physics.body_names),
+        ("contact_bodies", "contact_ids", physics.contact_body_names),
+    ):
+        if key not in params:
+            continue
+        try:
+            ids, _ = resolve_matching_names(params[key], names, preserve_order=True)
+            params[target] = tuple(ids)
+        except ValueError as e:
+            errors.append(f"{path}: {e}")
+    if "command" in params:
+        if params["command"] not in info.command_columns:
+            errors.append(f"{path}: unknown command '{params['command']}'. Defined: {sorted(info.command_columns)}.")
+        else:
+            params["command_columns"] = info.command_columns[params["command"]]
+    if "terms" in params:
+        if stage != Stage.REWARD:
+            errors.append(f"{path}: the 'terms' parameter is only resolved for reward terms.")
+        try:
+            ids, _ = resolve_matching_names(params["terms"], info.termination_names, preserve_order=True)
+            params["term_ids"] = tuple(ids)
+        except ValueError as e:
+            errors.append(f"{path}: {e}")
+
+
 def _resolve_term(
-    path: str, name: str, cfg: TermCfg, stage: Stage, physics: PhysicsBinding, backend: str, errors: list[str]
+    path: str, name: str, cfg: TermCfg, stage: Stage, physics: PhysicsBinding, info: CompileInfo, backend, errors
 ) -> ResolvedTerm | None:
     if cfg.term is MISSING or not isinstance(cfg.term, str):
         errors.append(f"{path}: 'term' must name a registered term.")
@@ -227,18 +331,17 @@ def _resolve_term(
     params.update(cfg.params)
     for key, value in params.items():
         if key.endswith("_range") or key == "bounds":
-            _check_range(path, key, value, errors)
-    if "joints" in spec.params and "joints" in params:
-        try:
-            ids, _ = resolve_matching_names(params["joints"], physics.joint_names, preserve_order=True)
-            params["joint_ids"] = tuple(ids)
-        except ValueError as e:
-            errors.append(f"{path}: {e}")
+            if isinstance(value, Mapping):
+                for axis, bounds in value.items():
+                    _check_range(path, f"{key}.{axis}", bounds, errors)
+            else:
+                _check_range(path, key, value, errors)
+    _resolve_names(path, params, physics, info, stage, errors)
     for field_name in spec.reads:
         producer = RUNTIME_FIELDS.get(field_name)
-        if producer is not None and producer >= stage:
+        if producer is not None and producer != STATE and producer >= stage:
             errors.append(
-                f"{path}: reads '{field_name}', which the {producer.name.lower()} stage produces; only later"
+                f"{path}: reads '{field_name}', which the {Stage(producer).name.lower()} stage produces; only later"
                 " stages may read it."
             )
         elif producer is None and field_name not in physics.fields:
@@ -248,17 +351,21 @@ def _resolve_term(
             errors.append(f"{path}: writes '{field_name}', which the physics binding does not provide.")
     if len(errors) > count:
         return None
-    return ResolvedTerm(path, name, spec, cfg, params, None)
+    return ResolvedTerm(path, name, spec, cfg, params)
 
 
-def _with_columns(terms: list[ResolvedTerm], errors: list[str]) -> tuple[tuple[ResolvedTerm, ...], int]:
-    start, result = 0, []
+def _with_columns(terms: list[ResolvedTerm], info: CompileInfo, errors: list[str], start: int = 0):
+    result, state_start = [], 0
     for term in terms:
-        width = term.spec.width(term.params)
+        width = term.spec.width(term.params, info)
         if width <= 0:
             errors.append(f"{term.path}: term '{term.spec.name}' has width {width}; it must be positive.")
-        result.append(ResolvedTerm(term.path, term.name, term.spec, term.cfg, term.params, (start, start + width)))
+        state = (state_start, state_start + term.spec.state_width)
+        result.append(
+            ResolvedTerm(term.path, term.name, term.spec, term.cfg, term.params, (start, start + width), state)
+        )
         start += width
+        state_start = state[1]
     return tuple(result), start
 
 
@@ -273,10 +380,23 @@ def compile_plan(cfg: MdpCfg, physics: PhysicsBinding, backend: str = "warp") ->
     errors: list[str] = []
     if physics.num_envs <= 0:
         errors.append(f"physics binding has {physics.num_envs} environments.")
-    if not (isinstance(cfg.episode_length_s, (int, float)) and cfg.episode_length_s > 0):
+    episode_ok = isinstance(cfg.episode_length_s, (int, float)) and cfg.episode_length_s > 0
+    if not episode_ok:
         errors.append(f"episode_length_s must be positive, got {cfg.episode_length_s!r}.")
-    if backend == "torch" and not isinstance(physics.device, str):
-        errors.append("physics device must be a device string.")
+
+    def make_info(num_actions: int, command_columns: Mapping[str, tuple[int, int]]) -> CompileInfo:
+        return CompileInfo(
+            num_envs=physics.num_envs,
+            num_actions=num_actions,
+            step_dt=physics.step_dt,
+            physics_dt=physics.physics_dt,
+            max_episode_length=math.ceil(cfg.episode_length_s / physics.step_dt) if episode_ok else 0,
+            command_columns=command_columns,
+            termination_names=tuple(cfg.terminations),
+            device=physics.device,
+        )
+
+    info = make_info(0, {})
 
     def resolve(section: str, terms: Mapping[str, TermCfg], stage: Stage, cfg_type: type) -> list[ResolvedTerm]:
         out = []
@@ -285,22 +405,31 @@ def compile_plan(cfg: MdpCfg, physics: PhysicsBinding, backend: str = "warp") ->
             if not isinstance(term_cfg, cfg_type):
                 errors.append(f"{path}: expected {cfg_type.__name__}, got {type(term_cfg).__name__}.")
                 continue
-            resolved = _resolve_term(path, name, term_cfg, stage, physics, backend, errors)
+            resolved = _resolve_term(path, name, term_cfg, stage, physics, info, backend, errors)
             if resolved is not None:
                 out.append(resolved)
         return out
 
+    # Actions and commands are resolved first: their widths define the layout that later terms read.
     if not cfg.actions:
         errors.append("actions: at least one action term is required.")
     actions = resolve("actions", cfg.actions, Stage.ACTION, ActionTermCfg)
     for term in actions:
         if term.cfg.clip is not None:
             _check_range(term.path, "clip", term.cfg.clip, errors)
-    actions, num_actions = _with_columns(actions, errors)
+    actions, num_actions = _with_columns(actions, info, errors)
+    commands = resolve("commands", cfg.commands, Stage.COMMAND, CommandTermCfg)
+    for term in commands:
+        _check_range(term.path, "resampling_time_range", term.cfg.resampling_time_range, errors)
+    commands, _ = _with_columns(commands, info, errors)
+    for term in actions + commands:
+        if "command" in term.params:
+            errors.append(f"{term.path}: action and command terms cannot read commands.")
+    info = make_info(num_actions, {t.name: t.columns for t in commands})
 
     if not cfg.observations:
         errors.append("observations: at least one observation group is required.")
-    observations, widths = {}, {}
+    observations, observation_columns, start = {}, {}, 0
     for group, group_cfg in cfg.observations.items():
         if not group_cfg.terms:
             errors.append(f"observations.{group}: the group has no terms.")
@@ -308,7 +437,11 @@ def compile_plan(cfg: MdpCfg, physics: PhysicsBinding, backend: str = "warp") ->
         for term in terms:
             if term.cfg.clip is not None:
                 _check_range(term.path, "clip", term.cfg.clip, errors)
-        observations[group], widths[group] = _with_columns(terms, errors)
+            if term.cfg.noise is not None:
+                _check_range(term.path, "noise", term.cfg.noise, errors)
+        observations[group], stop = _with_columns(terms, info, errors, start)
+        observation_columns[group] = (start, stop)
+        start = stop
 
     terminations = resolve("terminations", cfg.terminations, Stage.TERMINATION, TerminationTermCfg)
     rewards = resolve("rewards", cfg.rewards, Stage.REWARD, RewardTermCfg)
@@ -334,13 +467,11 @@ def compile_plan(cfg: MdpCfg, physics: PhysicsBinding, backend: str = "warp") ->
     return ExecutionPlan(
         backend=backend,
         physics=physics,
-        num_envs=physics.num_envs,
-        step_dt=physics.step_dt,
-        max_episode_length=math.ceil(cfg.episode_length_s / physics.step_dt),
-        num_actions=num_actions,
+        info=info,
         actions=actions,
+        commands=commands,
         observations=observations,
-        observation_widths=widths,
+        observation_columns=observation_columns,
         terminations=tuple(terminations),
         rewards=tuple(rewards),
         reset_events=tuple(t for t in events if t.cfg.mode == "reset"),
@@ -350,10 +481,7 @@ def compile_plan(cfg: MdpCfg, physics: PhysicsBinding, backend: str = "warp") ->
     )
 
 
-# -- binding and execution -----------------------------------------------------------------------------
-
-
-Op = tuple[str, Callable[[], None]]
+# -- programs ------------------------------------------------------------------------------------------
 
 
 def _check_shape(name: str, array: Any, shape: tuple[int, ...]) -> None:
@@ -364,19 +492,19 @@ def _check_shape(name: str, array: Any, shape: tuple[int, ...]) -> None:
 class MdpProgram:
     """An execution plan bound to fixed buffers.
 
-    :meth:`step` runs this operation list, in order, on the current stream:
+    :meth:`step` runs the work listed by :attr:`schedule`, in this order:
 
-    1. ``action.process`` then one ``action.<term>`` per action term
-    2. ``physics.step`` (skipped when ``include_physics=False``)
-    3. ``runtime.episode_length``; ``termination.<term>`` ...; ``termination.reduce``
-    4. ``reward.<term>`` ...; ``reward.reduce``
-    5. with final observations: ``observation.<group>.<term>`` ...; ``final_observation.<group>``
-    6. ``event.reset.<term>`` ...; ``physics.commit.reset``; ``runtime.reset_state``; interval timer resampling
-    7. per interval event: ``event.interval.<term>.tick``, the term, ``physics.commit.interval.<term>``
-    8. ``observation.<group>.<term>`` ...; ``observation.<group>.post`` when a term scales or clips
+    1. action processing and action terms;
+    2. the physics step (skipped with ``include_physics=False``);
+    3. episode-length increment, terminations, rewards, and, with ``compute_final_observations``, pre-reset
+       observations;
+    4. for resetting environments: reset events, runtime-state reset, interval timers and commands resampled;
+    5. command timers and updates, then interval events;
+    6. physics reset of the resetting environments, and commit of every environment events changed;
+    7. observations.
 
-    Every array argument is fixed when the program is created, so the list can be captured into a CUDA graph
-    and replayed.
+    On the Warp backend, 1, 3-5, and 7 are one generated kernel each. Every argument is fixed when the program
+    is created, so a step can be captured into a CUDA graph and replayed.
     """
 
     def __init__(self, plan: ExecutionPlan, inputs: MdpInputs, state: MdpState, outputs: MdpOutputs):
@@ -384,64 +512,35 @@ class MdpProgram:
         self.inputs = inputs
         self.state = state
         self.outputs = outputs
-        self.backend = be = plan.make_backend()
+        self.backend = plan.make_backend()
         self._validate_buffers()
         self._host_weights = [float(term.cfg.weight) for term in plan.rewards]
         self._reward_index = {term.name: k for k, term in enumerate(plan.rewards)}
-        physics = plan.physics
-        self._fields = {name: be.adopt(array) for name, array in physics.fields.items()}
-        self._fields.update(
-            action=state.action,
-            prev_action=state.prev_action,
-            episode_length=state.episode_length,
-            terminated=outputs.terminated,
-            truncated=outputs.truncated,
-        )
-        self._indices: dict[str, dict[str, Any]] = {}
-
-        actions = self._bind_actions()
-        terminations = self._bind_terminations()
-        rewards = self._bind_rewards()
-        observations = self._bind_observations()
-        final = (
-            [
-                (f"final_observation.{g}", be.bind_copy(outputs.final_observations[g], obs))
-                for g, obs in outputs.observations.items()
-            ]
-            if plan.compute_final_observations
-            else []
-        )
-
-        self.pre_physics_ops: tuple[Op, ...] = tuple(actions)
-        self.physics_ops: tuple[Op, ...] = (("physics.step", physics.step),)
-        self.post_physics_ops: tuple[Op, ...] = (
-            ("runtime.episode_length", be.bind_increment(state.episode_length)),
-            *terminations,
-            *rewards,
-            *(observations + final if final else []),
-            *self._bind_reset(outputs.reset_mask),
-            *self._bind_intervals(),
-            *observations,
-        )
-        self.reset_ops: tuple[Op, ...] = (*self._bind_reset(state.reset_request), *observations)
-
-    # -- public API ----------------------------------------------------------------------------------
+        reads = {f for t in plan.terms for f in t.spec.reads if f in plan.physics.fields}
+        writes = {f for t in plan.terms for f in t.spec.writes}
+        plan.physics.prepare(reads, writes)
+        self.events_write_physics = any(t.spec.writes for t in plan.reset_events + plan.interval_events)
+        self._executor = self.backend.build_executor(self)
 
     @property
-    def op_names(self) -> tuple[str, ...]:
-        """Names of the step operations in execution order."""
-        return tuple(name for name, _ in self.pre_physics_ops + self.physics_ops + self.post_physics_ops)
+    def schedule(self) -> tuple[str, ...]:
+        """The logical order of work in one step (identical on both backends)."""
+        p = self.plan
+        names = ["action.process", *(t.path for t in p.actions), "physics.step", "episode_length"]
+        names += [t.path for t in p.terminations] + [t.path for t in p.rewards]
+        observe = [t.path for terms in p.observations.values() for t in terms]
+        if p.compute_final_observations:
+            names += [f"final.{n}" for n in observe]
+        names += [f"reset.{t.path}" for t in p.reset_events] + ["reset.runtime_state"]
+        names += [f"reset.timer.{t.path}" for t in p.interval_events] + [f"reset.{t.path}" for t in p.commands]
+        names += [t.path for t in p.commands] + [t.path for t in p.interval_events]
+        names += ["physics.reset", "physics.commit", *observe]
+        return tuple(names)
 
     def step(self, include_physics: bool = True) -> None:
         """Enqueue one control step reading :attr:`inputs` and writing :attr:`outputs`. Never synchronizes."""
         with self.backend.stream_scope():
-            for _, op in self.pre_physics_ops:
-                op()
-            if include_physics:
-                for _, op in self.physics_ops:
-                    op()
-            for _, op in self.post_physics_ops:
-                op()
+            self._executor.step(include_physics)
 
     def reset(self, env_ids: Sequence[int] | None = None, mask: Any = None) -> None:
         """Reset environments and recompute their observations.
@@ -456,17 +555,14 @@ class MdpProgram:
             if env_ids is not None:
                 raise ValueError("Pass either env_ids or mask, not both.")
             _check_shape("mask", mask, (self.plan.num_envs,))
-            copy = be.bind_copy(self.state.reset_request, mask)
+        elif be.is_capturing():
+            raise RuntimeError("reset(env_ids) converts indices on the host; pass a device mask during capture.")
         else:
-            if be.is_capturing():
-                raise RuntimeError("reset(env_ids) converts indices on the host; pass a device mask during capture.")
             be.assign_mask(self.state.reset_request, env_ids)
-            copy = None
         with be.stream_scope():
-            if copy is not None:
-                copy()
-            for _, op in self.reset_ops:
-                op()
+            if mask is not None:
+                be.copy(self.state.reset_request, mask)
+            self._executor.reset()
 
     def set_reward_weight(self, name: str, weight: float) -> None:
         """Change a reward weight in device memory. Captured graphs see the new value on the next replay."""
@@ -475,19 +571,16 @@ class MdpProgram:
         if not math.isfinite(weight):
             raise ValueError(f"Reward weight must be finite, got {weight}.")
         self._host_weights[self._reward_index[name]] = float(weight)
-        weights = self.backend.constant(self._host_weights, "float32")
-        self.backend.bind_copy(self.state.reward_weights, weights)()
+        self.backend.copy(self.state.reward_weights, self.backend.constant(self._host_weights, "float32"))
 
     def capture(self, include_physics: bool = True, warmup: bool = True) -> CapturedStep:
         """Capture one :meth:`step` into a CUDA graph.
 
         Warp programs use :class:`warp.ScopedCapture`; Torch programs use :class:`torch.cuda.CUDAGraph` with
-        Warp physics launches redirected to the capture stream. With ``warmup`` one eager step runs first to
-        compile kernels and settle lazy allocations; it advances the environment state.
+        Warp registered as an external capture. With ``warmup`` one eager step runs first to compile kernels
+        and settle lazy allocations; it advances the environment state.
         """
         return capture_step(self.backend, lambda: self.step(include_physics), warmup=warmup, owner=self)
-
-    # -- binding helpers -------------------------------------------------------------------------------
 
     def _validate_buffers(self) -> None:
         p, n, a = self.plan, self.plan.num_envs, self.plan.num_actions
@@ -500,6 +593,9 @@ class MdpProgram:
             ("state.processed_actions", s.processed_actions, (n, a)),
             ("state.episode_length", s.episode_length, (n,)),
             ("state.rng", s.rng, (n,)),
+            ("state.commands", s.commands, (n, p.num_command_columns)),
+            ("state.command_state", s.command_state, (n, p.num_command_state)),
+            ("state.command_time_left", s.command_time_left, (len(p.commands), n)),
             ("state.termination_values", s.termination_values, (t, n)),
             ("state.reward_values", s.reward_values, (k, n)),
             ("state.episode_sums", s.episode_sums, (k, n)),
@@ -507,145 +603,16 @@ class MdpProgram:
             ("state.interval_time_left", s.interval_time_left, (e, n)),
             ("state.interval_fired", s.interval_fired, (e, n)),
             ("state.reset_request", s.reset_request, (n,)),
+            ("state.commit_mask", s.commit_mask, (n,)),
+            ("outputs.observation_buffer", o.observation_buffer, (n, p.observation_width)),
             ("outputs.reward", o.reward, (n,)),
             ("outputs.terminated", o.terminated, (n,)),
             ("outputs.truncated", o.truncated, (n,)),
             ("outputs.reset_mask", o.reset_mask, (n,)),
         ):
             _check_shape(name, array, shape)
-        for group, width in p.observation_widths.items():
-            _check_shape(f"outputs.observations.{group}", o.observations[group], (n, width))
-            if p.compute_final_observations:
-                _check_shape(f"outputs.final_observations.{group}", o.final_observations[group], (n, width))
-
-    def _context(self, term: ResolvedTerm, *, out=None, action=None, mask=None, rng=None) -> TermContext:
-        if term.path not in self._indices:
-            self._indices[term.path] = (
-                {"joint_ids": self.backend.constant(term.params["joint_ids"], "index")}
-                if "joint_ids" in term.params
-                else {}
-            )
-        declared = term.spec.reads + term.spec.writes
-        return TermContext(
-            params=term.params,
-            fields={name: self._fields[name] for name in declared},
-            out=out,
-            action=action,
-            mask=mask,
-            rng=rng,
-            indices=self._indices[term.path],
-            num_envs=self.plan.num_envs,
-            step_dt=self.plan.step_dt,
-            max_episode_length=self.plan.max_episode_length,
-            device=self.plan.device,
-        )
-
-    def _bind(self, term: ResolvedTerm, **kwargs) -> Callable[[], None]:
-        return get_impl(term.spec.name, self.plan.backend)(self._context(term, **kwargs))
-
-    def _bind_actions(self) -> list[Op]:
-        be, s, terms = self.backend, self.state, self.plan.actions
-        scale, offset, lo, hi = [], [], [], []
-        for term in terms:
-            width = term.columns[1] - term.columns[0]
-            clip = term.cfg.clip or (-math.inf, math.inf)
-            scale += [term.cfg.scale] * width
-            offset += [term.cfg.offset] * width
-            lo += [clip[0]] * width
-            hi += [clip[1]] * width
-        constants = [be.constant(values, "float32") for values in (scale, offset, lo, hi)]
-        ops = [
-            (
-                "action.process",
-                be.bind_process_actions(self.inputs.actions, *constants, s.action, s.prev_action, s.processed_actions),
-            )
-        ]
-        for term in terms:
-            action = be.columns(s.processed_actions, *term.columns)
-            ops.append((f"action.{term.name}", self._bind(term, action=action)))
-        return ops
-
-    def _bind_terminations(self) -> list[Op]:
-        be, s, o, terms = self.backend, self.state, self.outputs, self.plan.terminations
-        ops = [(f"termination.{t.name}", self._bind(t, out=s.termination_values[k])) for k, t in enumerate(terms)]
-        time_out = be.constant([t.cfg.time_out for t in terms], "bool")
-        ops.append(
-            (
-                "termination.reduce",
-                be.bind_reduce_terminations(s.termination_values, time_out, o.terminated, o.truncated, o.reset_mask),
-            )
-        )
-        return ops
-
-    def _bind_rewards(self) -> list[Op]:
-        be, s, o, terms = self.backend, self.state, self.outputs, self.plan.rewards
-        ops = [(f"reward.{t.name}", self._bind(t, out=s.reward_values[k])) for k, t in enumerate(terms)]
-        ops.append(
-            (
-                "reward.reduce",
-                be.bind_reduce_rewards(s.reward_values, s.reward_weights, self.plan.step_dt, o.reward, s.episode_sums),
-            )
-        )
-        return ops
-
-    def _bind_observations(self) -> list[Op]:
-        be, ops = self.backend, []
-        for group, terms in self.plan.observations.items():
-            buffer = self.outputs.observations[group]
-            lo, hi, scale = [], [], []
-            for term in terms:
-                ops.append(
-                    (f"observation.{group}.{term.name}", self._bind(term, out=be.columns(buffer, *term.columns)))
-                )
-                width = term.columns[1] - term.columns[0]
-                clip = term.cfg.clip or (-math.inf, math.inf)
-                lo += [clip[0]] * width
-                hi += [clip[1]] * width
-                scale += [term.cfg.scale] * width
-            if any(t.cfg.clip is not None or t.cfg.scale != 1.0 for t in terms):
-                constants = [be.constant(values, "float32") for values in (lo, hi, scale)]
-                ops.append((f"observation.{group}.post", be.bind_post_observations(buffer, *constants)))
-        return ops
-
-    def _bind_reset(self, mask: Any) -> list[Op]:
-        """Reset events, physics commit, runtime state, and interval timers for the masked environments."""
-        be, s, plan = self.backend, self.state, self.plan
-        ops = [(f"event.reset.{t.name}", self._bind(t, mask=mask, rng=s.rng)) for t in plan.reset_events]
-        if any(t.spec.writes for t in plan.reset_events):
-            wp_mask = be.to_warp(mask)
-            ops.append(("physics.commit.reset", lambda: plan.physics.commit(wp_mask)))
-        ops.append(
-            (
-                "runtime.reset_state",
-                be.bind_reset_state(mask, s.episode_length, s.action, s.prev_action, s.episode_sums),
-            )
-        )
-        for k, t in enumerate(plan.interval_events):
-            lo, hi = t.cfg.interval_range_s
-            ops.append(
-                (
-                    f"event.interval.{t.name}.resample",
-                    be.bind_sample_timers(mask, s.rng, s.interval_time_left[k], lo, hi),
-                )
-            )
-        return ops
-
-    def _bind_intervals(self) -> list[Op]:
-        be, s, plan, ops = self.backend, self.state, self.plan, []
-        for k, t in enumerate(plan.interval_events):
-            lo, hi = t.cfg.interval_range_s
-            fired = s.interval_fired[k]
-            ops.append(
-                (
-                    f"event.interval.{t.name}.tick",
-                    be.bind_tick_timers(s.interval_time_left[k], plan.step_dt, s.rng, lo, hi, fired),
-                )
-            )
-            ops.append((f"event.interval.{t.name}", self._bind(t, mask=fired, rng=s.rng)))
-            if t.spec.writes:
-                wp_fired = be.to_warp(fired)
-                ops.append((f"physics.commit.interval.{t.name}", lambda m=wp_fired: plan.physics.commit(m)))
-        return ops
+        if p.compute_final_observations:
+            _check_shape("outputs.final_observation_buffer", o.final_observation_buffer, (n, p.observation_width))
 
 
 # -- capture -------------------------------------------------------------------------------------------

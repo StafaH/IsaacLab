@@ -121,11 +121,11 @@ def test_compile_reports_every_configuration_error():
 def test_term_ordering():
     """Rewards see this step's terminations; final observations are pre-reset; observations are post-reset."""
     program = _program("warp")
-    names = program.op_names
-    post_reset_obs = len(names) - 1 - names[::-1].index("observation.policy.pos")
-    assert names.index("physics.step") < names.index("termination.reduce") < names.index("reward.terminated")
-    assert names.index("final_observation.policy") < names.index("event.reset.reset")
-    assert names.index("physics.commit.reset") < names.index("runtime.reset_state") < post_reset_obs
+    names = program.schedule
+    post_reset_obs = len(names) - 1 - names[::-1].index("observations.policy.pos")
+    assert names.index("physics.step") < names.index("terminations.time_out") < names.index("rewards.terminated")
+    assert names.index("final.observations.policy.pos") < names.index("reset.events.reset")
+    assert names.index("reset.events.reset") < names.index("physics.commit") < post_reset_obs
     program.reset()
     history = _run(program, _actions())
     dt = PHYSICS_DT * DECIMATION
@@ -227,7 +227,7 @@ def test_heterogeneous_population():
     slider, gantry = population.programs["slider"], population.programs["gantry"]
     assert (slider.plan.observation_widths["policy"], slider.plan.num_actions) == (2, 1)
     assert (gantry.plan.observation_widths["policy"], gantry.plan.num_actions) == (6, 3)
-    assert "event.interval.push" in gantry.op_names and "event.interval.push" not in slider.op_names
+    assert "events.push" in gantry.schedule and "events.push" not in slider.schedule
     packed, widths = population.packed_observations()
     assert widths == {"slider": 2, "gantry": 6} and packed.shape == (128, 6)
 

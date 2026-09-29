@@ -28,8 +28,12 @@ class TermCfg:
     params: dict[str, Any] = {}
     """Keyword parameters of the term. Every key must be declared by the term specification.
 
-    The ``joints`` parameter is special: it holds joint-name regular expressions that are resolved
-    against the physics binding's joint names at compile time.
+    Parameters with these names are resolved at compile time:
+
+    * ``joints``, ``bodies``, ``contact_bodies``: name regular expressions, matched in the given order against the
+      binding's joint, body, or contact-sensor body names.
+    * ``command``: the name of a command term; resolved to its columns of the ``commands`` buffer.
+    * ``terms``: termination term names (reward terms only); resolved to termination indices.
     """
 
 
@@ -49,7 +53,11 @@ class ActionTermCfg(TermCfg):
 
 @configclass
 class ObservationTermCfg(TermCfg):
-    """Observation term. The runtime owns the shared post-processing ``clamp(value, *clip) * scale``."""
+    """Observation term. The runtime owns the shared post-processing ``clamp(value + noise, *clip) * scale``."""
+
+    noise: tuple[float, float] | None = None
+    """Bounds of additive uniform noise, drawn per column from the environment's random stream. None disables
+    noise."""
 
     scale: float = 1.0
     """Multiplier applied after clipping."""
@@ -95,6 +103,14 @@ class EventTermCfg(TermCfg):
 
 
 @configclass
+class CommandTermCfg(TermCfg):
+    """Command term. It owns columns of the ``commands`` buffer that other terms read by command name."""
+
+    resampling_time_range: tuple[float, float] = MISSING
+    """Bounds of the per-environment resampling interval [s]. Commands are also resampled on reset."""
+
+
+@configclass
 class MdpCfg:
     """An MDP specification. Dictionary order is execution and column order."""
 
@@ -104,8 +120,11 @@ class MdpCfg:
     actions: dict[str, ActionTermCfg] = {}
     """Action terms, in action-column order."""
 
+    commands: dict[str, CommandTermCfg] = {}
+    """Command terms, in column order of the ``commands`` buffer."""
+
     observations: dict[str, ObservationGroupCfg] = {}
-    """Observation groups. Each group owns one ``(num_envs, width)`` output buffer."""
+    """Observation groups. Each group is a column range of one ``(num_envs, width)`` output buffer."""
 
     rewards: dict[str, RewardTermCfg] = {}
     """Reward terms, summed in declaration order."""

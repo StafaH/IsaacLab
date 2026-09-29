@@ -24,19 +24,15 @@ from isaaclab_experimental.mdp_runtime import (
     TerminationTermCfg,
 )
 
-from isaaclab.sim import SimulationCfg
 from isaaclab.utils import configclass
 
-DECIMATION = 2
-"""Physics steps per control step."""
-
-PHYSICS_DT = 1.0 / 120.0
-"""Physics step [s]."""
+STABLE_TASK = "Isaac-Cartpole"
+"""Stable task whose simulation and scene this MDP runs on."""
 
 
 @configclass
 class CartpoleMdpCfg(MdpCfg):
-    """Cartpole MDP on the ``robot`` articulation of :class:`~isaaclab_tasks.core.cartpole.CartpoleSceneCfg`."""
+    """Cartpole MDP on the ``robot`` articulation of the stable task's scene."""
 
     episode_length_s: float = 5.0
 
@@ -84,16 +80,3 @@ class CartpoleMdpCfg(MdpCfg):
             },
         ),
     }
-
-
-def cartpole_scene_cfgs(num_envs: int, device: str = "cuda:0"):
-    """Return the Newton/MJWarp simulation and scene configurations of the stable manager-based task.
-
-    Returns:
-        The :class:`~isaaclab.sim.SimulationCfg` and the scene configuration with the ``robot`` articulation.
-    """
-    from isaaclab_tasks.core.cartpole.cartpole_common import CartpolePhysicsCfg
-    from isaaclab_tasks.core.cartpole.cartpole_manager_env_cfg import CartpoleSceneCfg
-
-    sim_cfg = SimulationCfg(dt=PHYSICS_DT, device=device, physics=CartpolePhysicsCfg().newton_mjwarp)
-    return sim_cfg, CartpoleSceneCfg(num_envs=num_envs, env_spacing=4.0)

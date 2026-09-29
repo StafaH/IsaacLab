@@ -36,8 +36,9 @@ from pathlib import Path
 import numpy as np
 import torch
 import warp as wp
-from isaaclab_experimental.mdp_runtime import MdpEnv, NewtonArticulationPhysics, capture_step, compile_plan
-from isaaclab_tasks_experimental.mdp_runtime.cartpole import DECIMATION, CartpoleMdpCfg, cartpole_scene_cfgs
+from isaaclab_experimental.mdp_runtime import MdpEnv, NewtonPhysics, capture_step, compile_plan
+from isaaclab_tasks_experimental.mdp_runtime.cartpole import STABLE_TASK, CartpoleMdpCfg
+from isaaclab_tasks_experimental.mdp_runtime.stable import stable_physics_cfgs
 
 from isaaclab.app import launch_simulation
 from isaaclab.sim import SimulationContext
@@ -220,7 +221,7 @@ def main():
     if args.graph_owner == "torch" and args.backend != ["torch"]:
         parser.error("--graph_owner torch captures Torch MDP programs only; use --backend torch.")
 
-    sim_cfg, scene_cfg = cartpole_scene_cfgs(args.num_envs)
+    sim_cfg, scene_cfg, decimation = stable_physics_cfgs(STABLE_TASK, args.num_envs)
     root = Path(__file__).resolve().parents[2]
     results = {
         "hardware": {"gpu": torch.cuda.get_device_name(0), "platform": platform.platform()},
@@ -240,7 +241,7 @@ def main():
         sim = SimulationContext(sim_cfg)
         scene = instantiate(scene_cfg)
         sim.reset()
-        physics = NewtonArticulationPhysics(scene, "robot", DECIMATION)
+        physics = NewtonPhysics(scene, "robot", decimation)
         for backend in args.backend:
             for boundary in args.boundary:
                 key = f"{boundary}/{backend}" + (f"/{args.graph_owner}" if boundary == "training" else "")
