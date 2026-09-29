@@ -671,6 +671,7 @@ class ObservationManager(ManagerBase):
                     "history_length",
                     "flatten_history_dim",
                     "concatenate_dim",
+                    "history_order",
                 ]:
                     continue
                 # check for non config
