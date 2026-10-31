@@ -460,6 +460,42 @@ def reorder_generalized_vector_backend_to_user(
     user_data[env_id, user_dof_id] = sign * backend_data[env_id, backend_dof_id]
 
 
+@wp.func
+def write_joint_position(
+    env_id: int,
+    user_id: int,
+    position: float,
+    user_to_backend: wp.array(dtype=wp.int32),
+    has_ordering: bool,
+    user_pos: wp.array2d(dtype=wp.float32),
+    backend_pos: wp.array2d(dtype=wp.float32),
+):
+    """Write one public joint position and its backend-order counterpart."""
+    user_pos[env_id, user_id] = position
+    if has_ordering:
+        backend_pos[env_id, user_to_backend[user_id]] = position
+
+
+@wp.func
+def write_joint_velocity(
+    env_id: int,
+    user_id: int,
+    velocity: float,
+    user_to_backend: wp.array(dtype=wp.int32),
+    has_ordering: bool,
+    user_vel: wp.array2d(dtype=wp.float32),
+    user_prev_vel: wp.array2d(dtype=wp.float32),
+    user_acc: wp.array2d(dtype=wp.float32),
+    backend_vel: wp.array2d(dtype=wp.float32),
+):
+    """Write one public/backend joint velocity and restart its finite-difference history."""
+    user_vel[env_id, user_id] = velocity
+    user_prev_vel[env_id, user_id] = velocity
+    user_acc[env_id, user_id] = 0.0
+    if has_ordering:
+        backend_vel[env_id, user_to_backend[user_id]] = velocity
+
+
 @wp.kernel
 def write_joint_vel_user_to_backend_with_indices(
     in_data: wp.array2d(dtype=wp.float32),
@@ -468,12 +504,10 @@ def write_joint_vel_user_to_backend_with_indices(
     user_to_backend: wp.array(dtype=wp.int32),
     has_ordering: bool,
     full_data: bool,
-    flag_envs: bool,
     user_vel: wp.array2d(dtype=wp.float32),
     user_prev_vel: wp.array2d(dtype=wp.float32),
     user_acc: wp.array2d(dtype=wp.float32),
     backend_vel: wp.array2d(dtype=wp.float32),
-    env_mask: wp.array(dtype=wp.bool),
 ) -> None:
     """Write selected public joint velocities and reset their acceleration history.
 
@@ -496,14 +530,9 @@ def write_joint_vel_user_to_backend_with_indices(
         user_acc: Public acceleration destination [m/s^2 or rad/s^2], set to
             zero for selected cells.
         backend_vel: Backend joint velocity destination [m/s or rad/s].
-        flag_envs: Whether to set :paramref:`env_mask` for the written environments.
-        env_mask: Output mask over environments, set for each written environment when
-            :paramref:`flag_envs` is true.
     """
     i, j = wp.tid()
     env_id = wp.int32(env_ids[i])
-    if flag_envs and j == 0:
-        env_mask[env_id] = True
     user_id = wp.int32(user_ids[j])
 
     if full_data:
@@ -511,12 +540,9 @@ def write_joint_vel_user_to_backend_with_indices(
     else:
         value = in_data[i, j]
 
-    user_vel[env_id, user_id] = value
-    user_prev_vel[env_id, user_id] = value
-    user_acc[env_id, user_id] = 0.0
-    if has_ordering:
-        backend_id = user_to_backend[user_id]
-        backend_vel[env_id, backend_id] = value
+    write_joint_velocity(
+        env_id, user_id, value, user_to_backend, has_ordering, user_vel, user_prev_vel, user_acc, backend_vel
+    )
 
 
 _WRITE_JOINT_VEL_USER_TO_BACKEND_WITH_INDICES_DISPATCHER = IndexKernelDispatcher(
@@ -540,14 +566,12 @@ def write_joint_state_user_to_backend_with_indices(
     user_to_backend: wp.array(dtype=wp.int32),
     has_ordering: bool,
     full_data: bool,
-    flag_envs: bool,
     user_pos: wp.array2d(dtype=wp.float32),
     user_vel: wp.array2d(dtype=wp.float32),
     user_prev_vel: wp.array2d(dtype=wp.float32),
     user_acc: wp.array2d(dtype=wp.float32),
     backend_pos: wp.array2d(dtype=wp.float32),
     backend_vel: wp.array2d(dtype=wp.float32),
-    env_mask: wp.array(dtype=wp.bool),
 ) -> None:
     """Write selected public joint state and reset its acceleration history.
 
@@ -575,14 +599,9 @@ def write_joint_state_user_to_backend_with_indices(
             zero for selected cells.
         backend_pos: Backend joint position destination [m or rad].
         backend_vel: Backend joint velocity destination [m/s or rad/s].
-        flag_envs: Whether to set :paramref:`env_mask` for the written environments.
-        env_mask: Output mask over environments, set for each written environment when
-            :paramref:`flag_envs` is true.
     """
     i, j = wp.tid()
     env_id = wp.int32(env_ids[i])
-    if flag_envs and j == 0:
-        env_mask[env_id] = True
     user_id = wp.int32(user_ids[j])
 
     if full_data:
@@ -592,14 +611,10 @@ def write_joint_state_user_to_backend_with_indices(
         position = pos_data[i, j]
         velocity = vel_data[i, j]
 
-    user_pos[env_id, user_id] = position
-    user_vel[env_id, user_id] = velocity
-    user_prev_vel[env_id, user_id] = velocity
-    user_acc[env_id, user_id] = 0.0
-    if has_ordering:
-        backend_id = user_to_backend[user_id]
-        backend_pos[env_id, backend_id] = position
-        backend_vel[env_id, backend_id] = velocity
+    write_joint_position(env_id, user_id, position, user_to_backend, has_ordering, user_pos, backend_pos)
+    write_joint_velocity(
+        env_id, user_id, velocity, user_to_backend, has_ordering, user_vel, user_prev_vel, user_acc, backend_vel
+    )
 
 
 _WRITE_JOINT_STATE_USER_TO_BACKEND_WITH_INDICES_DISPATCHER = IndexKernelDispatcher(
@@ -612,59 +627,6 @@ def write_joint_state_user_to_backend_with_indices_kernel(
 ) -> wp.Kernel:
     """Select the indexed joint-state writer for the selector dtypes."""
     return _WRITE_JOINT_STATE_USER_TO_BACKEND_WITH_INDICES_DISPATCHER.select(env_ids, user_ids)
-
-
-@wp.kernel
-def write_joint_pos_user_to_backend_with_indices(
-    in_data: wp.array2d(dtype=wp.float32),
-    env_ids: wp.array(dtype=Any),
-    user_ids: wp.array(dtype=Any),
-    user_to_backend: wp.array(dtype=wp.int32),
-    has_ordering: bool,
-    flag_envs: bool,
-    user_pos: wp.array2d(dtype=wp.float32),
-    backend_pos: wp.array2d(dtype=wp.float32),
-    env_mask: wp.array(dtype=wp.bool),
-) -> None:
-    """Write selected public joint positions.
-
-    The Cartesian-product selectors must each contain unique indices. Repeated
-    indices can issue concurrent writes to the same destination cell.
-
-    Args:
-        in_data: Joint positions [m or rad, depending on joint type]. Shape is
-            [len(env_ids), len(user_ids)].
-        env_ids: Unique environment indices selected from [0, num_envs).
-        user_ids: Unique public joint indices selected from [0, num_joints).
-        user_to_backend: Read-only map from public to backend joint indices.
-        has_ordering: Whether to scatter positions into backend_pos. When false,
-            backend_pos is not written and may alias user_pos.
-        flag_envs: Whether to set :paramref:`env_mask` for the written environments.
-        user_pos: Public joint position destination [m or rad].
-        backend_pos: Backend joint position destination [m or rad].
-        env_mask: Output mask over environments, set for each written environment when
-            :paramref:`flag_envs` is true.
-    """
-    i, j = wp.tid()
-    env_id = wp.int32(env_ids[i])
-    if flag_envs and j == 0:
-        env_mask[env_id] = True
-    user_id = wp.int32(user_ids[j])
-    user_pos[env_id, user_id] = in_data[i, j]
-    if has_ordering:
-        backend_pos[env_id, user_to_backend[user_id]] = in_data[i, j]
-
-
-_WRITE_JOINT_POS_USER_TO_BACKEND_WITH_INDICES_DISPATCHER = IndexKernelDispatcher(
-    write_joint_pos_user_to_backend_with_indices, ("env_ids", "user_ids")
-)
-
-
-def write_joint_pos_user_to_backend_with_indices_kernel(
-    env_ids: "wp.array | torch.Tensor", user_ids: "wp.array | torch.Tensor"
-) -> wp.Kernel:
-    """Select the indexed joint-position writer for the selector dtypes."""
-    return _WRITE_JOINT_POS_USER_TO_BACKEND_WITH_INDICES_DISPATCHER.select(env_ids, user_ids)
 
 
 @wp.kernel
@@ -700,12 +662,9 @@ def write_joint_vel_user_to_backend_with_mask(
         return
 
     value = in_data[env_id, user_id]
-    user_vel[env_id, user_id] = value
-    user_prev_vel[env_id, user_id] = value
-    user_acc[env_id, user_id] = 0.0
-    if has_ordering:
-        backend_id = user_to_backend[user_id]
-        backend_vel[env_id, backend_id] = value
+    write_joint_velocity(
+        env_id, user_id, value, user_to_backend, has_ordering, user_vel, user_prev_vel, user_acc, backend_vel
+    )
 
 
 @wp.kernel
@@ -750,14 +709,10 @@ def write_joint_state_user_to_backend_with_mask(
 
     position = pos_data[env_id, user_id]
     velocity = vel_data[env_id, user_id]
-    user_pos[env_id, user_id] = position
-    user_vel[env_id, user_id] = velocity
-    user_prev_vel[env_id, user_id] = velocity
-    user_acc[env_id, user_id] = 0.0
-    if has_ordering:
-        backend_id = user_to_backend[user_id]
-        backend_pos[env_id, backend_id] = position
-        backend_vel[env_id, backend_id] = velocity
+    write_joint_position(env_id, user_id, position, user_to_backend, has_ordering, user_pos, backend_pos)
+    write_joint_velocity(
+        env_id, user_id, velocity, user_to_backend, has_ordering, user_vel, user_prev_vel, user_acc, backend_vel
+    )
 
 
 @cache

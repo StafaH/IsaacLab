@@ -230,8 +230,8 @@ def test_fused_identity_writer_supports_aliased_outputs(selection: str, writer: 
             wp.launch(
                 write_joint_vel_user_to_backend_with_indices,
                 dim=(env_ids.shape[0], user_ids.shape[0]),
-                inputs=[input_data, env_ids, user_ids, user_to_backend, False, True, False],
-                outputs=[velocity, previous_velocity, acceleration, velocity, wp.zeros(2, dtype=wp.bool, device="cpu")],
+                inputs=[input_data, env_ids, user_ids, user_to_backend, False, True],
+                outputs=[velocity, previous_velocity, acceleration, velocity],
                 device="cpu",
             )
         else:
@@ -265,16 +265,8 @@ def test_fused_identity_writer_supports_aliased_outputs(selection: str, writer: 
         wp.launch(
             write_joint_state_user_to_backend_with_indices,
             dim=(env_ids.shape[0], user_ids.shape[0]),
-            inputs=[position_data, velocity_data, env_ids, user_ids, user_to_backend, False, True, False],
-            outputs=[
-                position,
-                velocity,
-                previous_velocity,
-                acceleration,
-                position,
-                velocity,
-                wp.zeros(2, dtype=wp.bool, device="cpu"),
-            ],
+            inputs=[position_data, velocity_data, env_ids, user_ids, user_to_backend, False, True],
+            outputs=[position, velocity, previous_velocity, acceleration, position, velocity],
             device="cpu",
         )
     else:
@@ -405,13 +397,12 @@ def test_write_joint_state_user_to_backend_with_indices_updates_history_and_back
     user_acc = wp.ones((3, 3), dtype=wp.float32, device="cpu")
     backend_pos = wp.zeros((3, 3), dtype=wp.float32, device="cpu")
     backend_vel = wp.zeros((3, 3), dtype=wp.float32, device="cpu")
-    written = wp.zeros(3, dtype=wp.bool, device="cpu")
 
     wp.launch(
         write_joint_state_user_to_backend_with_indices,
         dim=position.shape,
-        inputs=[position, velocity, env_ids, user_ids, user_to_backend, True, False, True],
-        outputs=[user_pos, user_vel, user_prev_vel, user_acc, backend_pos, backend_vel, written],
+        inputs=[position, velocity, env_ids, user_ids, user_to_backend, True, False],
+        outputs=[user_pos, user_vel, user_prev_vel, user_acc, backend_pos, backend_vel],
         device="cpu",
     )
 
@@ -425,7 +416,6 @@ def test_write_joint_state_user_to_backend_with_indices_updates_history_and_back
     np.testing.assert_allclose(backend_pos.numpy(), expected_backend_pos)
     np.testing.assert_allclose(backend_vel.numpy(), expected_backend_vel)
     np.testing.assert_allclose(user_acc.numpy()[[0, 2]][:, [0, 2]], np.zeros((2, 2), dtype=np.float32))
-    assert written.numpy().tolist() == [True, False, True]
 
 
 def test_write_joint_vel_user_to_backend_with_mask_updates_selected_entries() -> None:
@@ -614,16 +604,8 @@ def test_joint_state_writer_accepts_selector_widths(env_dtype: type, joint_dtype
     wp.launch(
         kernel,
         dim=(env_ids.shape[0], user_ids.shape[0]),
-        inputs=[position, velocity, env_ids, user_ids, user_to_backend, True, False, False],
-        outputs=[
-            user_position,
-            user_velocity,
-            previous_velocity,
-            acceleration,
-            backend_position,
-            backend_velocity,
-            wp.zeros(user_position.shape[0], dtype=wp.bool, device=user_position.device),
-        ],
+        inputs=[position, velocity, env_ids, user_ids, user_to_backend, True, False],
+        outputs=[user_position, user_velocity, previous_velocity, acceleration, backend_position, backend_velocity],
         device="cpu",
     )
 

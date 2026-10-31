@@ -796,7 +796,7 @@ def test_fixed_root_pose_write_updates_solver(asset_class, writer, selector):
     view = ArticulationView(model, "robot", verbose=False)
     body_com = view.get_attribute("body_com", model)[:, 0]
     data = SimpleNamespace(
-        root_link_pose_w=view.get_root_transforms(model)[:, 0],
+        _sim_bind_root_link_pose_w=view.get_root_transforms(model)[:, 0],
         root_com_pose_w=wp.empty(1, dtype=wp.transform, device="cpu"),
         _sim_bind_body_com_pos_b=body_com,
         body_com_pos_b=body_com,
@@ -806,14 +806,19 @@ def test_fixed_root_pose_write_updates_solver(asset_class, writer, selector):
         data=data,
         device="cpu",
         _ALL_ENV_MASK=wp.array([True], dtype=wp.bool, device="cpu"),
-        _index_env_mask=wp.zeros(1, dtype=wp.bool, device="cpu"),
         _resolve_env_ids=lambda ids: ids,
         _resolve_mask=lambda mask, default: default if mask is None else mask,
         assert_shape_and_dtype=lambda *args: None,
         assert_shape_and_dtype_mask=lambda *args: None,
     )
     solver = SolverMuJoCo(model)
-    asset._backend_manager = SimpleNamespace(backend=SimpleNamespace(solver=solver))
+    asset._backend_manager = SimpleNamespace(
+        backend=SimpleNamespace(
+            solver=solver,
+            world_mask=wp.zeros(2, dtype=wp.bool, device="cpu"),
+            fk_mask=wp.zeros(1, dtype=wp.bool, device="cpu"),
+        )
+    )
     target = wp.array([[1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0]], dtype=wp.transform, device="cpu")
     selection = wp.array([0], dtype=wp.int32, device="cpu") if selector == "env_ids" else asset._ALL_ENV_MASK
 

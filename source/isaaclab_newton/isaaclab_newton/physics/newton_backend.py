@@ -43,9 +43,6 @@ SiteEntry = tuple[int, None] | tuple[None, list[list[int]]]
 """Resolved site: ``(global_shape_index, None)`` for a global site, or ``(None, per_world_indices)``."""
 
 
-# ----- Reset-mask kernels ----------------------------------------------------------------
-
-
 @wp.kernel(enable_backward=False)
 def _flag_worlds_and_articulations_masked(
     env_mask: wp.array(dtype=wp.bool),
@@ -72,9 +69,6 @@ def _flag_worlds_masked(env_mask: wp.array(dtype=wp.bool), clear_env_mask: bool,
         world_mask[world] = True
         if clear_env_mask:
             env_mask[world] = False
-
-
-# ----- Data ------------------------------------------------------------------------------
 
 
 @dataclass

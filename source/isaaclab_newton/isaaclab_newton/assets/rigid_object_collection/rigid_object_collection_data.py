@@ -125,26 +125,11 @@ class RigidObjectCollectionData(BaseRigidObjectCollectionData):
         # since we do finite differencing.
         self.body_com_acc_w
 
-    def _reset_pose(
-        self,
-        from_link: bool = True,
-        *,
-        env_mask: wp.array | None = None,
-        consume_mask: bool = False,
-    ) -> None:
-        """Reset pose-dependent cached rigid object collection properties.
-
-        Args:
-            env_mask: Environment mask. If None, then all instances are updated. Shape is (num_instances,).
-            consume_mask: Clear ``env_mask`` while flagging it, for an asset scratch mask.
-            from_link: Set ``True`` when the body link poses were written so the derived body
-                center-of-mass poses (:attr:`body_com_pose_w`) are also invalidated; set ``False`` when
-                the center-of-mass poses were written directly so they are not clobbered. Defaults to True.
-        """
-        # Invalidate the derived body com poses only when they were not the quantity just written.
+    def _reset_pose(self) -> None:
+        """Invalidate pose-dependent caches after an authoritative state write."""
         reset_timestamps(
             [
-                self._body_com_pose_w if from_link else None,
+                self._body_com_pose_w,
                 self._body_link_vel_w,
                 self._projected_gravity_b,
                 self._heading_w,
@@ -158,28 +143,12 @@ class RigidObjectCollectionData(BaseRigidObjectCollectionData):
                 self._body_com_state_w,
             ]
         )
-        self._backend_manager.invalidate_fk(env_mask, self._root_view.articulation_ids, consume_mask=consume_mask)
 
-    def _reset_velocity(
-        self,
-        from_com: bool = True,
-        *,
-        env_mask: wp.array | None = None,
-        consume_mask: bool = False,
-    ) -> None:
-        """Reset velocity-dependent cached rigid object collection properties.
-
-        Args:
-            env_mask: Environment mask. If None, then all instances are updated. Shape is (num_instances,).
-            consume_mask: Clear ``env_mask`` while flagging it, for an asset scratch mask.
-            from_com: Set ``True`` when the body center-of-mass velocities were written so the derived body
-                link velocities (:attr:`body_link_vel_w`) are also invalidated; set ``False`` when the link
-                velocities were written directly so they are not clobbered. Defaults to True.
-        """
-        # Invalidate the derived body link velocities only when they were not the quantity just written.
+    def _reset_velocity(self) -> None:
+        """Invalidate velocity-dependent caches after an authoritative state write."""
         reset_timestamps(
             [
-                self._body_link_vel_w if from_com else None,
+                self._body_link_vel_w,
                 self._body_link_lin_vel_b,
                 self._body_link_ang_vel_b,
                 self._body_com_lin_vel_b,
@@ -190,7 +159,6 @@ class RigidObjectCollectionData(BaseRigidObjectCollectionData):
                 self._body_com_state_w,
             ]
         )
-        self._backend_manager.invalidate_fk(env_mask, self._root_view.articulation_ids, consume_mask=consume_mask)
 
     def _reset_body_com_pose_b_dependents(self) -> None:
         """Reset cached properties derived from body-frame center-of-mass offsets."""

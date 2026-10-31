@@ -95,7 +95,7 @@ class CableObject(BaseCableObject):
             segment_pose = segment_pose.warp
         env_ids = self._resolve_env_ids(env_ids)
         self.assert_shape_and_dtype(segment_pose, (env_ids.shape[0], self.num_segments), wp.transformf, "segment_pose")
-        self._write_segment_state_to_sim(segment_pose, env_ids, set_segment_pose_to_sim_index, "body_q", use_mask=False)
+        self._write_segment_state_to_sim(segment_pose, env_ids, set_segment_pose_to_sim_index, "body_q")
 
     def write_segment_pose_to_sim_mask(
         self,
@@ -118,7 +118,7 @@ class CableObject(BaseCableObject):
         self.assert_shape_and_dtype_mask(
             segment_pose, (env_mask,), wp.transformf, "segment_pose", trailing_dims=(self.num_segments,)
         )
-        self._write_segment_state_to_sim(segment_pose, env_mask, set_segment_pose_to_sim_mask, "body_q", use_mask=True)
+        self._write_segment_state_to_sim(segment_pose, env_mask, set_segment_pose_to_sim_mask, "body_q")
 
     def write_segment_velocity_to_sim_index(
         self,
@@ -141,9 +141,7 @@ class CableObject(BaseCableObject):
         self.assert_shape_and_dtype(
             segment_velocity, (env_ids.shape[0], self.num_segments), wp.spatial_vectorf, "segment_velocity"
         )
-        self._write_segment_state_to_sim(
-            segment_velocity, env_ids, set_segment_velocity_to_sim_index, "body_qd", use_mask=False
-        )
+        self._write_segment_state_to_sim(segment_velocity, env_ids, set_segment_velocity_to_sim_index, "body_qd")
 
     def write_segment_velocity_to_sim_mask(
         self,
@@ -167,9 +165,7 @@ class CableObject(BaseCableObject):
         self.assert_shape_and_dtype_mask(
             segment_velocity, (env_mask,), wp.spatial_vectorf, "segment_velocity", trailing_dims=(self.num_segments,)
         )
-        self._write_segment_state_to_sim(
-            segment_velocity, env_mask, set_segment_velocity_to_sim_mask, "body_qd", use_mask=True
-        )
+        self._write_segment_state_to_sim(segment_velocity, env_mask, set_segment_velocity_to_sim_mask, "body_qd")
 
     def _initialize_impl(self) -> None:
         def is_cable_curve(prim) -> bool:
@@ -200,8 +196,6 @@ class CableObject(BaseCableObject):
 
         self._ALL_INDICES = wp.array(list(range(self.num_instances)), dtype=wp.int32, device=self.device)
         self._ALL_ENV_MASK = wp.ones((self.num_instances,), dtype=wp.bool, device=self.device)
-        # Environments of the last index write, cleared again by the FK flagging that consumes them.
-        self._index_env_mask = wp.zeros((self.num_instances,), dtype=wp.bool, device=self.device)
 
         self._data = CableObjectData(self.root_view, self.device, backend_manager=self._backend_manager)
 
@@ -225,24 +219,20 @@ class CableObject(BaseCableObject):
         selector: wp.array(dtype=wp.int32) | wp.array(dtype=wp.bool),
         kernel: wp.Kernel,
         state_attribute: str,
-        *,
-        use_mask: bool,
     ) -> None:
         """Write a validated segment state into the active Newton states."""
         if isinstance(value, torch.Tensor):
             value = value.contiguous()
 
-        # Index kernels flag their environments in the scratch mask that the invalidation consumes.
-        env_mask = selector if use_mask else self._index_env_mask
         for state in self._iter_states():
             wp.launch(
                 kernel,
                 dim=(selector.shape[0], self.num_segments),
                 inputs=[value, selector, self.data._sim_bind_body_ids],
-                outputs=[getattr(state, state_attribute)] + ([] if use_mask else [env_mask]),
+                outputs=[getattr(state, state_attribute), self._backend_manager.backend.world_mask],
                 device=self.device,
             )
-        self._backend_manager.invalidate_body_state(env_mask, consume_mask=not use_mask)
+        self._backend_manager.notify_state_written()
         self.update(0.0)
 
     def _iter_states(self):

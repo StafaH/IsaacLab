@@ -184,12 +184,14 @@ def indices(count: int, device: str) -> wp.array:
     return wp.array(np.arange(count, dtype=np.int32), device=device)
 
 
-def newton_manager(num_instances: int, device: str) -> MagicMock:
+def newton_manager(num_instances: int, device: str, *, articulations_per_world: int = 1) -> MagicMock:
     """Return a NewtonManager double with a gravity-carrying model and no solver."""
     model = MagicMock(world_count=num_instances)
     model.gravity = wp.array(np.tile([[0.0, 0.0, -9.81]], (num_instances + 1, 1)), dtype=wp.vec3f, device=device)
     manager = MagicMock()
     manager.backend.solver = None
+    manager.backend.world_mask = wp.zeros(num_instances + 1, dtype=wp.bool, device=device)
+    manager.backend.fk_mask = wp.zeros(num_instances * articulations_per_world, dtype=wp.bool, device=device)
     manager.backend.model = model
     manager.backend.state_0 = manager.backend.state_1 = MagicMock()
     return manager

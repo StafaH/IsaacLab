@@ -349,6 +349,15 @@ class NewtonManager(PhysicsManager):
         """Register a model change to notify the solver at the next step."""
         self.backend.model_changes.add(change)
 
+    def notify_state_written(self) -> None:
+        """Publish a state write whose kernel already flagged backend reset/FK masks.
+
+        Asset writers invalidate their own derived caches separately. This notification
+        schedules the shared refresh and invalidates scene geometry without a device launch.
+        """
+        self.backend.kinematics_dirty = True
+        self._mark_transforms_changed()
+
     def invalidate_fk(
         self, env_mask: wp.array | None = None, articulation_ids: wp.array | None = None, *, consume_mask: bool = False
     ) -> None:

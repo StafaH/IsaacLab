@@ -105,7 +105,6 @@ def _newton_rigid_object(num_instances: int, device: str, monkeypatch: pytest.Mo
     obj._ALL_INDICES = indices(num_instances, device)
     obj._ALL_BODY_INDICES = indices(1, device)
     obj._ALL_ENV_MASK = wp.ones((num_instances,), dtype=wp.bool, device=device)
-    obj._index_env_mask = wp.zeros((num_instances,), dtype=wp.bool, device=device)
     obj._ALL_BODY_MASK = wp.ones((1,), dtype=wp.bool, device=device)
     return obj, view
 
@@ -179,7 +178,7 @@ def _newton_collection(num_instances: int, num_bodies: int, device: str, monkeyp
     body_names = [f"object_{i}" for i in range(num_bodies)]
     view = MockNewtonCollectionView(num_envs=num_instances, num_bodies=num_bodies, device=device, body_names=body_names)
     view.set_random_mock_data()
-    manager = newton_manager(num_instances, device)
+    manager = newton_manager(num_instances, device, articulations_per_world=num_bodies)
 
     collection = object.__new__(newton_assets.RigidObjectCollection)
     collection.cfg = _collection_cfg(body_names)
@@ -195,7 +194,6 @@ def _newton_collection(num_instances: int, num_bodies: int, device: str, monkeyp
     collection._ALL_ENV_INDICES = indices(num_instances, device)
     collection._ALL_BODY_INDICES = indices(num_bodies, device)
     collection._ALL_ENV_MASK = wp.ones((num_instances,), dtype=wp.bool, device=device)
-    collection._index_env_mask = wp.zeros((num_instances,), dtype=wp.bool, device=device)
     collection._ALL_BODY_MASK = wp.ones((num_bodies,), dtype=wp.bool, device=device)
     return collection, view
 

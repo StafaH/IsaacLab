@@ -1,9 +1,7 @@
 * **Breaking:** Changed :meth:`~isaaclab_newton.physics.NewtonManager.invalidate_fk` and
-  :meth:`~isaaclab_newton.physics.NewtonManager.invalidate_body_state` to select environments by mask only and removed
-  their ``env_ids`` argument. Pass an environment mask instead, with ``consume_mask=True`` for a scratch mask that the
-  invalidation should clear.
-* Changed :meth:`NewtonBackend.invalidate_fk <isaaclab_newton.physics.NewtonBackend.invalidate_fk>` and
-  :meth:`NewtonBackend.invalidate_body_state <isaaclab_newton.physics.NewtonBackend.invalidate_body_state>` to select
-  environments by mask only, and removed the id-indexed reset kernels.
-* Changed the ``*_index`` state writes of Newton articulations, rigid objects, rigid object collections and cables to
-  flag the written environments inside the write kernel, so invalidating them needed no extra launch.
+  :meth:`~isaaclab_newton.physics.NewtonManager.invalidate_body_state` to accept environment masks instead of
+  environment indices. Callers authoring native state must pass a boolean ``env_mask``.
+* Fused solver-reset and forward-kinematics flagging into Newton state writers, separated asset cache
+  invalidation from backend notification, and removed per-asset scratch masks and their transfer launches.
+* Added direct masked rigid-object-collection state writes and limited FK invalidation to the selected objects.
+* Avoided refreshing derived state while obtaining authoritative write destinations.
