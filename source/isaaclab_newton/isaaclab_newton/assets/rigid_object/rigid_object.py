@@ -359,12 +359,8 @@ class RigidObject(BaseRigidObject):
         wp.launch(
             shared_kernels.set_root_link_pose_to_sim_index_kernel(env_ids),
             dim=env_ids.shape[0],
-            inputs=[root_pose, env_ids, not skip_forward, self.root_view.articulation_ids],
-            outputs=[
-                self.data._sim_bind_root_link_pose_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[root_pose, env_ids],
+            outputs=[self.data._sim_bind_root_link_pose_w],
             device=self.device,
         )
         # Nonfloating root bindings write model.joint_X_p, not state.joint_q.
@@ -373,7 +369,7 @@ class RigidObject(BaseRigidObject):
         # Let the data class handle the invalidation of pose-dependent properties.
         if not skip_forward:
             self.data._reset_pose()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_ids=env_ids)
 
     def write_root_link_pose_to_sim_mask(
         self,
@@ -410,12 +406,8 @@ class RigidObject(BaseRigidObject):
         wp.launch(
             shared_kernels.set_root_link_pose_to_sim_mask,
             dim=root_pose.shape[0],
-            inputs=[root_pose, env_mask, not skip_forward, self.root_view.articulation_ids],
-            outputs=[
-                self.data._sim_bind_root_link_pose_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[root_pose, env_mask],
+            outputs=[self.data._sim_bind_root_link_pose_w],
             device=self.device,
         )
         if (solver := self._backend_manager.backend.solver) is not None and not self.root_view.is_floating_base:
@@ -423,7 +415,7 @@ class RigidObject(BaseRigidObject):
         # Let the data class handle the invalidation of pose-dependent properties.
         if not skip_forward:
             self.data._reset_pose()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_mask=env_mask)
 
     def write_root_com_pose_to_sim_index(
         self,
@@ -462,12 +454,8 @@ class RigidObject(BaseRigidObject):
         wp.launch(
             shared_kernels.set_root_com_pose_to_sim_index_kernel(env_ids),
             dim=env_ids.shape[0],
-            inputs=[root_pose, self.data.body_com_pos_b, env_ids, not skip_forward, self.root_view.articulation_ids],
-            outputs=[
-                self.data._sim_bind_root_link_pose_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[root_pose, self.data.body_com_pos_b, env_ids],
+            outputs=[self.data._sim_bind_root_link_pose_w],
             device=self.device,
         )
         if (solver := self._backend_manager.backend.solver) is not None and not self.root_view.is_floating_base:
@@ -475,7 +463,7 @@ class RigidObject(BaseRigidObject):
         # Let the data class handle the invalidation of pose-dependent properties.
         if not skip_forward:
             self.data._reset_pose()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_ids=env_ids)
 
     def write_root_com_pose_to_sim_mask(
         self,
@@ -512,12 +500,8 @@ class RigidObject(BaseRigidObject):
         wp.launch(
             shared_kernels.set_root_com_pose_to_sim_mask,
             dim=root_pose.shape[0],
-            inputs=[root_pose, self.data.body_com_pos_b, env_mask, not skip_forward, self.root_view.articulation_ids],
-            outputs=[
-                self.data._sim_bind_root_link_pose_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[root_pose, self.data.body_com_pos_b, env_mask],
+            outputs=[self.data._sim_bind_root_link_pose_w],
             device=self.device,
         )
         if (solver := self._backend_manager.backend.solver) is not None and not self.root_view.is_floating_base:
@@ -525,7 +509,7 @@ class RigidObject(BaseRigidObject):
         # Let the data class handle the invalidation of pose-dependent properties.
         if not skip_forward:
             self.data._reset_pose()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_mask=env_mask)
 
     def write_root_com_velocity_to_sim_index(
         self,
@@ -565,19 +549,14 @@ class RigidObject(BaseRigidObject):
         wp.launch(
             shared_kernels.set_root_com_velocity_to_sim_index_kernel(env_ids),
             dim=env_ids.shape[0],
-            inputs=[root_velocity, env_ids, 1, not skip_forward, self.root_view.articulation_ids],
-            outputs=[
-                self.data._sim_bind_root_com_vel_w,
-                self.data.body_com_acc_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[root_velocity, env_ids, 1],
+            outputs=[self.data._sim_bind_root_com_vel_w, self.data.body_com_acc_w],
             device=self.device,
         )
         # Let the data class handle the invalidation of velocity-dependent properties.
         if not skip_forward:
             self.data._reset_velocity()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_ids=env_ids)
 
     def write_root_com_velocity_to_sim_mask(
         self,
@@ -616,19 +595,14 @@ class RigidObject(BaseRigidObject):
         wp.launch(
             shared_kernels.set_root_com_velocity_to_sim_mask,
             dim=root_velocity.shape[0],
-            inputs=[root_velocity, env_mask, 1, not skip_forward, self.root_view.articulation_ids],
-            outputs=[
-                self.data._sim_bind_root_com_vel_w,
-                self.data.body_com_acc_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[root_velocity, env_mask, 1],
+            outputs=[self.data._sim_bind_root_com_vel_w, self.data.body_com_acc_w],
             device=self.device,
         )
         # Let the data class handle the invalidation of velocity-dependent properties.
         if not skip_forward:
             self.data._reset_velocity()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_mask=env_mask)
 
     def write_root_link_velocity_to_sim_index(
         self,
@@ -669,27 +643,14 @@ class RigidObject(BaseRigidObject):
         wp.launch(
             shared_kernels.set_root_link_velocity_to_sim_index_kernel(env_ids),
             dim=env_ids.shape[0],
-            inputs=[
-                root_velocity,
-                self.data.body_com_pos_b,
-                self.data._sim_bind_root_link_pose_w,
-                env_ids,
-                1,
-                not skip_forward,
-                self.root_view.articulation_ids,
-            ],
-            outputs=[
-                self.data._sim_bind_root_com_vel_w,
-                self.data.body_com_acc_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[root_velocity, self.data.body_com_pos_b, self.data._sim_bind_root_link_pose_w, env_ids, 1],
+            outputs=[self.data._sim_bind_root_com_vel_w, self.data.body_com_acc_w],
             device=self.device,
         )
         # Let the data class handle the invalidation of velocity-dependent properties.
         if not skip_forward:
             self.data._reset_velocity()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_ids=env_ids)
 
     def write_root_link_velocity_to_sim_mask(
         self,
@@ -728,27 +689,14 @@ class RigidObject(BaseRigidObject):
         wp.launch(
             shared_kernels.set_root_link_velocity_to_sim_mask,
             dim=root_velocity.shape[0],
-            inputs=[
-                root_velocity,
-                self.data.body_com_pos_b,
-                self.data._sim_bind_root_link_pose_w,
-                env_mask,
-                1,
-                not skip_forward,
-                self.root_view.articulation_ids,
-            ],
-            outputs=[
-                self.data._sim_bind_root_com_vel_w,
-                self.data.body_com_acc_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[root_velocity, self.data.body_com_pos_b, self.data._sim_bind_root_link_pose_w, env_mask, 1],
+            outputs=[self.data._sim_bind_root_com_vel_w, self.data.body_com_acc_w],
             device=self.device,
         )
         # Let the data class handle the invalidation of velocity-dependent properties.
         if not skip_forward:
             self.data._reset_velocity()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_mask=env_mask)
 
     """
     Operations - Setters.

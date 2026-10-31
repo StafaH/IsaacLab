@@ -425,18 +425,16 @@ class RigidObjectCollection(BaseRigidObjectCollection):
         wp.launch(
             shared_kernels.set_body_link_pose_to_sim_kernel(env_ids, body_ids),
             dim=(env_ids.shape[0], body_ids.shape[0]),
-            inputs=[body_poses, env_ids, body_ids, full_data, not skip_forward, self.root_view.articulation_ids],
-            outputs=[
-                self.data._sim_bind_body_link_pose_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[body_poses, env_ids, body_ids, full_data, None, None],
+            outputs=[self.data._sim_bind_body_link_pose_w],
             device=self.device,
         )
         # Invalidate dependent timestamps
         if not skip_forward:
             self.data._reset_pose()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(
+                articulation_ids=self.root_view.articulation_ids, env_ids=env_ids, articulation_indices=body_ids
+            )
 
     def write_body_link_pose_to_sim_mask(
         self,
@@ -478,19 +476,20 @@ class RigidObjectCollection(BaseRigidObjectCollection):
             body_ids = self._resolve_body_ids(body_ids)
         self.assert_shape_and_dtype(body_poses, (self.num_instances, self.num_bodies), wp.transformf, "body_poses")
         wp.launch(
-            shared_kernels.set_body_link_pose_to_sim_mask_kernel(body_ids),
+            shared_kernels.set_body_link_pose_to_sim_kernel(self._ALL_ENV_INDICES, body_ids),
             dim=(self.num_instances, body_ids.shape[0]),
-            inputs=[body_poses, env_mask, body_mask, body_ids, not skip_forward, self.root_view.articulation_ids],
-            outputs=[
-                self.data._sim_bind_body_link_pose_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[body_poses, self._ALL_ENV_INDICES, body_ids, True, env_mask, body_mask],
+            outputs=[self.data._sim_bind_body_link_pose_w],
             device=self.device,
         )
         if not skip_forward:
             self.data._reset_pose()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(
+                articulation_ids=self.root_view.articulation_ids,
+                env_mask=env_mask,
+                articulation_indices=body_ids,
+                articulation_mask=body_mask,
+            )
 
     def write_body_com_pose_to_sim_index(
         self,
@@ -535,26 +534,16 @@ class RigidObjectCollection(BaseRigidObjectCollection):
         wp.launch(
             shared_kernels.set_body_com_pose_to_sim_kernel(env_ids, body_ids),
             dim=(env_ids.shape[0], body_ids.shape[0]),
-            inputs=[
-                body_poses,
-                self.data.body_com_pos_b,
-                env_ids,
-                body_ids,
-                full_data,
-                not skip_forward,
-                self.root_view.articulation_ids,
-            ],
-            outputs=[
-                self.data._sim_bind_body_link_pose_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[body_poses, self.data.body_com_pos_b, env_ids, body_ids, full_data, None, None],
+            outputs=[self.data._sim_bind_body_link_pose_w],
             device=self.device,
         )
         # Invalidate dependent timestamps.
         if not skip_forward:
             self.data._reset_pose()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(
+                articulation_ids=self.root_view.articulation_ids, env_ids=env_ids, articulation_indices=body_ids
+            )
 
     def write_body_com_pose_to_sim_mask(
         self,
@@ -597,27 +586,20 @@ class RigidObjectCollection(BaseRigidObjectCollection):
             body_ids = self._resolve_body_ids(body_ids)
         self.assert_shape_and_dtype(body_poses, (self.num_instances, self.num_bodies), wp.transformf, "body_poses")
         wp.launch(
-            shared_kernels.set_body_com_pose_to_sim_mask_kernel(body_ids),
+            shared_kernels.set_body_com_pose_to_sim_kernel(self._ALL_ENV_INDICES, body_ids),
             dim=(self.num_instances, body_ids.shape[0]),
-            inputs=[
-                body_poses,
-                self.data.body_com_pos_b,
-                env_mask,
-                body_mask,
-                body_ids,
-                not skip_forward,
-                self.root_view.articulation_ids,
-            ],
-            outputs=[
-                self.data._sim_bind_body_link_pose_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[body_poses, self.data.body_com_pos_b, self._ALL_ENV_INDICES, body_ids, True, env_mask, body_mask],
+            outputs=[self.data._sim_bind_body_link_pose_w],
             device=self.device,
         )
         if not skip_forward:
             self.data._reset_pose()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(
+                articulation_ids=self.root_view.articulation_ids,
+                env_mask=env_mask,
+                articulation_indices=body_ids,
+                articulation_mask=body_mask,
+            )
 
     def write_body_com_velocity_to_sim_index(
         self,
@@ -669,19 +651,16 @@ class RigidObjectCollection(BaseRigidObjectCollection):
         wp.launch(
             shared_kernels.set_body_com_velocity_to_sim_kernel(env_ids, body_ids),
             dim=(env_ids.shape[0], body_ids.shape[0]),
-            inputs=[body_velocities, env_ids, body_ids, full_data, not skip_forward, self.root_view.articulation_ids],
-            outputs=[
-                self.data._sim_bind_body_com_vel_w,
-                self.data.body_com_acc_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[body_velocities, env_ids, body_ids, full_data, None, None],
+            outputs=[self.data._sim_bind_body_com_vel_w, self.data.body_com_acc_w],
             device=self.device,
         )
         # Invalidate dependent timestamps
         if not skip_forward:
             self.data._reset_velocity()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(
+                articulation_ids=self.root_view.articulation_ids, env_ids=env_ids, articulation_indices=body_ids
+            )
 
     def write_body_com_velocity_to_sim_mask(
         self,
@@ -729,20 +708,20 @@ class RigidObjectCollection(BaseRigidObjectCollection):
             body_velocities, (self.num_instances, self.num_bodies), wp.spatial_vectorf, "body_velocities"
         )
         wp.launch(
-            shared_kernels.set_body_com_velocity_to_sim_mask_kernel(body_ids),
+            shared_kernels.set_body_com_velocity_to_sim_kernel(self._ALL_ENV_INDICES, body_ids),
             dim=(self.num_instances, body_ids.shape[0]),
-            inputs=[body_velocities, env_mask, body_mask, body_ids, not skip_forward, self.root_view.articulation_ids],
-            outputs=[
-                self.data._sim_bind_body_com_vel_w,
-                self.data.body_com_acc_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[body_velocities, self._ALL_ENV_INDICES, body_ids, True, env_mask, body_mask],
+            outputs=[self.data._sim_bind_body_com_vel_w, self.data.body_com_acc_w],
             device=self.device,
         )
         if not skip_forward:
             self.data._reset_velocity()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(
+                articulation_ids=self.root_view.articulation_ids,
+                env_mask=env_mask,
+                articulation_indices=body_ids,
+                articulation_mask=body_mask,
+            )
 
     def write_body_link_velocity_to_sim_index(
         self,
@@ -800,21 +779,18 @@ class RigidObjectCollection(BaseRigidObjectCollection):
                 env_ids,
                 body_ids,
                 full_data,
-                not skip_forward,
-                self.root_view.articulation_ids,
+                None,
+                None,
             ],
-            outputs=[
-                self.data._sim_bind_body_com_vel_w,
-                self.data.body_com_acc_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            outputs=[self.data._sim_bind_body_com_vel_w, self.data.body_com_acc_w],
             device=self.device,
         )
         # Invalidate dependent timestamps.
         if not skip_forward:
             self.data._reset_velocity()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(
+                articulation_ids=self.root_view.articulation_ids, env_ids=env_ids, articulation_indices=body_ids
+            )
 
     def write_body_link_velocity_to_sim_mask(
         self,
@@ -861,29 +837,29 @@ class RigidObjectCollection(BaseRigidObjectCollection):
             body_velocities, (self.num_instances, self.num_bodies), wp.spatial_vectorf, "body_velocities"
         )
         wp.launch(
-            shared_kernels.set_body_link_velocity_to_sim_mask_kernel(body_ids),
+            shared_kernels.set_body_link_velocity_to_sim_kernel(self._ALL_ENV_INDICES, body_ids),
             dim=(self.num_instances, body_ids.shape[0]),
             inputs=[
                 body_velocities,
                 self.data.body_com_pos_b,
                 self.data._sim_bind_body_link_pose_w,
+                self._ALL_ENV_INDICES,
+                body_ids,
+                True,
                 env_mask,
                 body_mask,
-                body_ids,
-                not skip_forward,
-                self.root_view.articulation_ids,
             ],
-            outputs=[
-                self.data._sim_bind_body_com_vel_w,
-                self.data.body_com_acc_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            outputs=[self.data._sim_bind_body_com_vel_w, self.data.body_com_acc_w],
             device=self.device,
         )
         if not skip_forward:
             self.data._reset_velocity()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(
+                articulation_ids=self.root_view.articulation_ids,
+                env_mask=env_mask,
+                articulation_indices=body_ids,
+                articulation_mask=body_mask,
+            )
 
     """
     Operations - Setters.

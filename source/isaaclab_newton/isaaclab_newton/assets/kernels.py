@@ -273,11 +273,7 @@ Root-level write kernels (1D — used by RigidObject + Articulation).
 def set_root_link_pose_to_sim_index(
     data: wp.array(dtype=wp.transformf),
     env_ids: wp.array(dtype=Any),
-    flag_envs: bool,
-    articulation_ids: wp.array2d(dtype=wp.int32),
     root_link_pose_w: wp.array(dtype=wp.transformf),
-    world_mask: wp.array(dtype=wp.bool),
-    fk_mask: wp.array(dtype=wp.bool),
 ):
     """Write root link pose data to simulation buffers.
 
@@ -287,16 +283,9 @@ def set_root_link_pose_to_sim_index(
         data: Input array of root link poses. Shape is (num_selected_envs,).
         env_ids: Input array of environment indices to write to. Shape is (num_selected_envs,).
         root_link_pose_w: Output array where root link poses are written. Shape is (num_envs,).
-        flag_envs: Whether to flag solver reset and FK for the written state.
-        articulation_ids: Global articulation indices, shaped (num_envs, articulations_per_world).
-        world_mask: Backend-owned pending solver reset mask.
-        fk_mask: Backend-owned pending articulation FK mask.
     """
     i = wp.tid()
     env_id = wp.int32(env_ids[i])
-    if flag_envs:
-        world_mask[env_id] = True
-        fk_mask[articulation_ids[env_id, 0]] = True
     root_link_pose_w[env_id] = data[i]
 
 
@@ -304,11 +293,7 @@ def set_root_link_pose_to_sim_index(
 def set_root_link_pose_to_sim_mask(
     data: wp.array(dtype=wp.transformf),
     env_mask: wp.array(dtype=wp.bool),
-    flag_envs: bool,
-    articulation_ids: wp.array2d(dtype=wp.int32),
     root_link_pose_w: wp.array(dtype=wp.transformf),
-    world_mask: wp.array(dtype=wp.bool),
-    fk_mask: wp.array(dtype=wp.bool),
 ):
     """Write root link pose data to simulation buffers.
 
@@ -318,16 +303,9 @@ def set_root_link_pose_to_sim_mask(
         data: Input array of root link poses. Shape is (num_instances,).
         env_mask: Input array of environment mask. Shape is (num_instances,).
         root_link_pose_w: Output array where root link poses are written. Shape is (num_envs,).
-        flag_envs: Whether to flag solver reset and FK for the written state.
-        articulation_ids: Global articulation indices, shaped (num_envs, articulations_per_world).
-        world_mask: Backend-owned pending solver reset mask.
-        fk_mask: Backend-owned pending articulation FK mask.
     """
     i = wp.tid()
     if env_mask[i]:
-        if flag_envs:
-            world_mask[i] = True
-            fk_mask[articulation_ids[i, 0]] = True
         root_link_pose_w[i] = data[i]
 
 
@@ -336,11 +314,7 @@ def set_root_com_pose_to_sim_index(
     data: wp.array(dtype=wp.transformf),
     body_com_pos_b: wp.array2d(dtype=wp.vec3f),
     env_ids: wp.array(dtype=Any),
-    flag_envs: bool,
-    articulation_ids: wp.array2d(dtype=wp.int32),
     root_link_pose_w: wp.array(dtype=wp.transformf),
-    world_mask: wp.array(dtype=wp.bool),
-    fk_mask: wp.array(dtype=wp.bool),
 ):
     """Write root COM pose data to simulation buffers.
 
@@ -354,16 +328,9 @@ def set_root_com_pose_to_sim_index(
         env_ids: Input array of environment indices to write to. Shape is (num_selected_envs,).
         root_link_pose_w: Output array where root link poses (derived from COM) are written.
             Shape is (num_envs,).
-        flag_envs: Whether to flag solver reset and FK for the written state.
-        articulation_ids: Global articulation indices, shaped (num_envs, articulations_per_world).
-        world_mask: Backend-owned pending solver reset mask.
-        fk_mask: Backend-owned pending articulation FK mask.
     """
     i = wp.tid()
     env_id = wp.int32(env_ids[i])
-    if flag_envs:
-        world_mask[env_id] = True
-        fk_mask[articulation_ids[env_id, 0]] = True
     # Get the com pose in the link frame
     root_link_pose_w[env_id] = get_com_pose_in_link_frame_func(data[i], body_com_pos_b[env_id, 0])
 
@@ -373,11 +340,7 @@ def set_root_com_pose_to_sim_mask(
     data: wp.array(dtype=wp.transformf),
     body_com_pos_b: wp.array2d(dtype=wp.vec3f),
     env_mask: wp.array(dtype=wp.bool),
-    flag_envs: bool,
-    articulation_ids: wp.array2d(dtype=wp.int32),
     root_link_pose_w: wp.array(dtype=wp.transformf),
-    world_mask: wp.array(dtype=wp.bool),
-    fk_mask: wp.array(dtype=wp.bool),
 ):
     """Write root COM pose data to simulation buffers.
 
@@ -391,16 +354,9 @@ def set_root_com_pose_to_sim_mask(
         env_mask: Input array of environment mask. Shape is (num_instances,).
         root_link_pose_w: Output array where root link poses (derived from COM) are written.
             Shape is (num_envs,).
-        flag_envs: Whether to flag solver reset and FK for the written state.
-        articulation_ids: Global articulation indices, shaped (num_envs, articulations_per_world).
-        world_mask: Backend-owned pending solver reset mask.
-        fk_mask: Backend-owned pending articulation FK mask.
     """
     i = wp.tid()
     if env_mask[i]:
-        if flag_envs:
-            world_mask[i] = True
-            fk_mask[articulation_ids[i, 0]] = True
         # Get the com pose in the link frame
         root_link_pose_w[i] = get_com_pose_in_link_frame_func(data[i], body_com_pos_b[i, 0])
 
@@ -410,12 +366,8 @@ def set_root_com_velocity_to_sim_index(
     data: wp.array(dtype=wp.spatial_vectorf),
     env_ids: wp.array(dtype=Any),
     num_bodies: wp.int32,
-    flag_envs: bool,
-    articulation_ids: wp.array2d(dtype=wp.int32),
     root_com_velocity_w: wp.array(dtype=wp.spatial_vectorf),
     body_acc_w: wp.array2d(dtype=wp.spatial_vectorf),
-    world_mask: wp.array(dtype=wp.bool),
-    fk_mask: wp.array(dtype=wp.bool),
 ):
     """Write root COM velocity data to simulation buffers.
 
@@ -429,16 +381,9 @@ def set_root_com_velocity_to_sim_index(
         root_com_velocity_w: Output array where root COM velocities are written. Shape is (num_envs,).
         body_acc_w: Output array where body accelerations are zeroed. Shape is
             (num_envs, num_bodies).
-        flag_envs: Whether to flag solver reset and FK for the written state.
-        articulation_ids: Global articulation indices, shaped (num_envs, articulations_per_world).
-        world_mask: Backend-owned pending solver reset mask.
-        fk_mask: Backend-owned pending articulation FK mask.
     """
     i = wp.tid()
     env_id = wp.int32(env_ids[i])
-    if flag_envs:
-        world_mask[env_id] = True
-        fk_mask[articulation_ids[env_id, 0]] = True
     root_com_velocity_w[env_id] = data[i]
     # Make the acceleration zero to prevent reporting old values
     for j in range(num_bodies):
@@ -450,12 +395,8 @@ def set_root_com_velocity_to_sim_mask(
     data: wp.array(dtype=wp.spatial_vectorf),
     env_mask: wp.array(dtype=wp.bool),
     num_bodies: wp.int32,
-    flag_envs: bool,
-    articulation_ids: wp.array2d(dtype=wp.int32),
     root_com_velocity_w: wp.array(dtype=wp.spatial_vectorf),
     body_acc_w: wp.array2d(dtype=wp.spatial_vectorf),
-    world_mask: wp.array(dtype=wp.bool),
-    fk_mask: wp.array(dtype=wp.bool),
 ):
     """Write root COM velocity data to simulation buffers.
 
@@ -469,16 +410,9 @@ def set_root_com_velocity_to_sim_mask(
         root_com_velocity_w: Output array where root COM velocities are written. Shape is (num_envs,).
         body_acc_w: Output array where body accelerations are zeroed. Shape is
             (num_envs, num_bodies).
-        flag_envs: Whether to flag solver reset and FK for the written state.
-        articulation_ids: Global articulation indices, shaped (num_envs, articulations_per_world).
-        world_mask: Backend-owned pending solver reset mask.
-        fk_mask: Backend-owned pending articulation FK mask.
     """
     i = wp.tid()
     if env_mask[i]:
-        if flag_envs:
-            world_mask[i] = True
-            fk_mask[articulation_ids[i, 0]] = True
         root_com_velocity_w[i] = data[i]
         # Make the acceleration zero to prevent reporting old values
         for j in range(num_bodies):
@@ -492,12 +426,8 @@ def set_root_link_velocity_to_sim_index(
     link_pose_w: wp.array(dtype=wp.transformf),
     env_ids: wp.array(dtype=Any),
     num_bodies: wp.int32,
-    flag_envs: bool,
-    articulation_ids: wp.array2d(dtype=wp.int32),
     root_com_velocity_w: wp.array(dtype=wp.spatial_vectorf),
     body_acc_w: wp.array2d(dtype=wp.spatial_vectorf),
-    world_mask: wp.array(dtype=wp.bool),
-    fk_mask: wp.array(dtype=wp.bool),
 ):
     """Write root link velocity data to simulation buffers.
 
@@ -515,16 +445,9 @@ def set_root_link_velocity_to_sim_index(
             are written. Shape is (num_envs,).
         body_acc_w: Output array where body accelerations are zeroed.
             Shape is (num_envs, num_bodies).
-        flag_envs: Whether to flag solver reset and FK for the written state.
-        articulation_ids: Global articulation indices, shaped (num_envs, articulations_per_world).
-        world_mask: Backend-owned pending solver reset mask.
-        fk_mask: Backend-owned pending articulation FK mask.
     """
     i = wp.tid()
     env_id = wp.int32(env_ids[i])
-    if flag_envs:
-        world_mask[env_id] = True
-        fk_mask[articulation_ids[env_id, 0]] = True
     # Get the link velocity in the com frame
     root_com_velocity_w[env_id] = get_link_velocity_in_com_frame_func(
         data[i], link_pose_w[env_id], body_com_pos_b[env_id, 0]
@@ -541,12 +464,8 @@ def set_root_link_velocity_to_sim_mask(
     link_pose_w: wp.array(dtype=wp.transformf),
     env_mask: wp.array(dtype=wp.bool),
     num_bodies: wp.int32,
-    flag_envs: bool,
-    articulation_ids: wp.array2d(dtype=wp.int32),
     root_com_velocity_w: wp.array(dtype=wp.spatial_vectorf),
     body_acc_w: wp.array2d(dtype=wp.spatial_vectorf),
-    world_mask: wp.array(dtype=wp.bool),
-    fk_mask: wp.array(dtype=wp.bool),
 ):
     """Write root link velocity data to simulation buffers.
 
@@ -564,16 +483,9 @@ def set_root_link_velocity_to_sim_mask(
             are written. Shape is (num_envs,).
         body_acc_w: Output array where body accelerations are zeroed.
             Shape is (num_envs, num_bodies).
-        flag_envs: Whether to flag solver reset and FK for the written state.
-        articulation_ids: Global articulation indices, shaped (num_envs, articulations_per_world).
-        world_mask: Backend-owned pending solver reset mask.
-        fk_mask: Backend-owned pending articulation FK mask.
     """
     i = wp.tid()
     if env_mask[i]:
-        if flag_envs:
-            world_mask[i] = True
-            fk_mask[articulation_ids[i, 0]] = True
         # Get the link velocity in the com frame
         root_com_velocity_w[i] = get_link_velocity_in_com_frame_func(data[i], link_pose_w[i], body_com_pos_b[i, 0])
         # Make the acceleration zero to prevent reporting old values
@@ -620,11 +532,9 @@ def set_body_link_pose_to_sim(
     env_ids: wp.array(dtype=Any),
     body_ids: wp.array(dtype=Any),
     full_data: bool,
-    flag_envs: bool,
-    articulation_ids: wp.array2d(dtype=wp.int32),
+    env_mask: wp.array(dtype=wp.bool),
+    body_mask: wp.array(dtype=wp.bool),
     body_link_pose_w: wp.array2d(dtype=wp.transformf),
-    world_mask: wp.array(dtype=wp.bool),
-    fk_mask: wp.array(dtype=wp.bool),
 ):
     """Write body link pose data to simulation buffers.
 
@@ -637,20 +547,18 @@ def set_body_link_pose_to_sim(
         env_ids: Input array of environment indices to write to. Shape is (num_selected_envs,).
         body_ids: Input array of body indices to write to. Shape is (num_selected_bodies,).
         full_data: Whether input data is indexed by full environment/body IDs rather than selection offsets.
+        env_mask: Optional environment filter; null selects all supplied indices.
+        body_mask: Optional body filter; null selects all supplied indices.
         body_link_pose_w: Output array where body link poses are written.
             Shape is (num_envs, num_bodies).
-        flag_envs: Whether to flag solver reset and FK for the written state.
-        articulation_ids: Global articulation indices, shaped (num_envs, articulations_per_world).
-        world_mask: Backend-owned pending solver reset mask.
-        fk_mask: Backend-owned pending articulation FK mask.
     """
     i, j = wp.tid()
     env_id = wp.int32(env_ids[i])
     body_id = wp.int32(body_ids[j])
-    if flag_envs:
-        if j == 0:
-            world_mask[env_id] = True
-        fk_mask[articulation_ids[env_id, body_id]] = True
+    if env_mask and not env_mask[env_id]:
+        return
+    if body_mask and not body_mask[body_id]:
+        return
     if full_data:
         body_link_pose_w[env_id, body_id] = data[env_id, body_id]
     else:
@@ -664,11 +572,9 @@ def set_body_com_pose_to_sim(
     env_ids: wp.array(dtype=Any),
     body_ids: wp.array(dtype=Any),
     full_data: bool,
-    flag_envs: bool,
-    articulation_ids: wp.array2d(dtype=wp.int32),
+    env_mask: wp.array(dtype=wp.bool),
+    body_mask: wp.array(dtype=wp.bool),
     body_link_pose_w: wp.array2d(dtype=wp.transformf),
-    world_mask: wp.array(dtype=wp.bool),
-    fk_mask: wp.array(dtype=wp.bool),
 ):
     """Write body COM pose data to simulation buffers.
 
@@ -683,20 +589,18 @@ def set_body_com_pose_to_sim(
         env_ids: Input array of environment indices to write to. Shape is (num_selected_envs,).
         body_ids: Input array of body indices to write to. Shape is (num_selected_bodies,).
         full_data: Whether input data is indexed by full environment/body IDs rather than selection offsets.
+        env_mask: Optional environment filter; null selects all supplied indices.
+        body_mask: Optional body filter; null selects all supplied indices.
         body_link_pose_w: Output array where body link poses (derived from COM) are written.
             Shape is (num_envs, num_bodies).
-        flag_envs: Whether to flag solver reset and FK for the written state.
-        articulation_ids: Global articulation indices, shaped (num_envs, articulations_per_world).
-        world_mask: Backend-owned pending solver reset mask.
-        fk_mask: Backend-owned pending articulation FK mask.
     """
     i, j = wp.tid()
     env_id = wp.int32(env_ids[i])
     body_id = wp.int32(body_ids[j])
-    if flag_envs:
-        if j == 0:
-            world_mask[env_id] = True
-        fk_mask[articulation_ids[env_id, body_id]] = True
+    if env_mask and not env_mask[env_id]:
+        return
+    if body_mask and not body_mask[body_id]:
+        return
     if full_data:
         value = data[env_id, body_id]
     else:
@@ -711,12 +615,10 @@ def set_body_com_velocity_to_sim(
     env_ids: wp.array(dtype=Any),
     body_ids: wp.array(dtype=Any),
     full_data: bool,
-    flag_envs: bool,
-    articulation_ids: wp.array2d(dtype=wp.int32),
+    env_mask: wp.array(dtype=wp.bool),
+    body_mask: wp.array(dtype=wp.bool),
     body_com_velocity_w: wp.array2d(dtype=wp.spatial_vectorf),
     body_acc_w: wp.array2d(dtype=wp.spatial_vectorf),
-    world_mask: wp.array(dtype=wp.bool),
-    fk_mask: wp.array(dtype=wp.bool),
 ):
     """Write body COM velocity data to simulation buffers.
 
@@ -730,22 +632,20 @@ def set_body_com_velocity_to_sim(
         env_ids: Input array of environment indices to write to. Shape is (num_selected_envs,).
         body_ids: Input array of body indices to write to. Shape is (num_selected_bodies,).
         full_data: Whether input data is indexed by full environment/body IDs rather than selection offsets.
+        env_mask: Optional environment filter; null selects all supplied indices.
+        body_mask: Optional body filter; null selects all supplied indices.
         body_com_velocity_w: Output array where body COM velocities are written.
             Shape is (num_envs, num_bodies).
         body_acc_w: Output array where body accelerations are zeroed.
             Shape is (num_envs, num_bodies).
-        flag_envs: Whether to flag solver reset and FK for the written state.
-        articulation_ids: Global articulation indices, shaped (num_envs, articulations_per_world).
-        world_mask: Backend-owned pending solver reset mask.
-        fk_mask: Backend-owned pending articulation FK mask.
     """
     i, j = wp.tid()
     env_id = wp.int32(env_ids[i])
     body_id = wp.int32(body_ids[j])
-    if flag_envs:
-        if j == 0:
-            world_mask[env_id] = True
-        fk_mask[articulation_ids[env_id, body_id]] = True
+    if env_mask and not env_mask[env_id]:
+        return
+    if body_mask and not body_mask[body_id]:
+        return
     if full_data:
         body_com_velocity_w[env_id, body_id] = data[env_id, body_id]
     else:
@@ -762,12 +662,10 @@ def set_body_link_velocity_to_sim(
     env_ids: wp.array(dtype=Any),
     body_ids: wp.array(dtype=Any),
     full_data: bool,
-    flag_envs: bool,
-    articulation_ids: wp.array2d(dtype=wp.int32),
+    env_mask: wp.array(dtype=wp.bool),
+    body_mask: wp.array(dtype=wp.bool),
     body_com_velocity_w: wp.array2d(dtype=wp.spatial_vectorf),
     body_acc_w: wp.array2d(dtype=wp.spatial_vectorf),
-    world_mask: wp.array(dtype=wp.bool),
-    fk_mask: wp.array(dtype=wp.bool),
 ):
     """Write body link velocity data to simulation buffers.
 
@@ -784,22 +682,20 @@ def set_body_link_velocity_to_sim(
         env_ids: Input array of environment indices to write to. Shape is (num_selected_envs,).
         body_ids: Input array of body indices to write to. Shape is (num_selected_bodies,).
         full_data: Whether input data is indexed by full environment/body IDs rather than selection offsets.
+        env_mask: Optional environment filter; null selects all supplied indices.
+        body_mask: Optional body filter; null selects all supplied indices.
         body_com_velocity_w: Output array where body COM velocities (derived from link)
             are written. Shape is (num_envs, num_bodies).
         body_acc_w: Output array where body accelerations are zeroed.
             Shape is (num_envs, num_bodies).
-        flag_envs: Whether to flag solver reset and FK for the written state.
-        articulation_ids: Global articulation indices, shaped (num_envs, articulations_per_world).
-        world_mask: Backend-owned pending solver reset mask.
-        fk_mask: Backend-owned pending articulation FK mask.
     """
     i, j = wp.tid()
     env_id = wp.int32(env_ids[i])
     body_id = wp.int32(body_ids[j])
-    if flag_envs:
-        if j == 0:
-            world_mask[env_id] = True
-        fk_mask[articulation_ids[env_id, body_id]] = True
+    if env_mask and not env_mask[env_id]:
+        return
+    if body_mask and not body_mask[body_id]:
+        return
     if full_data:
         value = data[env_id, body_id]
     else:
@@ -1144,190 +1040,3 @@ def com_positions(coms: float | torch.Tensor | wp.array) -> float | torch.Tensor
     if isinstance(coms, torch.Tensor) and coms.shape[-1] == 7:
         return coms[..., :3].contiguous()
     return coms
-
-
-@wp.kernel
-def set_body_link_pose_to_sim_mask(
-    data: wp.array2d(dtype=wp.transformf),
-    env_mask: wp.array(dtype=wp.bool),
-    body_mask: wp.array(dtype=wp.bool),
-    body_ids: wp.array(dtype=Any),
-    flag_envs: bool,
-    articulation_ids: wp.array2d(dtype=wp.int32),
-    body_link_pose_w: wp.array2d(dtype=wp.transformf),
-    world_mask: wp.array(dtype=wp.bool),
-    fk_mask: wp.array(dtype=wp.bool),
-):
-    """Write full-sized body data selected by environment mask and body IDs/mask.
-
-    Body IDs must be unique. Only selected objects are flagged for FK; one thread
-    per environment flags its world, including when the first body is masked out.
-    """
-    i, j = wp.tid()
-    env_id = i
-    if not env_mask[env_id]:
-        return
-    body_id = wp.int32(body_ids[j])
-    if flag_envs and j == 0:
-        for k in range(body_ids.shape[0]):
-            if body_mask[wp.int32(body_ids[k])]:
-                world_mask[env_id] = True
-                break
-    if not body_mask[body_id]:
-        return
-    if flag_envs:
-        fk_mask[articulation_ids[env_id, body_id]] = True
-    body_link_pose_w[env_id, body_id] = data[env_id, body_id]
-
-
-_SET_BODY_LINK_POSE_TO_SIM_MASK_DISPATCHER = IndexKernelDispatcher(set_body_link_pose_to_sim_mask, ("body_ids",))
-
-
-def set_body_link_pose_to_sim_mask_kernel(body_ids: wp.array | torch.Tensor) -> wp.Kernel:
-    """Select the masked body writer for the body-index dtype."""
-    return _SET_BODY_LINK_POSE_TO_SIM_MASK_DISPATCHER.select(body_ids)
-
-
-@wp.kernel
-def set_body_com_pose_to_sim_mask(
-    data: wp.array2d(dtype=wp.transformf),
-    body_com_pos_b: wp.array2d(dtype=wp.vec3f),
-    env_mask: wp.array(dtype=wp.bool),
-    body_mask: wp.array(dtype=wp.bool),
-    body_ids: wp.array(dtype=Any),
-    flag_envs: bool,
-    articulation_ids: wp.array2d(dtype=wp.int32),
-    body_link_pose_w: wp.array2d(dtype=wp.transformf),
-    world_mask: wp.array(dtype=wp.bool),
-    fk_mask: wp.array(dtype=wp.bool),
-):
-    """Write full-sized body data selected by environment mask and body IDs/mask.
-
-    Body IDs must be unique. Only selected objects are flagged for FK; one thread
-    per environment flags its world, including when the first body is masked out.
-    """
-    i, j = wp.tid()
-    env_id = i
-    if not env_mask[env_id]:
-        return
-    body_id = wp.int32(body_ids[j])
-    if flag_envs and j == 0:
-        for k in range(body_ids.shape[0]):
-            if body_mask[wp.int32(body_ids[k])]:
-                world_mask[env_id] = True
-                break
-    if not body_mask[body_id]:
-        return
-    if flag_envs:
-        fk_mask[articulation_ids[env_id, body_id]] = True
-    # Get the link pose from com pose
-    body_link_pose_w[env_id, body_id] = get_com_pose_in_link_frame_func(
-        data[env_id, body_id], body_com_pos_b[env_id, body_id]
-    )
-
-
-_SET_BODY_COM_POSE_TO_SIM_MASK_DISPATCHER = IndexKernelDispatcher(set_body_com_pose_to_sim_mask, ("body_ids",))
-
-
-def set_body_com_pose_to_sim_mask_kernel(body_ids: wp.array | torch.Tensor) -> wp.Kernel:
-    """Select the masked body writer for the body-index dtype."""
-    return _SET_BODY_COM_POSE_TO_SIM_MASK_DISPATCHER.select(body_ids)
-
-
-@wp.kernel
-def set_body_com_velocity_to_sim_mask(
-    data: wp.array2d(dtype=wp.spatial_vectorf),
-    env_mask: wp.array(dtype=wp.bool),
-    body_mask: wp.array(dtype=wp.bool),
-    body_ids: wp.array(dtype=Any),
-    flag_envs: bool,
-    articulation_ids: wp.array2d(dtype=wp.int32),
-    body_com_velocity_w: wp.array2d(dtype=wp.spatial_vectorf),
-    body_acc_w: wp.array2d(dtype=wp.spatial_vectorf),
-    world_mask: wp.array(dtype=wp.bool),
-    fk_mask: wp.array(dtype=wp.bool),
-):
-    """Write full-sized body data selected by environment mask and body IDs/mask.
-
-    Body IDs must be unique. Only selected objects are flagged for FK; one thread
-    per environment flags its world, including when the first body is masked out.
-    """
-    i, j = wp.tid()
-    env_id = i
-    if not env_mask[env_id]:
-        return
-    body_id = wp.int32(body_ids[j])
-    if flag_envs and j == 0:
-        for k in range(body_ids.shape[0]):
-            if body_mask[wp.int32(body_ids[k])]:
-                world_mask[env_id] = True
-                break
-    if not body_mask[body_id]:
-        return
-    if flag_envs:
-        fk_mask[articulation_ids[env_id, body_id]] = True
-    body_com_velocity_w[env_id, body_id] = data[env_id, body_id]
-    # Make the acceleration zero to prevent reporting old values
-    body_acc_w[env_id, body_id] = wp.spatial_vectorf(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-
-
-_SET_BODY_COM_VELOCITY_TO_SIM_MASK_DISPATCHER = IndexKernelDispatcher(set_body_com_velocity_to_sim_mask, ("body_ids",))
-
-
-def set_body_com_velocity_to_sim_mask_kernel(body_ids: wp.array | torch.Tensor) -> wp.Kernel:
-    """Select the masked body writer for the body-index dtype."""
-    return _SET_BODY_COM_VELOCITY_TO_SIM_MASK_DISPATCHER.select(body_ids)
-
-
-@wp.kernel
-def set_body_link_velocity_to_sim_mask(
-    data: wp.array2d(dtype=wp.spatial_vectorf),
-    body_com_pos_b: wp.array2d(dtype=wp.vec3f),
-    body_link_pose_w: wp.array2d(dtype=wp.transformf),
-    env_mask: wp.array(dtype=wp.bool),
-    body_mask: wp.array(dtype=wp.bool),
-    body_ids: wp.array(dtype=Any),
-    flag_envs: bool,
-    articulation_ids: wp.array2d(dtype=wp.int32),
-    body_com_velocity_w: wp.array2d(dtype=wp.spatial_vectorf),
-    body_acc_w: wp.array2d(dtype=wp.spatial_vectorf),
-    world_mask: wp.array(dtype=wp.bool),
-    fk_mask: wp.array(dtype=wp.bool),
-):
-    """Write full-sized body data selected by environment mask and body IDs/mask.
-
-    Body IDs must be unique. Only selected objects are flagged for FK; one thread
-    per environment flags its world, including when the first body is masked out.
-    """
-    i, j = wp.tid()
-    env_id = i
-    if not env_mask[env_id]:
-        return
-    body_id = wp.int32(body_ids[j])
-    if flag_envs and j == 0:
-        for k in range(body_ids.shape[0]):
-            if body_mask[wp.int32(body_ids[k])]:
-                world_mask[env_id] = True
-                break
-    if not body_mask[body_id]:
-        return
-    if flag_envs:
-        fk_mask[articulation_ids[env_id, body_id]] = True
-    # Get the link velocity in the com frame
-    body_com_velocity_w[env_id, body_id] = get_link_velocity_in_com_frame_func(
-        data[env_id, body_id],
-        body_link_pose_w[env_id, body_id],
-        body_com_pos_b[env_id, body_id],
-    )
-    # Make the acceleration zero to prevent reporting old values
-    body_acc_w[env_id, body_id] = wp.spatial_vectorf(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-
-
-_SET_BODY_LINK_VELOCITY_TO_SIM_MASK_DISPATCHER = IndexKernelDispatcher(
-    set_body_link_velocity_to_sim_mask, ("body_ids",)
-)
-
-
-def set_body_link_velocity_to_sim_mask_kernel(body_ids: wp.array | torch.Tensor) -> wp.Kernel:
-    """Select the masked body writer for the body-index dtype."""
-    return _SET_BODY_LINK_VELOCITY_TO_SIM_MASK_DISPATCHER.select(body_ids)

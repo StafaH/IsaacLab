@@ -696,12 +696,8 @@ class Articulation(BaseArticulation):
         wp.launch(
             shared_kernels.set_root_link_pose_to_sim_index_kernel(env_ids),
             dim=env_ids.shape[0],
-            inputs=[root_pose, env_ids, not skip_forward, self.root_view.articulation_ids],
-            outputs=[
-                self.data._sim_bind_root_link_pose_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[root_pose, env_ids],
+            outputs=[self.data._sim_bind_root_link_pose_w],
             device=self.device,
         )
         # Nonfloating root bindings write model.joint_X_p, not state.joint_q.
@@ -710,7 +706,7 @@ class Articulation(BaseArticulation):
         # Let the data class handle the invalidation of the pose related properties.
         if not skip_forward:
             self.data._reset_pose()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_ids=env_ids)
 
     def write_root_link_pose_to_sim_mask(
         self,
@@ -746,12 +742,8 @@ class Articulation(BaseArticulation):
         wp.launch(
             shared_kernels.set_root_link_pose_to_sim_mask,
             dim=root_pose.shape[0],
-            inputs=[root_pose, env_mask, not skip_forward, self.root_view.articulation_ids],
-            outputs=[
-                self.data._sim_bind_root_link_pose_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[root_pose, env_mask],
+            outputs=[self.data._sim_bind_root_link_pose_w],
             device=self.device,
         )
         if (solver := self._backend_manager.backend.solver) is not None and not self.root_view.is_floating_base:
@@ -759,7 +751,7 @@ class Articulation(BaseArticulation):
         # Let the data class handle the invalidation of the pose related properties.
         if not skip_forward:
             self.data._reset_pose()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_mask=env_mask)
 
     def write_root_com_pose_to_sim_index(
         self,
@@ -798,18 +790,8 @@ class Articulation(BaseArticulation):
         wp.launch(
             shared_kernels.set_root_com_pose_to_sim_index_kernel(env_ids),
             dim=env_ids.shape[0],
-            inputs=[
-                root_pose,
-                self.data._sim_bind_body_com_pos_b,
-                env_ids,
-                not skip_forward,
-                self.root_view.articulation_ids,
-            ],
-            outputs=[
-                self.data._sim_bind_root_link_pose_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[root_pose, self.data._sim_bind_body_com_pos_b, env_ids],
+            outputs=[self.data._sim_bind_root_link_pose_w],
             device=self.device,
         )
         if (solver := self._backend_manager.backend.solver) is not None and not self.root_view.is_floating_base:
@@ -817,7 +799,7 @@ class Articulation(BaseArticulation):
         # Let the data class handle the invalidation of the pose related properties.
         if not skip_forward:
             self.data._reset_pose()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_ids=env_ids)
 
     def write_root_com_pose_to_sim_mask(
         self,
@@ -853,18 +835,8 @@ class Articulation(BaseArticulation):
         wp.launch(
             shared_kernels.set_root_com_pose_to_sim_mask,
             dim=root_pose.shape[0],
-            inputs=[
-                root_pose,
-                self.data._sim_bind_body_com_pos_b,
-                env_mask,
-                not skip_forward,
-                self.root_view.articulation_ids,
-            ],
-            outputs=[
-                self.data._sim_bind_root_link_pose_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[root_pose, self.data._sim_bind_body_com_pos_b, env_mask],
+            outputs=[self.data._sim_bind_root_link_pose_w],
             device=self.device,
         )
         if (solver := self._backend_manager.backend.solver) is not None and not self.root_view.is_floating_base:
@@ -872,7 +844,7 @@ class Articulation(BaseArticulation):
         # Let the data class handle the invalidation of the pose related properties.
         if not skip_forward:
             self.data._reset_pose()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_mask=env_mask)
 
     def write_root_velocity_to_sim_index(
         self,
@@ -978,19 +950,14 @@ class Articulation(BaseArticulation):
         wp.launch(
             shared_kernels.set_root_com_velocity_to_sim_index_kernel(env_ids),
             dim=env_ids.shape[0],
-            inputs=[root_velocity, env_ids, self.data._num_bodies, not skip_forward, self.root_view.articulation_ids],
-            outputs=[
-                self.data._sim_bind_root_com_vel_w,
-                self.data.body_com_acc_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[root_velocity, env_ids, self.data._num_bodies],
+            outputs=[self.data._sim_bind_root_com_vel_w, self.data.body_com_acc_w],
             device=self.device,
         )
         # Let the data class handle the invalidation of the velocity related properties.
         if not skip_forward:
             self.data._reset_velocity()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_ids=env_ids)
 
     def write_root_com_velocity_to_sim_mask(
         self,
@@ -1028,19 +995,14 @@ class Articulation(BaseArticulation):
         wp.launch(
             shared_kernels.set_root_com_velocity_to_sim_mask,
             dim=root_velocity.shape[0],
-            inputs=[root_velocity, env_mask, self.data._num_bodies, not skip_forward, self.root_view.articulation_ids],
-            outputs=[
-                self.data._sim_bind_root_com_vel_w,
-                self.data.body_com_acc_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            inputs=[root_velocity, env_mask, self.data._num_bodies],
+            outputs=[self.data._sim_bind_root_com_vel_w, self.data.body_com_acc_w],
             device=self.device,
         )
         # Let the data class handle the invalidation of the velocity related properties.
         if not skip_forward:
             self.data._reset_velocity()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_mask=env_mask)
 
     def write_root_link_velocity_to_sim_index(
         self,
@@ -1086,21 +1048,14 @@ class Articulation(BaseArticulation):
                 self.data._sim_bind_root_link_pose_w,
                 env_ids,
                 self.data._num_bodies,
-                not skip_forward,
-                self.root_view.articulation_ids,
             ],
-            outputs=[
-                self.data._sim_bind_root_com_vel_w,
-                self.data.body_com_acc_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            outputs=[self.data._sim_bind_root_com_vel_w, self.data.body_com_acc_w],
             device=self.device,
         )
         # Let the data class handle the invalidation of the velocity related properties.
         if not skip_forward:
             self.data._reset_velocity()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_ids=env_ids)
 
     def write_root_link_velocity_to_sim_mask(
         self,
@@ -1144,21 +1099,14 @@ class Articulation(BaseArticulation):
                 self.data._sim_bind_root_link_pose_w,
                 env_mask,
                 self.data._num_bodies,
-                not skip_forward,
-                self.root_view.articulation_ids,
             ],
-            outputs=[
-                self.data._sim_bind_root_com_vel_w,
-                self.data.body_com_acc_w,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+            outputs=[self.data._sim_bind_root_com_vel_w, self.data.body_com_acc_w],
             device=self.device,
         )
         # Let the data class handle the invalidation of the velocity related properties.
         if not skip_forward:
             self.data._reset_velocity()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_mask=env_mask)
 
     def write_joint_state_to_sim_index(
         self,
@@ -1201,7 +1149,7 @@ class Articulation(BaseArticulation):
             joint_pos_user = self.data._sim_bind_joint_pos
             joint_vel_user = self.data._sim_bind_joint_vel
         wp.launch(
-            articulation_kernels.write_joint_state_user_to_backend_with_indices_kernel(env_ids, joint_ids),
+            ordering_kernels.write_joint_state_user_to_backend_with_indices_kernel(env_ids, joint_ids),
             dim=(env_ids.shape[0], joint_ids.shape[0]),
             inputs=[
                 position,
@@ -1210,8 +1158,7 @@ class Articulation(BaseArticulation):
                 joint_ids,
                 self._joint_user_to_backend_map(),
                 has_joint_ordering,
-                not skip_forward,
-                self.root_view.articulation_ids,
+                False,
             ],
             outputs=[
                 joint_pos_user,
@@ -1220,8 +1167,6 @@ class Articulation(BaseArticulation):
                 self.data._joint_acc.data,
                 self.data._sim_bind_joint_pos,
                 self.data._sim_bind_joint_vel,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
             ],
             device=self.device,
         )
@@ -1236,7 +1181,7 @@ class Articulation(BaseArticulation):
         # Let the data class handle the invalidation of the pose and velocity related properties.
         if not skip_forward:
             self.data._reset_pose()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_ids=env_ids)
 
     def write_joint_state_to_sim_mask(
         self,
@@ -1279,18 +1224,9 @@ class Articulation(BaseArticulation):
             joint_pos_user = self.data._sim_bind_joint_pos
             joint_vel_user = self.data._sim_bind_joint_vel
         wp.launch(
-            articulation_kernels.write_joint_state_user_to_backend_with_mask,
+            ordering_kernels.write_joint_state_user_to_backend_with_mask,
             dim=(env_mask.shape[0], joint_mask.shape[0]),
-            inputs=[
-                position,
-                velocity,
-                env_mask,
-                joint_mask,
-                self._joint_user_to_backend_map(),
-                has_joint_ordering,
-                not skip_forward,
-                self.root_view.articulation_ids,
-            ],
+            inputs=[position, velocity, env_mask, joint_mask, self._joint_user_to_backend_map(), has_joint_ordering],
             outputs=[
                 joint_pos_user,
                 joint_vel_user,
@@ -1298,8 +1234,6 @@ class Articulation(BaseArticulation):
                 self.data._joint_acc.data,
                 self.data._sim_bind_joint_pos,
                 self.data._sim_bind_joint_vel,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
             ],
             device=self.device,
         )
@@ -1314,7 +1248,7 @@ class Articulation(BaseArticulation):
         # Let the data class handle the invalidation of the pose and velocity related properties.
         if not skip_forward:
             self.data._reset_pose()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_mask=env_mask)
 
     def write_joint_position_to_sim_index(
         self,
@@ -1352,24 +1286,15 @@ class Articulation(BaseArticulation):
             joint_pos_user = self.data._joint_pos_user
         else:
             joint_pos_user = self.data._sim_bind_joint_pos
-        wp.launch(
-            articulation_kernels.write_joint_pos_user_to_backend_with_indices_kernel(env_ids, joint_ids),
-            dim=(env_ids.shape[0], joint_ids.shape[0]),
-            inputs=[
-                position,
-                env_ids,
-                joint_ids,
-                self._joint_user_to_backend_map(),
-                has_joint_ordering,
-                not skip_forward,
-                self.root_view.articulation_ids,
-            ],
-            outputs=[
-                joint_pos_user,
-                self.data._sim_bind_joint_pos,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+        ordering_kernels.write_float_user_to_backend_with_indices(
+            position,
+            env_ids,
+            joint_ids,
+            self._joint_user_to_backend_map(),
+            has_joint_ordering,
+            False,
+            joint_pos_user,
+            self.data._sim_bind_joint_pos,
             device=self.device,
         )
         # The write landed in DOF space; push it back into Newton's joint coordinates.
@@ -1383,7 +1308,7 @@ class Articulation(BaseArticulation):
         # Let the data class handle the invalidation of pose- and velocity-dependent properties.
         if not skip_forward:
             self.data._reset_pose()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_ids=env_ids)
 
     def write_joint_position_to_sim_mask(
         self,
@@ -1420,24 +1345,14 @@ class Articulation(BaseArticulation):
             joint_pos_user = self.data._joint_pos_user
         else:
             joint_pos_user = self.data._sim_bind_joint_pos
-        wp.launch(
-            articulation_kernels.write_joint_pos_user_to_backend_with_mask,
-            dim=(env_mask.shape[0], joint_mask.shape[0]),
-            inputs=[
-                position,
-                env_mask,
-                joint_mask,
-                self._joint_user_to_backend_map(),
-                has_joint_ordering,
-                not skip_forward,
-                self.root_view.articulation_ids,
-            ],
-            outputs=[
-                joint_pos_user,
-                self.data._sim_bind_joint_pos,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
-            ],
+        ordering_kernels.write_float_user_to_backend_with_mask(
+            position,
+            env_mask,
+            joint_mask,
+            self._joint_user_to_backend_map(),
+            has_joint_ordering,
+            joint_pos_user,
+            self.data._sim_bind_joint_pos,
             device=self.device,
         )
         # The write landed in DOF space; push it back into Newton's joint coordinates.
@@ -1451,7 +1366,7 @@ class Articulation(BaseArticulation):
         # Let the data class handle the invalidation of pose- and velocity-dependent properties.
         if not skip_forward:
             self.data._reset_pose()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_mask=env_mask)
 
     def write_joint_velocity_to_sim_index(
         self,
@@ -1490,31 +1405,21 @@ class Articulation(BaseArticulation):
         else:
             joint_vel_user = self.data._sim_bind_joint_vel
         wp.launch(
-            articulation_kernels.write_joint_vel_user_to_backend_with_indices_kernel(env_ids, joint_ids),
+            ordering_kernels.write_joint_vel_user_to_backend_with_indices_kernel(env_ids, joint_ids),
             dim=(env_ids.shape[0], joint_ids.shape[0]),
-            inputs=[
-                velocity,
-                env_ids,
-                joint_ids,
-                self._joint_user_to_backend_map(),
-                has_joint_ordering,
-                not skip_forward,
-                self.root_view.articulation_ids,
-            ],
+            inputs=[velocity, env_ids, joint_ids, self._joint_user_to_backend_map(), has_joint_ordering, False],
             outputs=[
                 joint_vel_user,
                 self.data._previous_joint_vel,
                 self.data._joint_acc.data,
                 self.data._sim_bind_joint_vel,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
             ],
             device=self.device,
         )
         # Let the data class handle the invalidation of the velocity related properties.
         if not skip_forward:
             self.data._reset_velocity()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_ids=env_ids)
 
     def write_joint_velocity_to_sim_mask(
         self,
@@ -1552,31 +1457,21 @@ class Articulation(BaseArticulation):
         else:
             joint_vel_user = self.data._sim_bind_joint_vel
         wp.launch(
-            articulation_kernels.write_joint_vel_user_to_backend_with_mask,
+            ordering_kernels.write_joint_vel_user_to_backend_with_mask,
             dim=(env_mask.shape[0], joint_mask.shape[0]),
-            inputs=[
-                velocity,
-                env_mask,
-                joint_mask,
-                self._joint_user_to_backend_map(),
-                has_joint_ordering,
-                not skip_forward,
-                self.root_view.articulation_ids,
-            ],
+            inputs=[velocity, env_mask, joint_mask, self._joint_user_to_backend_map(), has_joint_ordering],
             outputs=[
                 joint_vel_user,
                 self.data._previous_joint_vel,
                 self.data._joint_acc.data,
                 self.data._sim_bind_joint_vel,
-                self._backend_manager.backend.world_mask,
-                self._backend_manager.backend.fk_mask,
             ],
             device=self.device,
         )
         # Let the data class handle the invalidation of the velocity related properties.
         if not skip_forward:
             self.data._reset_velocity()
-            self._backend_manager.notify_state_written()
+            self._backend_manager.invalidate_fk(articulation_ids=self.root_view.articulation_ids, env_mask=env_mask)
 
     """
     Operations - Simulation Parameters Writers.

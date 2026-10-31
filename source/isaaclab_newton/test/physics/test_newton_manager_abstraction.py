@@ -797,7 +797,6 @@ def test_fixed_root_pose_write_updates_solver(asset_class, writer, selector):
     body_com = view.get_attribute("body_com", model)[:, 0]
     data = SimpleNamespace(
         _sim_bind_root_link_pose_w=view.get_root_transforms(model)[:, 0],
-        root_com_pose_w=wp.empty(1, dtype=wp.transform, device="cpu"),
         _sim_bind_body_com_pos_b=body_com,
         body_com_pos_b=body_com,
     )
@@ -812,13 +811,7 @@ def test_fixed_root_pose_write_updates_solver(asset_class, writer, selector):
         assert_shape_and_dtype_mask=lambda *args: None,
     )
     solver = SolverMuJoCo(model)
-    asset._backend_manager = SimpleNamespace(
-        backend=SimpleNamespace(
-            solver=solver,
-            world_mask=wp.zeros(2, dtype=wp.bool, device="cpu"),
-            fk_mask=wp.zeros(1, dtype=wp.bool, device="cpu"),
-        )
-    )
+    asset._backend_manager = SimpleNamespace(backend=SimpleNamespace(solver=solver))
     target = wp.array([[1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 1.0]], dtype=wp.transform, device="cpu")
     selection = wp.array([0], dtype=wp.int32, device="cpu") if selector == "env_ids" else asset._ALL_ENV_MASK
 

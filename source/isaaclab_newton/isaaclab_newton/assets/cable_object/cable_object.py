@@ -229,10 +229,13 @@ class CableObject(BaseCableObject):
                 kernel,
                 dim=(selector.shape[0], self.num_segments),
                 inputs=[value, selector, self.data._sim_bind_body_ids],
-                outputs=[getattr(state, state_attribute), self._backend_manager.backend.world_mask],
+                outputs=[getattr(state, state_attribute)],
                 device=self.device,
             )
-        self._backend_manager.notify_state_written()
+        if selector.dtype in (wp.bool, torch.bool):
+            self._backend_manager.invalidate_body_state(env_mask=selector)
+        else:
+            self._backend_manager.invalidate_body_state(env_ids=selector)
         self.update(0.0)
 
     def _iter_states(self):

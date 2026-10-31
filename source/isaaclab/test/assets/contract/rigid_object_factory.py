@@ -178,7 +178,7 @@ def _newton_collection(num_instances: int, num_bodies: int, device: str, monkeyp
     body_names = [f"object_{i}" for i in range(num_bodies)]
     view = MockNewtonCollectionView(num_envs=num_instances, num_bodies=num_bodies, device=device, body_names=body_names)
     view.set_random_mock_data()
-    manager = newton_manager(num_instances, device, articulations_per_world=num_bodies)
+    manager = newton_manager(num_instances, device)
 
     collection = object.__new__(newton_assets.RigidObjectCollection)
     collection.cfg = _collection_cfg(body_names)

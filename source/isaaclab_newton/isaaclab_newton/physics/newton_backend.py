@@ -13,7 +13,7 @@ import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import torch
 import warp as wp
@@ -25,6 +25,7 @@ from isaaclab.sim import SimulationContext
 from isaaclab.utils.buffers import TimestampedBuffer
 from isaaclab.utils.timer import Timer
 from isaaclab.utils.version import has_kit
+from isaaclab.utils.warp.index_kernel import IndexKernelDispatcher, selector_dtype
 
 from isaaclab_newton.renderers.visual_material import VisualMaterialWriter
 
@@ -44,31 +45,56 @@ SiteEntry = tuple[int, None] | tuple[None, list[list[int]]]
 
 
 @wp.kernel(enable_backward=False)
-def _flag_worlds_and_articulations_masked(
+def _flag_worlds_and_articulations(
+    env_ids: wp.array(dtype=Any),
     env_mask: wp.array(dtype=wp.bool),
     articulation_ids: wp.array2d(dtype=wp.int32),
-    clear_env_mask: bool,
+    articulation_indices: wp.array(dtype=Any),
+    articulation_mask: wp.array(dtype=wp.bool),
+    num_articulations: int,
+    consume_mask: bool,
     world_mask: wp.array(dtype=wp.bool),
     fk_mask: wp.array(dtype=wp.bool),
 ):
-    """Flag each masked world for a solver reset and its articulations for FK, optionally clearing the input."""
+    """Accumulate reset/FK work with one thread per selected world; optionally consume the input mask."""
     world = wp.tid()
-    if env_mask[world]:
-        world_mask[world] = True
-        for articulation in range(articulation_ids.shape[1]):
+    if env_ids:
+        world = wp.int32(env_ids[world])
+    if env_mask and not env_mask[world]:
+        return
+    for i in range(num_articulations):
+        articulation = i
+        if articulation_indices:
+            articulation = wp.int32(articulation_indices[i])
+        if not articulation_mask or articulation_mask[articulation]:
+            world_mask[world] = True
             fk_mask[articulation_ids[world, articulation]] = True
-        if clear_env_mask:
-            env_mask[world] = False
+    if consume_mask and env_mask:
+        env_mask[world] = False
 
 
 @wp.kernel(enable_backward=False)
-def _flag_worlds_masked(env_mask: wp.array(dtype=wp.bool), clear_env_mask: bool, world_mask: wp.array(dtype=wp.bool)):
-    """Flag each masked world for a solver reset, optionally clearing the input."""
+def _flag_worlds(
+    env_ids: wp.array(dtype=Any),
+    env_mask: wp.array(dtype=wp.bool),
+    consume_mask: bool,
+    world_mask: wp.array(dtype=wp.bool),
+):
+    """Schedule body-only refresh for selected worlds without requesting FK."""
     world = wp.tid()
-    if env_mask[world]:
-        world_mask[world] = True
-        if clear_env_mask:
-            env_mask[world] = False
+    if env_ids:
+        world = wp.int32(env_ids[world])
+    if env_mask and not env_mask[world]:
+        return
+    world_mask[world] = True
+    if consume_mask and env_mask:
+        env_mask[world] = False
+
+
+_FLAG_WORLDS_AND_ARTICULATIONS = IndexKernelDispatcher(
+    _flag_worlds_and_articulations, ("env_ids", "articulation_indices")
+)
+_FLAG_WORLDS = IndexKernelDispatcher(_flag_worlds, ("env_ids",))
 
 
 @dataclass
@@ -260,47 +286,69 @@ class NewtonBackend:
         env_mask: wp.array | None = None,
         articulation_ids: wp.array | None = None,
         *,
+        env_ids: wp.array | torch.Tensor | None = None,
+        articulation_indices: wp.array | torch.Tensor | None = None,
+        articulation_mask: wp.array | None = None,
         consume_mask: bool = False,
     ) -> None:
-        """Flag articulations for forward kinematics and their worlds for a solver reset, without host synchronization.
+        """Schedule solver reset and FK without synchronizing or converting indices to masks.
 
         Args:
-            env_mask: Mask over environments. Shape ``(num_envs,)``. ``None`` flags every environment.
-            articulation_ids: Model articulation index of each ``(world, articulation)``, from
-                ``ArticulationView.articulation_ids``. Shape ``(world_count, count_per_world)``. ``None`` flags every
-                articulation.
-            consume_mask: Clear ``env_mask`` while reading it, for a scratch mask that must start empty next time.
+            env_mask: Optional environment filter, shaped (world_count,).
+            articulation_ids: Global articulation IDs for each (world, view-local articulation).
+                None conservatively flags every world and articulation, as for native state writes.
+            env_ids: Optional unique environment indices; None visits all worlds. An env_mask further filters them.
+            articulation_indices: Optional unique view-local articulation indices; None selects the entire view.
+            articulation_mask: Optional filter over view-local articulations, applied to articulation_indices.
+            consume_mask: Clear selected env_mask entries after reading them. Caller masks are otherwise unchanged.
         """
-        self.kinematics_dirty = True
-        if env_mask is None or articulation_ids is None:
+        if articulation_ids is None:
+            self.kinematics_dirty = True
             self.world_mask[: self.model.world_count].fill_(True)
             self.fk_mask.fill_(True)
             if env_mask is not None and consume_mask:
                 env_mask.zero_()
             return
+        self.kinematics_dirty = True
         wp.launch(
-            _flag_worlds_and_articulations_masked,
-            dim=articulation_ids.shape[0],
-            inputs=[env_mask, articulation_ids, consume_mask],
+            _FLAG_WORLDS_AND_ARTICULATIONS.select_dtypes(
+                wp.int32 if env_ids is None else selector_dtype(env_ids),
+                wp.int32 if articulation_indices is None else selector_dtype(articulation_indices),
+            ),
+            dim=articulation_ids.shape[0] if env_ids is None else env_ids.shape[0],
+            inputs=[
+                env_ids,
+                env_mask,
+                articulation_ids,
+                articulation_indices,
+                articulation_mask,
+                articulation_ids.shape[1] if articulation_indices is None else articulation_indices.shape[0],
+                consume_mask,
+            ],
             outputs=[self.world_mask, self.fk_mask],
             device=self.device,
         )
 
-    def invalidate_body_state(self, env_mask: wp.array | None = None, *, consume_mask: bool = False) -> None:
-        """Flag worlds whose maximal-coordinate body state was written for a solver reset, without requesting FK.
+    def invalidate_body_state(
+        self,
+        env_mask: wp.array | None = None,
+        *,
+        env_ids: wp.array | torch.Tensor | None = None,
+        consume_mask: bool = False,
+    ) -> None:
+        """Schedule solver reset for directly authored body state, without requesting FK.
 
-        Args:
-            env_mask: Mask over environments. ``None`` flags every environment.
-            consume_mask: Clear ``env_mask`` while reading it, for a scratch mask that must start empty next time.
+        Select worlds with unique env_ids, an env_mask, or both; None selects all worlds.
+        consume_mask clears the selected mask entries after reading them.
         """
         self.kinematics_dirty = True
-        if env_mask is None:
+        if env_ids is None and env_mask is None:
             self.world_mask[: self.model.world_count].fill_(True)
             return
         wp.launch(
-            _flag_worlds_masked,
-            dim=env_mask.shape[0],
-            inputs=[env_mask, consume_mask],
+            _FLAG_WORLDS.select_dtypes(wp.int32 if env_ids is None else selector_dtype(env_ids)),
+            dim=self.model.world_count if env_ids is None else env_ids.shape[0],
+            inputs=[env_ids, env_mask, consume_mask],
             outputs=[self.world_mask],
             device=self.device,
         )

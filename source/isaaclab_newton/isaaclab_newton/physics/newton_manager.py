@@ -42,6 +42,8 @@ from .newton_builder import create_builder
 from .newton_scene_data import NewtonSceneDataBackend
 
 if TYPE_CHECKING:
+    import torch
+
     from isaaclab.assets import BaseArticulation
     from isaaclab.renderers.base_renderer import VisualMaterialBatch
 
@@ -349,33 +351,41 @@ class NewtonManager(PhysicsManager):
         """Register a model change to notify the solver at the next step."""
         self.backend.model_changes.add(change)
 
-    def notify_state_written(self) -> None:
-        """Publish a state write whose kernel already flagged backend reset/FK masks.
-
-        Asset writers invalidate their own derived caches separately. This notification
-        schedules the shared refresh and invalidates scene geometry without a device launch.
-        """
-        self.backend.kinematics_dirty = True
-        self._mark_transforms_changed()
-
     def invalidate_fk(
-        self, env_mask: wp.array | None = None, articulation_ids: wp.array | None = None, *, consume_mask: bool = False
+        self,
+        env_mask: wp.array | None = None,
+        articulation_ids: wp.array | None = None,
+        *,
+        env_ids: wp.array | torch.Tensor | None = None,
+        articulation_indices: wp.array | torch.Tensor | None = None,
+        articulation_mask: wp.array | None = None,
+        consume_mask: bool = False,
     ) -> None:
-        """Mark environments as needing FK recomputation and solver reset; see :meth:`NewtonBackend.invalidate_fk`.
+        """Publish an authored-state change and schedule FK; see :meth:`NewtonBackend.invalidate_fk`.
 
-        Called by asset write methods that modify joint coordinates or root transforms. The flags are consumed by the
-        next forward, raw-state, rendering, or physics-step boundary.
+        Asset writers invalidate their own caches separately. Pending work is consumed at the next
+        forward, raw-state, rendering, or physics-step boundary.
         """
         self._mark_transforms_changed()
-        self.backend.invalidate_fk(env_mask, articulation_ids, consume_mask=consume_mask)
+        self.backend.invalidate_fk(
+            env_mask,
+            articulation_ids,
+            env_ids=env_ids,
+            articulation_indices=articulation_indices,
+            articulation_mask=articulation_mask,
+            consume_mask=consume_mask,
+        )
 
-    def invalidate_body_state(self, env_mask: wp.array | None = None, *, consume_mask: bool = False) -> None:
-        """Mark selected maximal-coordinate body state as changed without requesting FK.
-
-        See :meth:`NewtonBackend.invalidate_body_state`.
-        """
+    def invalidate_body_state(
+        self,
+        env_mask: wp.array | None = None,
+        *,
+        env_ids: wp.array | torch.Tensor | None = None,
+        consume_mask: bool = False,
+    ) -> None:
+        """Publish directly authored body state; see :meth:`NewtonBackend.invalidate_body_state`."""
         self._mark_transforms_changed()
-        self.backend.invalidate_body_state(env_mask, consume_mask=consume_mask)
+        self.backend.invalidate_body_state(env_mask, env_ids=env_ids, consume_mask=consume_mask)
 
     def _drain_stale_cuda_error(self) -> None:
         """Clear a stale CUDA error latched on the device before (re)initialization.
