@@ -7,3 +7,7 @@
 * Added ``Isaac-Lift-KukaAllegro-MDP2``, the Kuka Allegro lift task written with :mod:`isaaclab_experimental.mdp2`,
   with its adaptive difficulty curriculum, curriculum gravity, and a reset bank of valid start states per world, all
   inside the step's CUDA graph.
+* Added ``Isaac-Tracking-Humanoid-Walk-MDP2``, ``Isaac-Tracking-Humanoid-Run-MDP2``, and
+  ``Isaac-Tracking-Humanoid-Dance-MDP2``, in which a 28-DoF humanoid tracks a motion clip frame by frame. The clip
+  is term state that the step's kernels index, resets start on a random frame of it, and actions correct the pose
+  of the frame that the next step tracks.

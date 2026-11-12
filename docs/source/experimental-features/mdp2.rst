@@ -19,7 +19,8 @@ Quick Start
 -----------
 
 The tasks ``Isaac-Cartpole-MDP2``, ``Isaac-Velocity-Flat-UnitreeGo2-MDP2``,
-``Isaac-Velocity-Flat-WalkStand-UnitreeGo2-MDP2``, and ``Isaac-Lift-KukaAllegro-MDP2`` train with RSL-RL:
+``Isaac-Velocity-Flat-WalkStand-UnitreeGo2-MDP2``, ``Isaac-Lift-KukaAllegro-MDP2``, and the motion tracking tasks
+``Isaac-Tracking-Humanoid-Walk-MDP2``, ``-Run-MDP2``, and ``-Dance-MDP2`` train with RSL-RL:
 
 .. code-block:: bash
 
