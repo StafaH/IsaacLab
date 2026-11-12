@@ -156,7 +156,8 @@ while True:
             break
 elapsed = time.perf_counter() - start
 print(
-    f"OFFPOLICY {args.runtime} {N} worlds: {steps} steps in {elapsed:.1f} s, {1e3 * elapsed / steps:.2f} ms per step with"
+    f"OFFPOLICY {args.runtime} {N} worlds: {steps} steps in {elapsed:.1f} s,"
+    f" {1e3 * elapsed / steps:.2f} ms per step with"
     f" {args.updates} updates, {steps * N / elapsed / 1e6:.3f} M steps/s, completion {completed.mean().item():.3f}"
 )
 env.close()
