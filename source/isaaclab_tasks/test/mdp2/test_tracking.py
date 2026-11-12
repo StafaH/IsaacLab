@@ -13,6 +13,8 @@ import torch
 from isaaclab_experimental import mdp2
 from isaaclab_experimental.envs import MDP2RLEnv
 
+from isaaclab_tasks.mdp2.tracking.config.g1.g1_env_cfg import MOTIONS_DIR as G1_MOTIONS_DIR
+from isaaclab_tasks.mdp2.tracking.config.g1.g1_env_cfg import G1TrackingEnvCfg, G1TrackingPhysicsCfg, g1_task
 from isaaclab_tasks.mdp2.tracking.config.humanoid.humanoid_env_cfg import (
     MOTIONS_DIR,
     HumanoidTrackingEnvCfg,
@@ -94,5 +96,33 @@ def test_failure_driven_resets_start_where_episodes_ended():
         assert ((end == clip_range[0, 1]) | (end == clip_range[1, 1])).all() and (start < end - 1).all()
         near_failures = torch.nn.functional.max_pool1d(failures[None, None], 3, 1, 1)[0, 0] > 0.0
         assert near_failures[(start / 15).long()].float().mean() > 0.9
+    finally:
+        env.close()
+
+
+@pytest.mark.skipif(
+    not os.path.exists(os.path.join(G1_MOTIONS_DIR, "walk1_subject1.csv")), reason="clip not downloaded"
+)
+def test_g1_clip_bodies_come_from_posing_the_robot():
+    cfg = G1TrackingEnvCfg()
+    cfg.sim.physics = G1TrackingPhysicsCfg().newton_mjwarp
+    cfg.sim.device = "cuda:0"
+    cfg.scene.num_envs = NUM_ENVS
+    cfg.seed = 0
+    cfg.task = g1_task("walk")
+    cfg.task.events["reset_to_motion"].params["noise"] = 0.0
+    env = MDP2RLEnv(cfg)
+    try:
+        env.reset()
+        # The files hold joints only: the body positions of the clip are those of the robot posed on each frame,
+        # so a reset puts every body on them, and the policy moves the 29 joints of the body.
+        start = env.state.arrays[mdp2.term_state(RESET, "start")].torch.long()
+        clip_body_pos = env.state.arrays[mdp2.term_state(RESET, "clip_body_pos")].torch
+        expected = clip_body_pos[start] + env.scene.env_origins[:, None]
+        actual = env.scene["robot"].data.body_link_pose_w.torch[..., :3]
+        # A reset clamps the joints to their soft limits, which a few frames of the clip exceed.
+        distance = (actual - expected).norm(dim=-1)
+        assert distance.median() < 1.0e-3 and distance.max() < 0.05 and len(start.unique()) > 1
+        assert env.mdp.action_dim == 29
     finally:
         env.close()

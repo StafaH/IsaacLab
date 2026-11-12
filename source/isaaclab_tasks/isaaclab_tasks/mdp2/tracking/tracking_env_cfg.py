@@ -38,16 +38,19 @@ def tracking_task(
     num_bodies: int,
     start_range: tuple[float, float] = (0.0, 0.9),
     adaptive: float = 0.0,
+    lengths: list[int] | None = None,
 ) -> mdp2.TaskCfg:
     """Return the MDP in which the ``robot`` tracks the clips in ``motion_files``, frame by frame.
 
     Every world tracks one clip per episode. The clips are sampled every ``step_dt`` seconds, and episodes start in
     the fraction ``start_range`` of a clip. A fraction ``adaptive`` of them start where episodes fail instead.
+    ``lengths`` gives the frames of each clip at the control rate, for clips that are not in the AMP format.
     """
-    lengths = []
-    for motion_file in motion_files:
-        clip = np.load(motion_file)
-        lengths.append(len(clip["dof_positions"][:: round(float(clip["fps"]) * step_dt)]))
+    if lengths is None:
+        lengths = []
+        for motion_file in motion_files:
+            clip = np.load(motion_file)
+            lengths.append(len(clip["dof_positions"][:: round(float(clip["fps"]) * step_dt)]))
     frames = sum(lengths)
     reset = mdp2.Event(
         tracking.reset_to_motion,

@@ -28,3 +28,5 @@
   one policy that observes which skill its world practices.
 * Added ``Isaac-Tracking-Humanoid-LiveEval-MDP2``, the walk tracking task with evaluation worlds that start on
   the first frame without noise next to the training worlds, for an evaluation read from the training simulation.
+* Added ``Isaac-Tracking-G1-MDP2``, motion tracking with the 29-DoF Unitree G1 on clips of the LAFAN1 retargeting
+  dataset, which are downloaded and not part of the repository.

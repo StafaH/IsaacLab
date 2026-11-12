@@ -24,6 +24,9 @@ from isaaclab.utils import math as math_utils
 CLIP_JOINTS = {"thigh": "hip", "foot": "ankle", "torso": "abdomen", "head": "neck", "upper_arm": "shoulder"}
 """Names that the clips give the ball joints of the robot, by the name of the joint's child body."""
 
+LEG_JOINTS = ("hip_pitch", "hip_roll", "hip_yaw", "knee", "ankle_pitch", "ankle_roll")
+ARM_JOINTS = ("shoulder_pitch", "shoulder_roll", "shoulder_yaw", "elbow", "wrist_roll", "wrist_pitch", "wrist_yaw")
+
 
 @wp.func
 def reference_frame(
@@ -214,6 +217,60 @@ The clips are stored as state, one after the other, sampled at the control rate:
 ``bodies`` bodies, in the robot's joint and body order. ``clip_range`` holds the first frame of each of the ``clips``
 clips and the frame after its last; ``start`` is the frame each world started at, and ``end`` the frame after the
 last of its clip. Joint positions get uniform ``noise`` [rad].
+"""
+
+
+CSV_JOINTS = (
+    *(f"{side}_{joint}_joint" for side in ("left", "right") for joint in LEG_JOINTS),
+    *(f"waist_{axis}_joint" for axis in ("yaw", "roll", "pitch")),
+    *(f"{side}_{joint}_joint" for side in ("left", "right") for joint in ARM_JOINTS),
+)
+"""Joints of the rows of the Unitree G1 retargeting files, after the seven values of the root."""
+
+
+def _load_csv_motions(ctx, *, motion_files, windows, frames, bodies, clips, **reset_params):
+    robot = ctx.entity("joint_pos")
+    device = ctx.state["start"].device
+    columns = [robot.joint_names.index(name) for name in CSV_JOINTS]
+    values = {name: [] for name in ("clip_joint_pos", "clip_joint_vel", "clip_root_pose", "clip_root_vel")}
+    ranges, begin = [], 0
+    for motion_file, (first, count) in zip(motion_files, windows):
+        rows = torch.from_numpy(np.loadtxt(motion_file, delimiter=",", dtype=np.float32)[first : first + count])
+        root_pose = rows[:, :7]
+        joint_pos = torch.zeros(len(rows), len(robot.joint_names))
+        joint_pos[:, columns] = rows[:, 7:]
+        # The angular velocity is the rotation between consecutive frames, in the world frame.
+        delta = math_utils.quat_mul(root_pose[1:, 3:7], math_utils.quat_conjugate(root_pose[:-1, 3:7]))
+        angular = math_utils.axis_angle_from_quat(delta) / ctx.step_dt
+        angular = torch.cat([angular, angular[-1:]])
+        linear = torch.gradient(root_pose[:, :3], spacing=ctx.step_dt, dim=0)[0]
+        values["clip_joint_pos"].append(joint_pos)
+        values["clip_joint_vel"].append(torch.gradient(joint_pos, spacing=ctx.step_dt, dim=0)[0])
+        values["clip_root_pose"].append(root_pose)
+        values["clip_root_vel"].append(torch.cat([linear, angular], dim=-1))
+        ranges.append((begin, begin + len(rows)))
+        begin += len(rows)
+    for name, parts in values.items():
+        ctx.state[name].copy_(torch.cat(parts).to(device))
+    ctx.state["clip_range"].copy_(torch.tensor(ranges, dtype=torch.float32, device=device))
+
+    # The files hold no body positions: pose the robots of the worlds on the frames, a batch at a time, and read them.
+    joint_pos, root_pose = ctx.state["clip_joint_pos"], ctx.state["clip_root_pose"]
+    worlds = wp.ones(ctx.num_worlds, dtype=wp.bool, device=str(device))
+    for first in range(0, frames, ctx.num_worlds):
+        count = min(ctx.num_worlds, frames - first)
+        ctx.outputs["joint_pos"][:count] = joint_pos[first : first + count]
+        ctx.outputs["root_link_pose_w"][:count] = root_pose[first : first + count]
+        ctx.scene_data.commit(worlds, frozenset())
+        positions = ctx.inputs["body_link_pose_w"][:count, :, :3]
+        ctx.state["clip_body_pos"][first : first + count] = positions
+
+
+reset_to_csv_motion = mdp2.Term(warp=_reset_to_motion, state=CLIP_STATE, random=True, init=_load_csv_motions)
+"""Like :data:`reset_to_motion`, for the retargeting files of the Unitree G1: ``windows`` gives the first frame and
+the number of frames to take of each file, at the control rate of 30 fps. The files hold the root and the joints;
+the positions of the bodies come from posing the robot on every frame, so the event also takes
+``body_link_pose_w``.
 """
 
 

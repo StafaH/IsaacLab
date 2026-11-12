@@ -26,12 +26,14 @@ from video import add_camera, record
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.mdp2.recovery.recovery_env_cfg import pushed
+from isaaclab_tasks.mdp2.tracking.config.g1.g1_env_cfg import g1_task
 from isaaclab_tasks.mdp2.tracking.config.humanoid.humanoid_env_cfg import humanoid_task
 from isaaclab_tasks.utils import load_cfg_from_registry
 from isaaclab_tasks.utils.hydra import resolve_presets
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--motion", default="walk")
+parser.add_argument("--robot", default="humanoid", choices=["humanoid", "g1"])
 parser.add_argument("--runtime", default="mdp2", choices=["mdp2", "mdp1"])
 parser.add_argument("--num_envs", type=int, default=8192)
 parser.add_argument("--seed", type=int, default=0)
@@ -73,7 +75,7 @@ parser.add_argument("--video", default=None, help="Path of an MP4 of the final p
 args = parser.parse_args()
 
 DEVICE = "cuda:0"
-TASK = "Isaac-Tracking-Humanoid-Walk-MDP2"
+TASK = "Isaac-Tracking-G1-MDP2" if args.robot == "g1" else "Isaac-Tracking-Humanoid-Walk-MDP2"
 
 
 def make_env(num_envs, evaluation=False, camera=False, pushes=None):
@@ -89,9 +91,10 @@ def make_env(num_envs, evaluation=False, camera=False, pushes=None):
 
     cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
     cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, num_envs, args.seed
-    task = humanoid_task(args.motion, adaptive=args.adaptive)
+    make_task = g1_task if args.robot == "g1" else humanoid_task
+    task = make_task(args.motion, adaptive=args.adaptive)
     if evaluation:
-        task = humanoid_task(args.motion, start_range=(0.0, 0.0))
+        task = make_task(args.motion, start_range=(0.0, 0.0))
         task.events["reset_to_motion"].params["noise"] = 0.0
     if args.action_scale is not None:
         task.actions["joint_pos"].scale = args.action_scale
