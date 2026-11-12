@@ -26,3 +26,5 @@
 * Added ``Isaac-Skills-UnitreeGo2-MDP2``, in which the worlds are split between four skills of the Go2 (walking,
   standing and walking on its hind legs, and getting up), each with its own rewards, terminations, and resets, for
   one policy that observes which skill its world practices.
+* Added ``Isaac-Tracking-Humanoid-LiveEval-MDP2``, the walk tracking task with evaluation worlds that start on
+  the first frame without noise next to the training worlds, for an evaluation read from the training simulation.

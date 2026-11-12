@@ -145,3 +145,19 @@ class HumanoidTrackingAllEnvCfg(HumanoidTrackingEnvCfg):
     the episodes start where episodes fail."""
 
     task: mdp2.TaskCfg = humanoid_task(",".join(MOTIONS), adaptive=0.5)
+
+
+def evaluation_task(motions: str) -> mdp2.TaskCfg:
+    """Return the tracking task as it is evaluated: from the first frame of a clip, without noise."""
+    task = humanoid_task(motions, start_range=(0.0, 0.0))
+    task.events["reset_to_motion"].params["noise"] = 0.0
+    return task
+
+
+@configclass
+class HumanoidTrackingLiveEvalEnvCfg(HumanoidTrackingEnvCfg):
+    """The walk environment with evaluation worlds: the last 128 worlds start on the first frame without noise, so
+    a learner that acts without exploration there reads its evaluation from the training simulation."""
+
+    task: list[mdp2.TaskCfg] = [humanoid_task("walk"), evaluation_task("walk")]
+    task_worlds: list[int] = [1920, 128]

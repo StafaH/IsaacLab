@@ -110,6 +110,16 @@ class PPO:
         self.lr = torch.tensor(lr, device=device)
         self.perms = torch.zeros(epochs, self.batch, dtype=torch.long, device=device)
         self.graph, self.calls = None, 0
+        self.initial = {name: value.clone() for name, value in self.agent.state_dict().items()}
+        self.initial_lr = lr
+
+    def reset(self):
+        """Forget everything learned, and keep the captured update: for warming up outside a clock."""
+        self.agent.load_state_dict(self.initial)
+        for value in (self.first, self.second, self.count):
+            value.zero_()
+        self.lr.fill_(self.initial_lr)
+        self.t = 0
 
     def policy(self, obs):
         """Return the actions of the policy without exploration noise."""

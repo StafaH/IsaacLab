@@ -9,7 +9,7 @@ import gymnasium as gym
 
 from . import agents
 
-for motion in ("Walk", "Run", "Dance", "Backflip", "Cartwheel", "Hop", "All"):
+for motion in ("Walk", "Run", "Dance", "Backflip", "Cartwheel", "Hop", "All", "LiveEval"):
     gym.register(
         id=f"Isaac-Tracking-Humanoid-{motion}-MDP2",
         entry_point="isaaclab_experimental.envs:MDP2RLEnv",
