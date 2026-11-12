@@ -13,11 +13,11 @@ import torch
 from isaaclab_experimental import mdp2
 from isaaclab_experimental.envs import MDP2RLEnv
 
-from isaaclab_tasks.mdp2.tracking_humanoid.tracking_env_cfg import (
+from isaaclab_tasks.mdp2.tracking.config.humanoid.humanoid_env_cfg import (
     MOTIONS_DIR,
     HumanoidTrackingEnvCfg,
     HumanoidTrackingPhysicsCfg,
-    tracking_task,
+    humanoid_task,
 )
 
 pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="Newton needs a GPU")
@@ -32,7 +32,7 @@ def test_reset_starts_on_the_clip_and_actions_correct_the_reference():
     cfg.sim.device = "cuda:0"
     cfg.scene.num_envs = NUM_ENVS
     cfg.seed = 0
-    cfg.task = tracking_task("walk")
+    cfg.task = humanoid_task("walk")
     cfg.task.events["reset_to_motion"].params["noise"] = 0.0
     env = MDP2RLEnv(cfg)
     try:

@@ -16,7 +16,7 @@ for motion in ("Walk", "Run", "Dance"):
         disable_env_checker=True,
         kwargs={
             "env_cfg_entry_point": (
-                f"{__name__}.tracking_env_cfg:HumanoidTracking{'' if motion == 'Walk' else motion}EnvCfg"
+                f"{__name__}.humanoid_env_cfg:HumanoidTracking{'' if motion == 'Walk' else motion}EnvCfg"
             ),
             "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:HumanoidTrackingPPORunnerCfg",
             "default_agent": "rsl_rl",

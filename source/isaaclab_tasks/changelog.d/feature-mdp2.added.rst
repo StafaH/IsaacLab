@@ -11,3 +11,9 @@
   ``Isaac-Tracking-Humanoid-Dance-MDP2``, in which a 28-DoF humanoid tracks a motion clip frame by frame. The clip
   is term state that the step's kernels index, resets start on a random frame of it, and actions correct the pose
   of the frame that the next step tracks.
+* Added ``Isaac-HIL-Humanoid-Walk-MDP2``, hybrid imitation learning with the 28-DoF humanoid: half of the worlds
+  track a clip and the other half follow heading goals, with shared goal-conditioned observations and a style reward
+  from a discriminator that runs inside the step's CUDA graph.
+* Added ``Isaac-RewardSearch-Humanoid-Walk-MDP2``, which splits the worlds of the humanoid tracking task between
+  sixteen weightings of its rewards that share one set of kernels, for training one policy per candidate in one
+  simulation and for population-based training on the per-world reward weights.

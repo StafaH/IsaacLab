@@ -3,35 +3,13 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Humanoid motion tracking: follow a motion clip, frame by frame, with a 28-DoF humanoid."""
-
-import os
+"""Motion tracking: a robot follows a motion clip, frame by frame."""
 
 import numpy as np
 from isaaclab_experimental import mdp2
-from isaaclab_experimental.envs import MDP2RLEnvCfg
 from isaaclab_experimental.mdp2 import mdp
-from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg
-
-import isaaclab.sim as sim_utils
-from isaaclab.actuators import ImplicitActuatorCfg
-from isaaclab.assets import ArticulationCfg, AssetBaseCfg
-from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.terrains import TerrainImporterCfg
-from isaaclab.utils import configclass, replace
-
-from isaaclab_tasks.utils import PresetCfg
-
-from isaaclab_assets import HUMANOID_28_CFG
 
 from . import mdp as tracking
-
-MOTIONS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "contrib", "humanoid_amp", "motions")
-"""The clips of the 28-DoF humanoid that ship with the AMP task."""
-
-SIM_DT = 1 / 60
-DECIMATION = 2
-NUM_BODIES = 15
 
 robot = mdp2.Entity("robot")
 scene = mdp2.Entity("scene")
@@ -48,59 +26,15 @@ clip_body_pos = {
 }
 
 
-@configclass
-class HumanoidTrackingSceneCfg(InteractiveSceneCfg):
-    """A 28-DoF humanoid on a ground plane, lit by the sky."""
+def tracking_task(
+    motion_file: str, step_dt: float, num_bodies: int, start_range: tuple[float, float] = (0.0, 0.9)
+) -> mdp2.TaskCfg:
+    """Return the MDP in which the ``robot`` tracks the clip in ``motion_file``, frame by frame.
 
-    terrain = TerrainImporterCfg(prim_path="/World/ground", terrain_type="plane", collision_group=-1)
-    # Position gains of the ball joints act on each of their three angles.
-    robot: ArticulationCfg = replace(
-        HUMANOID_28_CFG,
-        prim_path="{ENV_REGEX_NS}/Robot",
-        actuators={
-            "body": ImplicitActuatorCfg(
-                joint_names_expr=[".*"],
-                stiffness={
-                    ".*_thigh:.*": 500.0,
-                    ".*_knee": 500.0,
-                    ".*_foot:.*": 400.0,
-                    "torso:.*": 1000.0,
-                    "head:.*": 100.0,
-                    ".*_upper_arm:.*": 400.0,
-                    ".*_elbow": 300.0,
-                },
-                damping={
-                    ".*_thigh:.*": 50.0,
-                    ".*_knee": 50.0,
-                    ".*_foot:.*": 40.0,
-                    "torso:.*": 100.0,
-                    "head:.*": 10.0,
-                    ".*_upper_arm:.*": 40.0,
-                    ".*_elbow": 30.0,
-                },
-            ),
-        },
-    )
-    sky_light = AssetBaseCfg(prim_path="/World/skyLight", spawn=sim_utils.DomeLightCfg(intensity=750.0))
-
-
-@configclass
-class HumanoidTrackingPhysicsCfg(PresetCfg):
-    """Newton physics presets of the humanoid motion tracking task."""
-
-    newton_mjwarp: NewtonCfg = NewtonCfg(
-        solver_cfg=MJWarpSolverCfg(njmax=100, nconmax=40, cone="pyramidal", impratio=1.0, integrator="implicitfast"),
-        num_substeps=1,
-        debug_mode=False,
-    )
-    default: NewtonCfg = newton_mjwarp
-
-
-def tracking_task(motion: str, start_range: tuple[float, float] = (0.0, 0.9)) -> mdp2.TaskCfg:
-    """Return the MDP that tracks the clip ``motion``, such as ``"walk"``, from starts in a fraction of the clip."""
-    motion_file = os.path.join(MOTIONS_DIR, f"humanoid_{motion}.npz")
+    The clip is sampled every ``step_dt`` seconds, and episodes start in the fraction ``start_range`` of it.
+    """
     clip = np.load(motion_file)
-    frames = len(clip["dof_positions"][:: round(float(clip["fps"]) * SIM_DT * DECIMATION)])
+    frames = len(clip["dof_positions"][:: round(float(clip["fps"]) * step_dt)])
 
     return mdp2.TaskCfg(
         # The policy corrects the pose of the frame it tracks next.
@@ -163,7 +97,7 @@ def tracking_task(motion: str, start_range: tuple[float, float] = (0.0, 0.9)) ->
                 reference_body_pos=mdp2.Observation(
                     tracking.reference_body_pos_b,
                     inputs={"root_link_pose_w": robot.root_link_pose_w, **clip_body_pos},
-                    params={"bodies": NUM_BODIES},
+                    params={"bodies": num_bodies},
                 ),
                 actions=mdp2.Observation(mdp.last_action, inputs={"actions": mdp2.last_action}),
             )
@@ -196,7 +130,7 @@ def tracking_task(motion: str, start_range: tuple[float, float] = (0.0, 0.9)) ->
             "action_rate_l2": mdp2.Reward(mdp.action_rate_l2, inputs={"actions": mdp2.last_action}, weight=-0.03),
         },
         terminations={
-            "time_out": mdp2.TimeLimit(episode_length_s=frames * SIM_DT * DECIMATION),
+            "time_out": mdp2.TimeLimit(episode_length_s=frames * step_dt),
             "motion_ended": mdp2.Termination(tracking.motion_ended, inputs=clip_joint_pos, time_out=True),
             # A mean distance of 0.25 m to the tracked bodies.
             "tracking_lost": mdp2.Termination(
@@ -211,36 +145,10 @@ def tracking_task(motion: str, start_range: tuple[float, float] = (0.0, 0.9)) ->
                 params={
                     "motion_file": motion_file,
                     "frames": frames,
-                    "bodies": NUM_BODIES,
+                    "bodies": num_bodies,
                     "start_range": start_range,
                     "noise": 0.02,
                 },
             ),
         },
     )
-
-
-@configclass
-class HumanoidTrackingEnvCfg(MDP2RLEnvCfg):
-    """Configuration of the humanoid motion tracking environment, for the walk clip."""
-
-    sim: sim_utils.SimulationCfg = sim_utils.SimulationCfg(
-        dt=SIM_DT, render_interval=DECIMATION, physics=HumanoidTrackingPhysicsCfg(), use_newton_actuators=True
-    )
-    scene: HumanoidTrackingSceneCfg = HumanoidTrackingSceneCfg(num_envs=2048, env_spacing=4.0)
-    task: mdp2.TaskCfg = tracking_task("walk")
-    decimation: int = DECIMATION
-
-
-@configclass
-class HumanoidTrackingRunEnvCfg(HumanoidTrackingEnvCfg):
-    """The environment for the run clip."""
-
-    task: mdp2.TaskCfg = tracking_task("run")
-
-
-@configclass
-class HumanoidTrackingDanceEnvCfg(HumanoidTrackingEnvCfg):
-    """The environment for the dance clip."""
-
-    task: mdp2.TaskCfg = tracking_task("dance")
