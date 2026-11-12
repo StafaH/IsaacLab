@@ -32,17 +32,29 @@ def add_camera(cfg, width: int = 480, height: int = 480, eye: tuple[float, float
     cfg.capture = False
 
 
-def record(env, policy, path: str, steps: int, columns: int, eye: tuple[float, float, float] = EYE) -> None:
-    """Step ``env`` with ``policy(observations)`` and write its worlds as a grid of ``columns`` tiles per row."""
+def record(
+    env,
+    policy,
+    path: str,
+    steps: int,
+    columns: int,
+    eye: tuple[float, float, float] = EYE,
+    center: tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> None:
+    """Step ``env`` with ``policy(observations)`` and write its worlds as a grid of ``columns`` tiles per row.
+
+    The camera looks at ``center``, relative to the root of the robot [m].
+    """
     camera, robot = env.scene["video_camera"], env.scene["robot"]
     offset = torch.tensor(eye, device=env.device)
     obs = env.reset()[0]["policy"]
-    target = robot.data.root_link_pose_w.torch[:, :3].clone()
+    center = torch.tensor(center, device=env.device)
+    target = robot.data.root_link_pose_w.torch[:, :3] + center
     writer = None
     with torch.no_grad():
         for _ in range(steps):
             # The camera follows the root smoothly, so that its bobbing stays visible.
-            target += 0.2 * (robot.data.root_link_pose_w.torch[:, :3] - target)
+            target += 0.2 * (robot.data.root_link_pose_w.torch[:, :3] + center - target)
             camera.set_world_poses_from_view(target + offset, target)
             obs = env.step(policy(obs))[0]["policy"]
             image = camera.data.output["rgb"]
