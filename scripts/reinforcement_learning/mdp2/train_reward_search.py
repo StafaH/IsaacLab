@@ -26,6 +26,7 @@ from isaaclab_experimental import mdp2
 from video import add_camera, record
 
 import isaaclab_tasks  # noqa: F401
+from isaaclab_tasks.mdp2.tracking.config.humanoid.humanoid_env_cfg import humanoid_task
 from isaaclab_tasks.utils import load_cfg_from_registry
 from isaaclab_tasks.utils.hydra import resolve_presets
 
@@ -46,6 +47,8 @@ parser.add_argument("--clip", type=float, default=0.3)
 parser.add_argument("--value_coef", type=float, default=4.0)
 parser.add_argument("--init_std", type=float, default=0.3)
 parser.add_argument("--hidden", type=int, nargs="+", default=[256, 256, 128])
+parser.add_argument("--seeds", type=int, default=0, help="Train this many policies on one task instead of candidates")
+parser.add_argument("--motion", default="walk", help="Clips of the task for --seeds")
 parser.add_argument("--pbt", action="store_true")
 parser.add_argument("--pbt_interval", type=int, default=40)
 parser.add_argument("--pbt_fraction", type=float, default=0.25)
@@ -62,6 +65,9 @@ torch.backends.cuda.matmul.allow_tf32 = True
 def make_env(num_envs, camera=False):
     cfg = resolve_presets(load_cfg_from_registry(args.task, "env_cfg_entry_point"), selected=("newton_mjwarp",))
     cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, num_envs, args.seed
+    if args.seeds:
+        # The same task in every config: the candidates differ only in their policy's initial weights and draws.
+        cfg.task = [humanoid_task(args.motion)] * args.seeds
     if camera:
         add_camera(cfg, 320, 320)
     return gym.make(args.task, cfg=cfg).unwrapped
@@ -311,6 +317,17 @@ for rank, c in enumerate(order):
         f"RANK {rank + 1:2d} candidate {c:2d} completion {final['completion'][c]:.3f}"
         f" error {final['error_cm'][c]:.1f} cm"
         f" reached 90% at {'never' if reached is None else f'{reached:.1f} s'}  {weights}"
+    )
+if args.seeds:
+    # Samples that each policy needed until 90% of its worlds' episodes reached the end of their clip.
+    needed = [
+        next((row["iteration"] * T * worlds / 1.0e6 for row in history if row["completion"][c] >= 0.9), None)
+        for c in range(K)
+    ]
+    reached = torch.tensor([value for value in needed if value is not None])
+    print(
+        f"SEEDS {args.motion}: {len(reached)} of {K} reached 90%; samples needed, in millions: mean"
+        f" {reached.mean():.2f}, std {reached.std():.2f}, min {reached.min():.2f}, max {reached.max():.2f}"
     )
 if args.out:
     summary = {"args": vars(args), "train_time": train_time, "reward_names": reward_names, "history": history}
