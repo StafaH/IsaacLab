@@ -35,6 +35,7 @@ from ...utils import index_fill_
 from .kernels import (
     build_implicit_dof_mask,
     build_per_dof_env_mask_kernel,
+    clear_computed_effort_and_joint_forces,
     set_mask_kernel,
     zero_at_indices_kernel,
 )
@@ -157,13 +158,22 @@ class NewtonActuatorAdapter:
                 keeping their addresses stable across replays.
         """
         # Zero before scatter-add (actuators accumulate into this buffer).
-        self._computed_effort.zero_()
-        for act in self.actuators:
+        if self.actuators:
+            first = self.actuators[0]
             wp.launch(
-                zero_at_indices_kernel,
-                dim=act.indices.shape[0],
-                inputs=[sim_control.joint_f, act.indices],
+                clear_computed_effort_and_joint_forces,
+                dim=max(self._computed_effort.shape[0], first.indices.shape[0]),
+                inputs=[self._computed_effort, sim_control.joint_f, first.indices],
+                device=self._device,
             )
+            for act in self.actuators[1:]:
+                wp.launch(
+                    zero_at_indices_kernel,
+                    dim=act.indices.shape[0],
+                    inputs=[sim_control.joint_f, act.indices],
+                )
+        else:
+            self._computed_effort.zero_()
         for act, sa, sb in zip(self.actuators, self._states_a, self._states_b):
             act.step(sim_state, sim_control, sa, sb, dt=dt)
         if swap_state:

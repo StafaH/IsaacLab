@@ -21,6 +21,24 @@ from ...utils import index_fill_
 
 
 @wp.kernel(enable_backward=False)
+def clear_computed_effort_and_joint_forces(
+    computed_effort: wp.array(dtype=wp.float32),
+    joint_forces: wp.array(dtype=wp.float32),
+    indices: wp.array(dtype=wp.uint32),
+):
+    """Clear telemetry and the first actuator's forces together, preserving unactuated forces.
+
+    Separate bounds cover every telemetry entry even when the first actuator controls fewer DOFs.
+    The index array stays live, including during graph replay; no cached union changes its semantics.
+    """
+    index = wp.tid()
+    if index < computed_effort.shape[0]:
+        computed_effort[index] = 0.0
+    if index < indices.shape[0]:
+        joint_forces[indices[index]] = 0.0
+
+
+@wp.kernel(enable_backward=False)
 def zero_at_indices_kernel(data: wp.array(dtype=wp.float32), indices: wp.array(dtype=wp.uint32)):
     """Zero a flat ``data`` buffer at the given flat ``indices``."""
     i = wp.tid()

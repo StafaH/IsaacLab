@@ -14,7 +14,7 @@ import pytest
 import torch
 import warp as wp
 from newton._src.actuators.utils import load_checkpoint
-from newton.actuators import ClampingDCMotor, ClampingMaxEffort, ClampingPositionBased, DrivePD
+from newton.actuators import Actuator, ClampingDCMotor, ClampingMaxEffort, ClampingPositionBased, DrivePD
 
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics
 
@@ -496,3 +496,39 @@ def test_masked_reset_resets_only_selected_env_states(device):
         for state in pair:
             if state is not None and state.delay_state is not None:
                 torch.testing.assert_close(wp.to_torch(state.delay_state.num_pushes), expected)
+
+
+@pytest.mark.parametrize("device", test_devices(DeviceScope.CUDA))
+def test_adapter_clears_efforts_before_overlapping_actuators_with_live_indices(device):
+    """Graph replay accumulates overlapping drives, preserves unactuated forces, and follows changed indices."""
+    actuators = []
+    for indices in ([0, 1], [1, 2]):
+        actuators.append(
+            Actuator(
+                indices=wp.array(indices, dtype=wp.uint32, device=device),
+                drive=DrivePD(kp=wp.full(2, 2.0, device=device), kd=wp.zeros(2, device=device)),
+                clamping=[ClampingMaxEffort(max_effort=wp.full(2, 1.0, device=device))],
+            )
+        )
+    adapter = NewtonActuatorAdapter(actuators, num_envs=1, num_joints=4, dof_offset=0, device=device)
+    state = SimpleNamespace(joint_q=wp.zeros(4, device=device), joint_qd=wp.zeros(4, device=device))
+    control = SimpleNamespace(
+        joint_target_q=wp.full(4, 1.0, device=device),
+        joint_target_qd=wp.zeros(4, device=device),
+        joint_act=wp.zeros(4, device=device),
+        joint_f=wp.zeros(4, device=device),
+    )
+    adapter.finalize(control)
+    adapter.step(state, control, 0.005)
+    with wp.ScopedCapture(device=device) as capture:
+        adapter.step(state, control, 0.005)
+    for changed_indices in (False, True):
+        if changed_indices:
+            actuators[0].indices.assign(np.array([3, 1], dtype=np.uint32))
+        control.joint_f.fill_(7.0)
+        control.joint_computed_f.fill_(23.0)
+        wp.capture_launch(capture.graph)
+        expected_applied = [7, 2, 1, 1] if changed_indices else [1, 2, 1, 7]
+        expected_computed = [0, 4, 2, 2] if changed_indices else [2, 4, 2, 0]
+        np.testing.assert_array_equal(control.joint_f.numpy(), expected_applied)
+        np.testing.assert_array_equal(control.joint_computed_f.numpy(), expected_computed)
