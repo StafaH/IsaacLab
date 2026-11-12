@@ -22,6 +22,7 @@ import gymnasium as gym
 import torch
 import warp as wp
 from isaaclab_experimental import mdp2
+from video import add_camera, record
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.mdp2.tracking.config.humanoid.humanoid_env_cfg import humanoid_task
@@ -62,13 +63,14 @@ parser.add_argument("--snapshot_interval", type=int, default=5)
 parser.add_argument("--eval_envs", type=int, default=256)
 parser.add_argument("--compile", action="store_true")
 parser.add_argument("--out", default=None)
+parser.add_argument("--video", default=None, help="Path of an MP4 of the final policy, from the first frame")
 args = parser.parse_args()
 
 DEVICE = "cuda:0"
 TASK = f"Isaac-Tracking-Humanoid-{args.motion.capitalize()}-MDP2"
 
 
-def make_env(num_envs, evaluation=False):
+def make_env(num_envs, evaluation=False, camera=False):
     """Create the training environment, or the one that starts on the first frame of the clip without noise."""
     if args.runtime == "mdp1":
         from tracking_mdp1_baseline import tracking_cfg
@@ -86,6 +88,8 @@ def make_env(num_envs, evaluation=False):
         cfg.task.events["reset_to_motion"].params["noise"] = 0.0
     if args.action_scale is not None:
         cfg.task.actions["joint_pos"].scale = args.action_scale
+    if camera:
+        add_camera(cfg)
     return gym.make(TASK, cfg=cfg).unwrapped
 
 
@@ -456,3 +460,9 @@ if args.out:
     summary = {"args": vars(args), "train_time": train_time, "steps_per_s": samples / train_time, "results": results}
     with open(args.out, "w") as file:
         json.dump(summary, file)
+
+if args.video:
+    # The final policy from the first frame of the clip, three times over.
+    env = make_env(1, evaluation=True, camera=True)
+    record(env, lambda obs: agent.actor(agent.normalize(obs)), args.video, 3 * int(env.max_episode_length), 1)
+    env.close()

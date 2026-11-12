@@ -21,6 +21,7 @@ import gymnasium as gym
 import torch
 import warp as wp
 from isaaclab_experimental import mdp2
+from video import add_camera, record
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.mdp2.hil import mdp as hil
@@ -53,6 +54,7 @@ parser.add_argument("--disc_batch", type=int, default=4096)
 parser.add_argument("--penalty", type=float, default=5.0)
 parser.add_argument("--log_interval", type=int, default=20)
 parser.add_argument("--out", default=None)
+parser.add_argument("--video", default=None, help="Path of an MP4 of the final policy in four worlds")
 args = parser.parse_args()
 
 DEVICE = "cuda:0"
@@ -61,18 +63,27 @@ STYLE, RESET = "rewards.style", "events.reset_to_motion"
 
 torch.manual_seed(args.seed)
 torch.backends.cuda.matmul.allow_tf32 = True
-cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
-cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, args.num_envs, args.seed
-tasks = {"hybrid": cfg.task, "tracking": cfg.task[:1], "goals": cfg.task[1:]}[args.mode]
-for task in tasks:
-    if not args.style:
-        task.rewards["style"] = None
-    elif args.style_weight is not None:
-        task.rewards["style"].weight = args.style_weight
-    if args.action_scale is not None:
-        task.actions["joint_pos"].scale = args.action_scale
-cfg.task = tasks if len(tasks) > 1 else tasks[0]
-env = gym.make(TASK, cfg=cfg).unwrapped
+
+
+def make_env(num_envs, camera=False):
+    """Create the environment of the mode, with a camera in every world for recording."""
+    cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
+    cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, num_envs, args.seed
+    tasks = {"hybrid": cfg.task, "tracking": cfg.task[:1], "goals": cfg.task[1:]}[args.mode]
+    for task in tasks:
+        if not args.style:
+            task.rewards["style"] = None
+        elif args.style_weight is not None:
+            task.rewards["style"].weight = args.style_weight
+        if args.action_scale is not None:
+            task.actions["joint_pos"].scale = args.action_scale
+    cfg.task = tasks if len(tasks) > 1 else tasks[0]
+    if camera:
+        add_camera(cfg)
+    return gym.make(TASK, cfg=cfg).unwrapped
+
+
+env = make_env(args.num_envs)
 obs = env.reset()[0]["policy"]
 num_envs, obs_dim, action_dim = obs.shape[0], obs.shape[1], env.mdp.action_dim
 arrays = env.state.arrays
@@ -337,3 +348,9 @@ if args.out:
     with open(args.out, "w") as file:
         json.dump(summary, file)
 env.close()
+
+if args.video:
+    # Four worlds: with both tasks, two that track the clip, then two that follow goals.
+    env = make_env(4, camera=True)
+    record(env, lambda obs: agent.actor(agent.normalize(obs)), args.video, 300, 4)
+    env.close()

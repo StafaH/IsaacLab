@@ -23,6 +23,7 @@ import gymnasium as gym
 import torch
 import warp as wp
 from isaaclab_experimental import mdp2
+from video import add_camera, record
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import load_cfg_from_registry
@@ -50,14 +51,23 @@ parser.add_argument("--pbt_interval", type=int, default=40)
 parser.add_argument("--pbt_fraction", type=float, default=0.25)
 parser.add_argument("--log_interval", type=int, default=10)
 parser.add_argument("--out", default=None)
+parser.add_argument("--video", default=None, help="Path of an MP4 with one world per candidate")
 args = parser.parse_args()
 
 DEVICE = "cuda:0"
 torch.manual_seed(args.seed)
 torch.backends.cuda.matmul.allow_tf32 = True
-cfg = resolve_presets(load_cfg_from_registry(args.task, "env_cfg_entry_point"), selected=("newton_mjwarp",))
-cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, args.num_envs, args.seed
-env = gym.make(args.task, cfg=cfg).unwrapped
+
+
+def make_env(num_envs, camera=False):
+    cfg = resolve_presets(load_cfg_from_registry(args.task, "env_cfg_entry_point"), selected=("newton_mjwarp",))
+    cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, num_envs, args.seed
+    if camera:
+        add_camera(cfg, 320, 320)
+    return gym.make(args.task, cfg=cfg).unwrapped
+
+
+env = make_env(args.num_envs)
 obs = env.reset()[0]["policy"]
 K = len(env.mdp.world_configs)
 num_envs, obs_dim, action_dim = obs.shape[0], obs.shape[1], env.mdp.action_dim
@@ -307,3 +317,14 @@ if args.out:
     with open(args.out, "w") as file:
         json.dump(summary, file)
 env.close()
+
+if args.video:
+    # One world per candidate, in candidate order, each driven by its own policy.
+    env = make_env(K, camera=True)
+    grid = next(columns for columns in range(1, K + 1) if columns * columns >= K)
+
+    def act(observations):
+        return forward("actor", params, normalize(observations.view(K, 1, obs_dim))).view(K, action_dim)
+
+    record(env, act, args.video, 225, grid)
+    env.close()
