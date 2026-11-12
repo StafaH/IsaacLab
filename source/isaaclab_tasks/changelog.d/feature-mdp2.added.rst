@@ -20,3 +20,6 @@
 * Added ``Isaac-Tracking-Humanoid-{Hop,Cartwheel,Backflip,All}-MDP2``: the motion tracking task takes several clips
   for one policy, with three more clips of the humanoid, and can start episodes where earlier episodes failed, with a
   reset event that counts failures per segment of the clips inside the step's CUDA graph.
+* Added ``Isaac-Recovery-Humanoid-Dance-MDP2``, in which half of the worlds track a clip while their robot is
+  pushed, and ``Isaac-Distillation-Flat-UnitreeGo2-MDP2``, in which teacher worlds observe the Go2 velocity task
+  without noise and student worlds also compute the noisy, history-only observations of a student.

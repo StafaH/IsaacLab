@@ -25,6 +25,7 @@ from isaaclab_experimental import mdp2
 from video import add_camera, record
 
 import isaaclab_tasks  # noqa: F401
+from isaaclab_tasks.mdp2.recovery.recovery_env_cfg import pushed
 from isaaclab_tasks.mdp2.tracking.config.humanoid.humanoid_env_cfg import humanoid_task
 from isaaclab_tasks.utils import load_cfg_from_registry
 from isaaclab_tasks.utils.hydra import resolve_presets
@@ -49,6 +50,9 @@ parser.add_argument("--entropy", type=float, default=0.0)
 parser.add_argument("--action_scale", type=float, default=None)
 parser.add_argument("--max_lr", type=float, default=1.0e-2)
 parser.add_argument("--tag", default="")
+parser.add_argument("--push_speed", type=float, default=0.8, help="Largest push [m/s]")
+parser.add_argument("--eval_pushed", action="store_true", help="Also evaluate the final policy while pushed")
+parser.add_argument("--pushes", default="none", choices=["none", "half", "all"], help="Worlds whose robot is pushed")
 parser.add_argument("--adaptive", type=float, default=0.0, help="Share of episodes that start where episodes fail")
 parser.add_argument("--lost_distance", type=float, default=None, help="RMS body distance that ends an episode [m]")
 parser.add_argument("--activation", default="elu", choices=["elu", "silu"])
@@ -72,7 +76,7 @@ DEVICE = "cuda:0"
 TASK = "Isaac-Tracking-Humanoid-Walk-MDP2"
 
 
-def make_env(num_envs, evaluation=False, camera=False):
+def make_env(num_envs, evaluation=False, camera=False, pushes=None):
     """Create the training environment, or the one that starts on the first frame of the clip without noise."""
     if args.runtime == "mdp1":
         from tracking_mdp1_baseline import tracking_cfg
@@ -85,14 +89,18 @@ def make_env(num_envs, evaluation=False, camera=False):
 
     cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
     cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, num_envs, args.seed
-    cfg.task = humanoid_task(args.motion, adaptive=args.adaptive)
+    task = humanoid_task(args.motion, adaptive=args.adaptive)
     if evaluation:
-        cfg.task = humanoid_task(args.motion, start_range=(0.0, 0.0))
-        cfg.task.events["reset_to_motion"].params["noise"] = 0.0
+        task = humanoid_task(args.motion, start_range=(0.0, 0.0))
+        task.events["reset_to_motion"].params["noise"] = 0.0
     if args.action_scale is not None:
-        cfg.task.actions["joint_pos"].scale = args.action_scale
+        task.actions["joint_pos"].scale = args.action_scale
     if args.lost_distance is not None:
-        cfg.task.terminations["tracking_lost"].params["threshold"] = args.lost_distance**2
+        task.terminations["tracking_lost"].params["threshold"] = args.lost_distance**2
+    # Pushes in no world, in the second half of the worlds, or in every world.
+    pushes = args.pushes if pushes is None else pushes
+    shoved = pushed(task, args.push_speed, (2.0, 4.0))
+    cfg.task = {"none": task, "half": [task, shoved], "all": shoved}[pushes]
     if camera:
         add_camera(cfg)
     return gym.make(TASK, cfg=cfg).unwrapped
@@ -434,23 +442,32 @@ else:
         name: env.state.arrays[mdp2.term_state("events.reset_to_motion", name)].torch for name in ("clip_range", "end")
     }
     clip_ends, world_end = reset_state["clip_range"][:, 1], lambda: reset_state["end"]
+
+
+def first_episodes(env):
+    """Run the policy without noise for the longest clip, and return which worlds finish their first clip, the clip
+    of each world, and the mean body error."""
+    obs = env.reset()[0]["policy"]
+    clip = (world_end().float()[:, None] == clip_ends[None, :]).float().argmax(dim=-1)
+    finished = torch.zeros(env.num_envs, dtype=torch.bool, device=DEVICE)
+    succeeded = torch.zeros_like(finished)
+    error, steps = torch.zeros(env.num_envs, device=DEVICE), torch.zeros(env.num_envs, device=DEVICE)
+    for _ in range(horizon):
+        error += body_error(env) * ~finished
+        steps += ~finished
+        obs, _, terminated, truncated, _ = env.step(agent.actor(agent.normalize(obs)))
+        obs = obs["policy"]
+        succeeded |= truncated & ~finished
+        finished |= terminated | truncated
+    return succeeded, clip, (error.sum() / steps.sum().clamp(min=1)).item()
+
+
 results = []
 with torch.no_grad():
     for index, snapshot in enumerate(snapshots):
         agent.load_state_dict(snapshot)
-        obs = env.reset()[0]["policy"]
         # A world succeeds if its first episode reaches the end of its clip. Worlds draw their clips at random.
-        clip = (world_end().float()[:, None] == clip_ends[None, :]).float().argmax(dim=-1)
-        finished = torch.zeros(args.eval_envs, dtype=torch.bool, device=DEVICE)
-        succeeded = torch.zeros_like(finished)
-        error, steps = torch.zeros(args.eval_envs, device=DEVICE), torch.zeros(args.eval_envs, device=DEVICE)
-        for _ in range(horizon):
-            error += body_error(env) * ~finished
-            steps += ~finished
-            obs, _, terminated, truncated, _ = env.step(agent.actor(agent.normalize(obs)))
-            obs = obs["policy"]
-            succeeded |= truncated & ~finished
-            finished |= terminated | truncated
+        succeeded, clip, error = first_episodes(env)
         per_clip = [succeeded[clip == c].float().mean().item() for c in range(len(motions))]
         results.append(
             {
@@ -458,11 +475,25 @@ with torch.no_grad():
                 "time": times[index],
                 "success": min(per_clip),
                 "per_clip": per_clip,
-                "body_error_m": (error.sum() / steps.sum().clamp(min=1)).item(),
+                "body_error_m": error,
                 "train_completion": float(curve[index]),
             }
         )
 env.close()
+
+pushed_result = None
+if args.runtime == "mdp2" and args.eval_pushed:
+    # The final policy with every world pushed.
+    env = make_env(args.eval_envs, evaluation=True, pushes="all")
+    reset_state = {
+        name: env.state.arrays[mdp2.term_state("events.reset_to_motion", name)].torch for name in ("clip_range", "end")
+    }
+    clip_ends, world_end = reset_state["clip_range"][:, 1], lambda: reset_state["end"]
+    with torch.no_grad():
+        succeeded, _, error = first_episodes(env)
+    pushed_result = {"success": succeeded.float().mean().item(), "body_error_m": error}
+    print(f"PUSHED success {pushed_result['success']:.3f} body error {100 * error:.1f} cm")
+    env.close()
 
 first = next((result for result in results if result["success"] >= 0.9), None)
 for result in results:
@@ -479,14 +510,20 @@ print(
     + " ".join(f"{r['iteration']}:{r['success']:.2f}" for r in results[:: max(1, len(results) // 8)])
 )
 if args.out:
-    summary = {"args": vars(args), "train_time": train_time, "steps_per_s": samples / train_time, "results": results}
+    summary = {
+        "args": vars(args),
+        "pushed": pushed_result,
+        "train_time": train_time,
+        "steps_per_s": samples / train_time,
+        "results": results,
+    }
     with open(args.out, "w") as file:
         json.dump(summary, file)
 
 if args.video:
     # The final policy from the first frame of its clips: one world for a single clip, a row of worlds for many.
     tiles = 1 if len(motions) == 1 else 6
-    env = make_env(tiles, evaluation=True, camera=True)
+    env = make_env(tiles, evaluation=True, camera=True, pushes="all" if args.eval_pushed else "none")
     steps = 3 * int(env.max_episode_length) if len(motions) == 1 else 450
     record(env, lambda obs: agent.actor(agent.normalize(obs)), args.video, steps, min(tiles, 3))
     env.close()
