@@ -1,13 +1,14 @@
 # MDP2 research: execution plan
 
 The plan to execute, tracked in the branch `feature/mdp2-examples` so that the work can continue on any machine. It
-is the only plan document in the branch. The literature review behind it is an untracked working document on the
-workstation where the project started and is not needed to execute.
+is the only plan document in the branch and is written to be enough on its own: sections 11 to 13 record what else
+was learned on the workstation where the project started.
 
 Work through the packages of section 7 in the order of section 8. Keep **Status** and **Log** at the end current
 and commit the file with every update.
 
-This branch carries an unpublished research plan: do not push it to a public remote unless the owner says so.
+The branch is on the owner's fork at the owner's request. It carries an unpublished research plan: do not open a
+pull request from it or push it anywhere else without asking.
 
 ## 1. Goal
 
@@ -94,12 +95,17 @@ interface and split `<interface>/<train|test>/success` and `<interface>/<train|t
 the bodies to the clip).
 
 **Throughput.** 0.56 million samples per second on an RTX PRO 6000 Blackwell, so 1000 million samples take 30
-minutes; about 8 GB of GPU memory.
+minutes; 6.7 GB of GPU memory per run.
 
 ## 4. Results so far
 
-Pilot on the workstation: one seed, 1000 million samples per run, protocol P1. Held-out success with the mean body
-error in brackets. Preliminary: one seed, and no run has converged.
+Pilot on the workstation: seed 0, 1000 million samples per run, protocol P1, the runs of W1 at half the budget with
+one schedule. It was stopped on 12 November to move to the multi-GPU machine: four of eight runs are complete, the
+student of the two-stage run was stopped at 101 M, and three runs never started (specialists `key_points` and
+`upper_body`, self-distillation). W1 repeats all of them with seeds. Preliminary: one seed, and no run has
+converged.
+
+Final held-out success (mean of the last ten log rows), with the mean body error in brackets:
 
 | Run | `full` | `key_points` | `three_point` | `upper_body` |
 |---|---|---|---|---|
@@ -107,29 +113,51 @@ error in brackets. Preliminary: one seed, and no run has converged.
 | Specialist `three_point` | | | 69% (83 mm) | |
 | Uniform mixture | 48% (79 mm) | 72% (76 mm) | 61% (87 mm) | 3% (128 mm) |
 | Schedule: `full`, then uniform from 500 M | 70% (76 mm) | 76% (77 mm) | 28% (100 mm) | 2% (138 mm) |
-| Specialists `key_points`, `upper_body` | pending | | | |
-| Two-stage distillation (1000 M teacher + 1000 M student) | pending | | | |
-| Self-distillation | pending | | | |
+
+On the training clips the same runs give 63%; 50%; 58 / 58 / 40 / 6%; 52 / 41 / 24 / 3%. The two splits hold
+different clips, so the difference between them is not a generalisation gap by itself.
+
+Held-out success [%] over training, as `full` / `key_points` / `three_point` / `upper_body` (mean of the five rows
+up to the mark, so the last column differs a little from the table above):
+
+| Run | 250 M | 500 M | 750 M | 1000 M |
+|---|---|---|---|---|
+| Specialist `full` | 20 / 0 / 0 / 0 | 40 / 0 / 0 / 0 | 59 / 0 / 0 / 0 | 70 / 0 / 0 / 0 |
+| Specialist `three_point` | 0 / 0 / 33 / 0 | 0 / 0 / 61 / 0 | 0 / 0 / 73 / 0 | 0 / 0 / 66 / 0 |
+| Uniform mixture | 15 / 22 / 14 / 2 | 39 / 63 / 36 / 2 | 47 / 71 / 44 / 3 | 43 / 69 / 62 / 3 |
+| Schedule (switch at 500 M) | 21 / 0 / 0 / 0 | 59 / 0 / 0 / 0 | 57 / 51 / 2 / 0 | 72 / 77 / 29 / 2 |
+
+- **First success.** Held-out success passes 5% at 175 M (`full`) and 111 M (`three_point`) for the specialists, and
+  at 175 M and 157 M for the same interfaces in the uniform mixture. Runs shorter than 200 M say nothing.
+- **Two-stage distillation, unfinished.** The student imitates the labels of the `full` specialist (the 1000 M run
+  above) in every interface. At 101 M of its own samples it has 4 / 8 / 5 / 0% held-out success with errors of 109 /
+  107 / 116 / 137 mm, where the uniform mixture with reinforcement learning has 0% everywhere and 113 / 119 / 121 /
+  121 mm at the same count. Too early to say anything about its final level.
+- **Earlier single runs.** `full` alone reached 32% on training clips and 35% held-out at 295 M in a 300 M run.
+  With `--init_std 0.5` it had 10% and 5% at 200 M, slower than the default of 1.0.
+- **Noise.** The curve of one run moves by several points between marks (`three_point`: 73, then 66), which is why
+  the gates ask for seeds and a separation of 10 points.
 
 Reading so far:
 
 - The uniform mixture does not fail wholesale. With a quarter of the samples on `three_point` it is 8 points behind
   the specialist of that interface, so the interfaces teach each other.
 - It pays on `full` (22 points behind the specialist) and it fails `upper_body`. Whether `upper_body` can be learned
-  alone is the pending specialist run.
+  alone is not known: its specialist never ran. Look at that run of W1 first.
 - The schedule trades the other way: `full` stays at the specialist's level and `key_points` is the best so far,
   but `three_point` has had 125 M samples of its own and is at 28%, still rising. Neither the uniform mixture nor
   this schedule is better on every interface, which is the situation an allocator is meant for.
-- The specialists are still improving at 1000 M (`full`: 20%, 40%, 59%, 70% at 250, 500, 750 and 1000 M), so the
-  comparison needs longer budgets. Success stays at 0 until about 140 M.
-- Halving the initial exploration noise (`--init_std 0.5`) was slower.
-- 808 frames of the clips put bodies in the ground and the simulation diverged when a world started there. The
-  frames are now lifted (`ground_clearance`), and a world whose state is not finite ends its episode.
+- After the switch, the schedule reached 51% on `key_points` within 250 M (62 M samples of that interface): what
+  `full` learned carries over to it almost at once, and far less to `three_point`. That asymmetry is H5.
+- H1 is open: the two-stage run did not finish. The uniform mixture's numbers make a wholesale loss unlikely on
+  this problem, so expect the outcome of Gate 1 to turn on `full`, on `upper_body` and on the fixed-mixture sweep.
+- No run has converged: the `full` specialist gained 11 points over its last 250 M. W1 therefore doubles the
+  budget and checks the ranking at 8000 M.
 
 ## 5. Bring-up on a new machine
 
-1. **Code.** Check out `feature/mdp2-examples`, which sits on `main` of isaac-sim/IsaacLab. Then `uv sync`: the
-   default environment has Newton and no Isaac Sim, which is all this work uses.
+1. **Code.** Check out `feature/mdp2-examples` from the owner's fork; it sits on `main` of isaac-sim/IsaacLab. Then
+   `uv sync`: the default environment has Newton and no Isaac Sim, which is all this work uses.
 2. **Clips.** The G1 files of the LAFAN1 retargeting dataset are not in the repository (non-commercial, not
    redistributable; never commit them):
 
@@ -199,6 +227,7 @@ Section 5 on the multi-GPU machine. Done when the reproduction matches and its t
 ### W1. Gate 1 batch (no new code)
 
 Protocol P1, 2000 million samples per method in total, seeds 0 to 2. About 44 GPU-hours: 11 hours on four GPUs.
+The batch contains every run of the pilot, including the four that did not finish there.
 
 ```bash
 mkdir -p runs/research
@@ -299,7 +328,9 @@ Start while W1 runs. This is where the literature reports that fixed mixtures fa
 us.
 
 1. **More interface arms** (task configuration only): `root_path` (root position only); `upper_body` with the root
-   velocity if its specialist fails; the six fall-and-get-up clips back in as a hard clip group.
+   velocity if its specialist fails; the six fall-and-get-up clips back in as a hard clip group (download
+   `fallAndGetUp1_subject1`, `fallAndGetUp1_subject4`, `fallAndGetUp1_subject5`, `fallAndGetUp2_subject2`,
+   `fallAndGetUp2_subject3` and `fallAndGetUp3_subject1` as in section 5).
 2. **Robustness arms (problem 3).** Pushes and randomised dynamics switched per world by a state that the learner
    writes, as `shares` is today. Clip and phase bins as arms, from the failure statistics of `reset_to_clips`.
 3. **Hybrid imitation without a pre-stage (problem 2).** Tracking worlds and goal-plus-style worlds from scratch,
@@ -367,7 +398,8 @@ interquartile means with bootstrap intervals, samples and GPU-hours for every re
 - Cartpole is not a benchmark; do not report it.
 - Changes to the MDP2 runtime (`source/isaaclab_experimental/isaaclab_experimental/mdp2/`, `envs/mdp2_*.py`) are
   committed separately from tasks and learners and cherry-picked onto `feature/mdp2`, the branch of pull request
-  isaac-sim/IsaacLab#9016. Tasks, learners and this file stay on `feature/mdp2-examples`.
+  isaac-sim/IsaacLab#9016. Tasks, learners and this file stay on `feature/mdp2-examples`. Today the runtime code
+  of the two branches is identical.
 - Code style: plain code, no helpers that wrap one line, short docstrings, names that RL and Isaac Lab users know.
 - Commits: imperative capitalised subject, no attribution lines; `uvx ruff format` and `uvx ruff check` first;
   tests with `uv run --extra test python -m pytest`.
@@ -382,13 +414,138 @@ interquartile means with bootstrap intervals, samples and GPU-hours for every re
 |---|---|
 | How jobs are launched on the cluster (scheduler, shared file system) | The study with seeds (from 18 December); W1 to W5 fit on four GPUs |
 | Who runs the G1, and with which deployment stack | W8 |
-| Where this branch may be pushed | Sharing between machines |
+
+Decided by the owner on 12 November: the venue is RSS 2027; a G1 is available; compute is a 4-GPU machine and a
+cluster with hundreds of GPUs; only public datasets are used.
+
+## 11. What is not in the branch
+
+| What | Where it is | What to do |
+|---|---|---|
+| The clips | Hugging Face | Download (section 5); never commit them |
+| Logs of the pilot and the model of its `full` specialist | The first workstation, `runs/research/pilot/` (ignored by git) | Nothing: section 4 holds the numbers and W1 reruns the pilot |
+| The literature review and the texts of the papers read | The first workstation, untracked | Section 12 holds what the plan needs |
+| Design and build notes of the MDP2 runtime | The first workstation, untracked | For runtime changes read the guide, `docs/source/experimental-features/mdp2.rst`, which is in the branch |
+
+## 12. Background from the literature review
+
+Seven reading tracks over the publications of Xue Bin Peng and related work, well over a hundred papers. Numbers
+were extracted by reading agents, in places through a summarising model: check each against the PDF before it is
+cited.
+
+**What the literature establishes.**
+
+| Finding | Evidence |
+|---|---|
+| Tracking is precise but rigid; adversarial imitation adapts but collapses onto few modes, more so with more data | HIL, AMP, ASE, CALM, SMP |
+| Mixing objectives across worlds helps, but only two modes were tried, at a fixed split, after a tracking stage | HIL (arXiv 2505.12619): 4 billion samples of tracking, then 2 billion at 50/50; no ablation of the ratio, no seeds, no wall time; four V100 GPUs |
+| Mixing from the start fails on dynamic skills without a curriculum | Wang et al., RSS 2026 (arXiv 2602.20375): success 0 / 0 without their hand-set schedule (imitation probability from 1.0 to 0.5), one policy per behaviour |
+| Masked multi-mode control from scratch loses to distillation at modest compute | HOVER (worse on 32 of 32 metrics), the BFM ablation, PULSE (72% / 33% without distillation) |
+| It works in one stage only with a hand curriculum on a small library, or at very large compute | MHC (75 clips, three stages), Scaling BFM (arXiv 2607.15163, eight mask modes, up to 64 GPUs), SONIC (128 GPUs for 7 days) |
+| A sparse interface with the dense full-reference reward is learnable from scratch | PULSE's three-point baseline (98.8% / 93.4%), SONIC. Our pilot agrees |
+| The field is moving from distillation to single-stage training | SONIC, TWIST2, RGMT, Scaling BFM, SuperMimic (model-based, CoRL 2026) |
+| Every imitation sampler adapts only which clip or phase to start from, from training failures | PHC, MaskedMimic, BeyondMimic, GMT, SONIC, ZEST |
+| Ratios of teacher to student worlds are constants or clocks | CTS (3:1), S-TS (ramp after N iterations); MaskAdapt (arXiv 2603.29272) distils within one network for state masks |
+| With two reward structures in one batch the critic must know the mode | HIL (5 times the critic loss without it) |
+| Results rest on one to five runs | DeepMimic, HIL, most tracking papers; the one "what matters" study (arXiv 2607.19903) uses at most two seeds |
+
+**The gap.** We found no paper that does any of the following. Confidence is medium to low, because the terminology
+is diffuse and OpenReview and Google Scholar were not queried directly.
+
+- Allocates shares of parallel worlds across imitation objectives or levels of supervision from a signal.
+- Drives a choice about the training distribution from held-out evaluation inside the training simulation.
+- Adapts more than two axes of the training distribution jointly.
+- Measures which objective teaches which (HIL's explanation of why mixing works is qualitative).
+- Measures the cost of a different MDP per world (multi-task benchmarks such as MTBench do not).
+
+**Method beyond version 1 of the allocator.**
+
+| Axis | Arms |
+|---|---|
+| Specification | Full-body targets; head and hands; upper body plus root velocity; root path only; keyframes; goal plus style (adversarial, no reference) |
+| Clip and phase | Bins of the reference set |
+| Perturbation | Clean; pushed; randomised dynamics |
+| Scene (stretch) | Reference scene; widened obstacle and goal ranges (OmniRetarget clips) |
+
+- The critic sees the full reference and the arm, with returns normalised per arm.
+- Version 2 of the allocator uses the transfer matrices of W5: allocate to the arms with the largest measured gain
+  on the arms that matter at deployment.
+- Forks: K copies of the policy in one simulation, each with its own worlds. They exist in `train_reward_search.py`
+  and are the one-GPU form of the transfer probes and of population-based training.
+
+**Baselines the paper needs,** all in our runtime at equal samples and equal wall time.
+
+| Baseline | Stands for |
+|---|---|
+| Uniform fixed mixture | HOVER's from-scratch baseline, Scaling BFM's mode sampling |
+| Best fixed mixture from a grid | What a sweep buys |
+| Hand schedules | HIL (tracking, then 50/50), Wang et al. (linear to 0.5), MHC (three stages), S-TS (ramp after N iterations) |
+| Two-stage distillation | HOVER, MaskedMimic |
+| Fixed-ratio concurrent teacher and student | CTS (3:1) |
+| Clip and phase sampler only | BeyondMimic, GMT |
+| Curriculum allocators on training signals | TSCL, ALP, PLR-style value-loss scores |
+| Population-based training over the shares | K policies in one simulation, K times the cost |
+
+**Metrics.** Per arm on held-out clips: success at 0.5 m and at 0.25 m, global and local keypoint error in mm; for
+the hybrid problem HIL's direction, facing and skill-fidelity measures. Curves against samples and wall time.
+
+**Data** (public sets only).
+
+| Set | Size | Licence | Use |
+|---|---|---|---|
+| LAFAN1 retargeted to the G1 | 40 clips, 2.45 h | Non-commercial, not redistributable | Development and the standard comparison |
+| PHUMA | 73 h | Apache-2.0 | Scale, and anything released |
+| OmniRetarget | 4 h | MIT | The scene problem |
+| AMASS retargets | | CC-BY-4.0 plus the AMASS licence | Alternative for scale |
+
+**Other deadlines.** ICML 22 January 2027; SIGGRAPH 28 January 2027 (simulation only, gives up the hardware
+result); CoRL 2027 not announced (28 May in 2026).
+
+**Risks.**
+
+| Risk | Response |
+|---|---|
+| Uniform mixing simply works at our scale | Gate 1, then the harder problems of W4, then the study |
+| The allocator only equals a good hand schedule | Claim one rule across problems against a sweep per problem |
+| Groups with far more compute are one step away | Move fast; our ground is allocation, seeds and one GPU per run |
+| Small data and small networks look unconvincing | PHUMA, standard metrics, sim-to-sim against released checkpoints, hardware |
+| The discriminator destabilises mixed training | Gradient penalty; a frozen score prior as the style arm |
+| Reviewers see population-based training or meta-gradients under a new name | Both are baselines; the transfer matrices show the signal is different |
+
+## 13. Lessons from the build so far
+
+- **The research task is not the showcase tracker.** That one acts as a correction on the reference pose and
+  observes global targets, which hands the full reference to every interface. The task here acts from the default
+  pose and its actor sees only what the robot measures plus its interface. Training takes minutes to hours, not
+  seconds.
+- **Bad frames.** 808 frames of the clips have bodies in the ground (for example in `walk3_subject1`); rewards
+  became NaN when a world started there. The loader now lifts such frames (`ground_clearance`) and a world whose
+  state is not finite ends its episode. Check new data for this before training on it.
+- **Physics limits.** The constraint and contact buffers overflowed when hands and knees touched the ground; the
+  task sets `njmax=300` and `nconmax=120`.
+- **Shared exploration noise.** The action noise of PPO is one vector for all worlds. In a Go2 mixture a penalty
+  that is sensitive to noise in one arm starved exploration in the others. When one arm of a mixture fails, train
+  it alone with the same code before suspecting the mixture.
+- **Saved models.** On the manipulation showcase a saved model evaluated in a fresh simulation gave 34% and 32%
+  where training reported 97% and 98%; the cause was not found. Check W2.2 and W2.3 against the evaluation worlds
+  of the training run before trusting them.
+- **MDP2.** A `Quantity` takes `term=`; a quantity that reads another is listed after it. A logged quantity that
+  only some world configurations compute used to be averaged over all worlds (fixed in the runtime).
+- **Warp.** A variable that starts as a constant and changes inside a loop of dynamic length must be declared with
+  a type (`chosen = int(0)`). Do not define kernels in `python -c`.
+- **Tests** run with `uv run --extra test`; a plain `uv run` removes pytest from the environment again.
+- **Step time of the showcase tasks,** MDP1 managers against MDP2 at 4096 worlds, one measurement each [ms]: push
+  recovery 3.89 / 2.34, reward search 4.29 / 2.42, hybrid imitation 4.50 / 2.47, distillation 5.39 / 3.64, skills
+  8.01 / 4.11, tracking 3.82 / 2.41. Physics is the floor: the MDP is about 0.07 ms of the 2.41 ms. None has more
+  than four arms, which is what W7 has to add.
+- **Unsolved cases** that problem 3 can use: the cartwheel that is unstable in the six-clip tracking policy, the
+  get-up and handstand skills of the Go2, the reorientation skill of the Kuka Allegro (3% success).
 
 ## Status
 
 | Item | Status | Notes |
 |---|---|---|
-| Pilot on the workstation (1000 M, one seed) | DOING | 4 of 8 runs done, section 4 |
+| Pilot on the workstation (1000 M, one seed) | STOPPED | 4 of 8 runs complete, section 4; the rest is part of W1 |
 | W0 Bring-up on the multi-GPU machine | TODO | |
 | W1 Gate 1 batch | TODO | |
 | W2 Tooling | TODO | |
@@ -407,3 +564,6 @@ interquartile means with bootstrap intervals, samples and GPU-hours for every re
 - 2026-11-12: task, learner and test committed. Pilot batch of eight runs started on the workstation (RTX PRO 6000
   Blackwell, 0.56 M samples/s); `full`, `uniform`, `three_point` and the schedule done, see section 4. This plan
   written.
+- 2026-11-12: pilot stopped by the owner to continue on the multi-GPU machine. The two-stage student was at 101 M;
+  the specialists `key_points` and `upper_body` and self-distillation had not started. Results, background and
+  lessons recorded in sections 4, 12 and 13. Branch pushed to the owner's fork. Next: W0.
