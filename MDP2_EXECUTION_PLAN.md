@@ -1,8 +1,9 @@
 # MDP2 research: execution plan
 
 The plan to execute, tracked in the branch `feature/mdp2-examples` so that the work can continue on any machine. It
-is the only plan document in the branch and is written to be enough on its own: sections 11 to 13 record what else
-was learned on the workstation where the project started.
+is written to be enough on its own: sections 11 to 13 record what else was learned on the workstation where the
+project started. `MDP2_RESEARCH_PLAN.md` beside it is the full research plan it was derived from: the claim, the
+literature, the method and the design of the experiments.
 
 Work through the packages of section 7 in the order of section 8. Keep **Status** and **Log** at the end current
 and commit the file with every update.
@@ -424,7 +425,7 @@ cluster with hundreds of GPUs; only public datasets are used.
 |---|---|---|
 | The clips | Hugging Face | Download (section 5); never commit them |
 | Logs of the pilot and the model of its `full` specialist | The first workstation, `runs/research/pilot/` (ignored by git) | Nothing: section 4 holds the numbers and W1 reruns the pilot |
-| The literature review and the texts of the papers read | The first workstation, untracked | Section 12 holds what the plan needs |
+| The texts of the papers read | The first workstation, in a session directory | Section 12 and `MDP2_RESEARCH_PLAN.md` hold what was drawn from them |
 | Design and build notes of the MDP2 runtime | The first workstation, untracked | For runtime changes read the guide, `docs/source/experimental-features/mdp2.rst`, which is in the branch |
 
 ## 12. Background from the literature review
