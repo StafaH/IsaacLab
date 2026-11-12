@@ -29,3 +29,12 @@ def _motion_ended(
 
 motion_ended = mdp2.Term(warp=_motion_ended)
 """Whether the world tracked the clip to its end."""
+
+
+@wp.func
+def _is_not_finite(world: int, value: wp.array(dtype=float)) -> bool:
+    return wp.isnan(value[world]) or wp.isinf(value[world])
+
+
+is_not_finite = mdp2.Term(warp=_is_not_finite)
+"""Whether the ``value`` input, one float per world, is not a number: the simulation of the world diverged."""

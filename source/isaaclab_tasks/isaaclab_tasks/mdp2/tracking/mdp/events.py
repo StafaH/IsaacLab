@@ -228,7 +228,7 @@ CSV_JOINTS = (
 """Joints of the rows of the Unitree G1 retargeting files, after the seven values of the root."""
 
 
-def _load_csv_motions(ctx, *, motion_files, windows, frames, bodies, clips, **reset_params):
+def _load_csv_motions(ctx, *, motion_files, windows, frames, bodies, clips, ground_clearance=None, **reset_params):
     robot = ctx.entity("joint_pos")
     device = ctx.state["start"].device
     columns = [robot.joint_names.index(name) for name in CSV_JOINTS]
@@ -265,12 +265,18 @@ def _load_csv_motions(ctx, *, motion_files, windows, frames, bodies, clips, **re
         positions = ctx.inputs["body_link_pose_w"][:count, :, :3]
         ctx.state["clip_body_pos"][first : first + count] = positions
 
+    # Retargeted frames can put bodies in the ground, where a robot cannot start: lift those frames onto it.
+    if ground_clearance is not None:
+        lift = (ground_clearance - ctx.state["clip_body_pos"][:, :, 2].amin(dim=1)).clamp(min=0.0)
+        ctx.state["clip_body_pos"][:, :, 2] += lift[:, None]
+        ctx.state["clip_root_pose"][:, 2] += lift
+
 
 reset_to_csv_motion = mdp2.Term(warp=_reset_to_motion, state=CLIP_STATE, random=True, init=_load_csv_motions)
 """Like :data:`reset_to_motion`, for the retargeting files of the Unitree G1: ``windows`` gives the first frame and
 the number of frames to take of each file, at the control rate of 30 fps. The files hold the root and the joints;
 the positions of the bodies come from posing the robot on every frame, so the event also takes
-``body_link_pose_w``.
+``body_link_pose_w``. With ``ground_clearance``, frames with a body below that height [m] are lifted to it.
 """
 
 
@@ -415,4 +421,155 @@ terminated, in the bin of its last frame, from the ``episode_steps`` input; the 
 world then starts in a bin drawn by its count, up to ``bin_frames`` frames before it, so that it practices what leads
 to the
 failure (as the adaptive sampling of BeyondMimic, arXiv 2508.08241).
+"""
+
+
+@wp.kernel
+def _start_on_clips(
+    mask: wp.array(dtype=wp.bool),
+    joint_pos: wp.array2d(dtype=float),
+    joint_vel: wp.array2d(dtype=float),
+    root_link_pose_w: wp.array(dtype=wp.transformf),
+    root_com_vel_w: wp.array(dtype=wp.spatial_vectorf),
+    env_origins: wp.array(dtype=wp.vec3f),
+    soft_joint_pos_limits: wp.array2d(dtype=wp.vec2f),
+    clip_joint_pos: wp.array2d(dtype=float),
+    clip_joint_vel: wp.array2d(dtype=float),
+    clip_root_pose: wp.array2d(dtype=float),
+    clip_root_vel: wp.array2d(dtype=float),
+    clip_range: wp.array2d(dtype=float),
+    start: wp.array(dtype=float),
+    end: wp.array(dtype=float),
+    fixed_start: wp.array(dtype=float),
+    failures: wp.array(dtype=float),
+    rng: wp.array(dtype=wp.int32),
+    noise: float,
+    adaptive: float,
+    bin_frames: int,
+    train_clips: int,
+):
+    world = wp.tid()
+    if not mask[world]:
+        return
+
+    seed = rng[world]
+    frame = wp.vec2i(0, 0)
+    if fixed_start[world] >= 0.0:
+        fixed = int(fixed_start[world])
+        for c in range(clip_range.shape[0]):
+            if fixed >= int(clip_range[c, 0]) and fixed < int(clip_range[c, 1]):
+                frame = wp.vec2i(wp.min(fixed, int(clip_range[c, 1]) - 2), int(clip_range[c, 1]))
+    else:
+        clip = wp.min(int(wp.randf(wp.rand_init(seed, 0)) * float(train_clips)), train_clips - 1)
+        first, last = int(clip_range[clip, 0]), int(clip_range[clip, 1])
+        frame = wp.vec2i(
+            first + wp.min(int(wp.randf(wp.rand_init(seed, 1)) * float(last - first)), last - first - 2), last
+        )
+        total = float(0.0)
+        for b in range(failures.shape[0]):
+            total += failures[b]
+        if total > 0.0 and wp.randf(wp.rand_init(seed, 2)) < adaptive:
+            # Draw a bin by its failures, then a frame in it, a few frames before where the episodes failed.
+            draw = wp.randf(wp.rand_init(seed, 3)) * total
+            chosen = int(0)
+            cumulative = failures[0]
+            while chosen < failures.shape[0] - 1 and cumulative <= draw:
+                chosen += 1
+                cumulative += failures[chosen]
+            drawn = chosen * bin_frames + int(wp.randf(wp.rand_init(seed, 4)) * float(bin_frames)) - bin_frames
+            for c in range(clip_range.shape[0]):
+                first, last = int(clip_range[c, 0]), int(clip_range[c, 1])
+                if chosen * bin_frames >= first and chosen * bin_frames < last:
+                    frame = wp.vec2i(wp.clamp(drawn, first, last - 2), last)
+
+    _start_on_frame(
+        world,
+        frame[0],
+        frame[1],
+        joint_pos,
+        joint_vel,
+        root_link_pose_w,
+        root_com_vel_w,
+        env_origins,
+        soft_joint_pos_limits,
+        clip_joint_pos,
+        clip_joint_vel,
+        clip_root_pose,
+        clip_root_vel,
+        start,
+        end,
+        noise,
+        seed,
+    )
+
+
+@wp.kernel
+def _credit_training_failures(
+    mask: wp.array(dtype=wp.bool),
+    terminated: wp.array(dtype=wp.bool),
+    start: wp.array(dtype=float),
+    end: wp.array(dtype=float),
+    fixed_start: wp.array(dtype=float),
+    episode_steps: wp.array(dtype=float),
+    bin_frames: int,
+    failures: wp.array(dtype=float),
+):
+    world = wp.tid()
+    if mask[world] and terminated[world] and fixed_start[world] < 0.0:
+        frame = wp.min(int(start[world]) + int(episode_steps[world]), int(end[world]) - 1)
+        wp.atomic_add(failures, frame / bin_frames, 1.0)
+
+
+def _reset_to_clips(
+    mask,
+    joint_pos,
+    joint_vel,
+    root_link_pose_w,
+    root_com_vel_w,
+    env_origins,
+    soft_joint_pos_limits,
+    terminated,
+    episode_steps,
+    clip_joint_pos,
+    clip_joint_vel,
+    clip_root_pose,
+    clip_root_vel,
+    clip_range,
+    start,
+    end,
+    fixed_start,
+    failures,
+    rng,
+    *,
+    noise,
+    adaptive,
+    bin_frames,
+    decay,
+    train_clips,
+):
+    device, num_worlds = mask.device, mask.shape[0]
+    wp.launch(_forget_failures, dim=failures.shape[0], inputs=[failures, decay], device=device)
+    inputs = [mask, terminated, start, end, fixed_start, episode_steps, bin_frames, failures]
+    wp.launch(_credit_training_failures, dim=num_worlds, inputs=inputs, device=device)
+    fields = [joint_pos, joint_vel, root_link_pose_w, root_com_vel_w, env_origins, soft_joint_pos_limits]
+    clips = [clip_joint_pos, clip_joint_vel, clip_root_pose, clip_root_vel, clip_range, start, end]
+    params = [fixed_start, failures, rng, noise, adaptive, bin_frames, train_clips]
+    wp.launch(_start_on_clips, dim=num_worlds, inputs=[mask, *fields, *clips, *params], device=device)
+
+
+reset_to_clips = mdp2.Term(
+    warp=_reset_to_clips,
+    state={
+        **CLIP_STATE,
+        "failures": mdp2.State(("bins",)),
+        "fixed_start": mdp2.State(initial=-1.0, persistent=True),
+    },
+    random=True,
+    init=_load_csv_motions,
+)
+"""Like :data:`reset_to_csv_motion`, for training and evaluation worlds in one simulation.
+
+A world whose ``fixed_start`` state is a frame starts every episode on that frame: an evaluation world, set by the
+learner. The other worlds start on a frame of the first ``train_clips`` clips, drawn uniformly, or with probability
+``adaptive`` where their episodes fail, as :data:`reset_to_failures` does.
 """
