@@ -16,13 +16,13 @@ EYE = (2.6, -3.0, 0.5)
 """Camera position relative to the root of the world's robot [m]. The camera looks at the root."""
 
 
-def add_camera(cfg, width: int = 480, height: int = 480) -> None:
+def add_camera(cfg, width: int = 480, height: int = 480, eye: tuple[float, float, float] = EYE) -> None:
     """Add a camera to every world of an environment config, and step it without capture, which rendering needs."""
     from isaaclab_newton.renderers import NewtonWarpRendererCfg  # noqa: PLC0415
 
     cfg.scene.video_camera = CameraCfg(
         prim_path="{ENV_REGEX_NS}/VideoCamera",
-        offset=CameraCfg.OffsetCfg(pos=EYE, rot=(0.0, 0.0, 0.0, 1.0), convention="world"),
+        offset=CameraCfg.OffsetCfg(pos=eye, rot=(0.0, 0.0, 0.0, 1.0), convention="world"),
         data_types=["rgb"],
         spawn=sim_utils.PinholeCameraCfg(focal_length=24.0, horizontal_aperture=20.955, clipping_range=(0.1, 100.0)),
         width=width,
@@ -32,10 +32,10 @@ def add_camera(cfg, width: int = 480, height: int = 480) -> None:
     cfg.capture = False
 
 
-def record(env, policy, path: str, steps: int, columns: int) -> None:
+def record(env, policy, path: str, steps: int, columns: int, eye: tuple[float, float, float] = EYE) -> None:
     """Step ``env`` with ``policy(observations)`` and write its worlds as a grid of ``columns`` tiles per row."""
     camera, robot = env.scene["video_camera"], env.scene["robot"]
-    offset = torch.tensor(EYE, device=env.device)
+    offset = torch.tensor(eye, device=env.device)
     obs = env.reset()[0]["policy"]
     target = robot.data.root_link_pose_w.torch[:, :3].clone()
     writer = None

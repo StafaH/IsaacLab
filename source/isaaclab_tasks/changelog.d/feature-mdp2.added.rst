@@ -23,3 +23,6 @@
 * Added ``Isaac-Recovery-Humanoid-Dance-MDP2``, in which half of the worlds track a clip while their robot is
   pushed, and ``Isaac-Distillation-Flat-UnitreeGo2-MDP2``, in which teacher worlds observe the Go2 velocity task
   without noise and student worlds also compute the noisy, history-only observations of a student.
+* Added ``Isaac-Skills-UnitreeGo2-MDP2``, in which the worlds are split between four skills of the Go2 (walking,
+  standing and walking on its hind legs, and getting up), each with its own rewards, terminations, and resets, for
+  one policy that observes which skill its world practices.
