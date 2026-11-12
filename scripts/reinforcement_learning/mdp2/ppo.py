@@ -39,29 +39,40 @@ class Normalizer(torch.nn.Module):
 
 
 class Agent(torch.nn.Module):
-    """A Gaussian policy and a critic with normalized inputs and returns."""
+    """A Gaussian policy and a critic with normalized inputs and returns.
 
-    def __init__(self, obs_dim, action_dim, hidden, init_std):
+    The critic reads the policy's observations, or its own of size ``critic_dim``.
+    """
+
+    def __init__(self, obs_dim, action_dim, hidden, init_std, critic_dim=None):
         super().__init__()
         self.actor = mlp([obs_dim, *hidden, action_dim])
-        self.critic = mlp([obs_dim, *hidden, 1])
+        self.critic = mlp([critic_dim or obs_dim, *hidden, 1])
         self.log_std = torch.nn.Parameter(torch.full((action_dim,), float(torch.tensor(init_std).log())))
         self.obs = Normalizer(obs_dim)
+        self.critic_obs = Normalizer(critic_dim) if critic_dim else None
         self.returns = Normalizer(())
 
     def value(self, normalized):
         """Return the value of normalized observations, in reward units."""
         return self.critic(normalized).squeeze(-1) * self.returns.var.sqrt() + self.returns.mean
 
-    def forward(self, obs, actions):
+    def forward(self, obs, actions, critic_obs=None):
         obs = self.obs(obs)
         mean, std = self.actor(obs), self.log_std.exp()
         log_prob = (-0.5 * ((actions - mean) / std) ** 2 - self.log_std).sum(-1)
-        return log_prob, self.critic(obs).squeeze(-1), mean, std
+        value = self.critic(obs if critic_obs is None else self.critic_obs(critic_obs)).squeeze(-1)
+        return log_prob, value, mean, std
 
 
 class PPO:
-    """PPO for ``num_envs`` environments: call :meth:`act` and :meth:`record` every step, then :meth:`update`."""
+    """PPO for ``num_envs`` environments: call :meth:`act` and :meth:`record` every step, then :meth:`update`.
+
+    With ``critic_dim``, the critic reads observations of its own, passed to :meth:`act` and :meth:`update`. With
+    ``imitation``, :meth:`act` also takes target actions and their weights, and the loss is ``rl_coef`` times the
+    policy loss plus ``imitation_coef`` times the weighted squared distance of the policy's mean to the targets.
+    Both coefficients are tensors, to change while training.
+    """
 
     def __init__(
         self,
@@ -82,8 +93,10 @@ class PPO:
         value_coef=1.0,
         entropy=0.0,
         init_std=1.0,
+        critic_dim=None,
+        imitation=False,
     ):
-        self.agent = Agent(obs_dim, action_dim, hidden, init_std).to(device)
+        self.agent = Agent(obs_dim, action_dim, hidden, init_std, critic_dim).to(device)
         self.steps, self.epochs, self.minibatches, self.batch = steps, epochs, minibatches, steps * num_envs
         self.max_lr, self.kl, self.gamma, self.lam, self.clip = max_lr, kl, gamma, lam, clip
         self.value_coef, self.entropy = value_coef, entropy
@@ -97,7 +110,14 @@ class PPO:
             "rewards": zeros(steps, num_envs),
             "done": zeros(steps, num_envs),
         }
-        names = ("obs", "actions", "means", "log_probs")
+        names = ["obs", "actions", "means", "log_probs"]
+        if critic_dim:
+            self.buffer["critic_obs"] = zeros(steps, num_envs, critic_dim)
+            names.append("critic_obs")
+        if imitation:
+            self.buffer |= {"targets": zeros(steps, num_envs, action_dim), "target_weights": zeros(steps, num_envs)}
+            names += ["targets", "target_weights"]
+        self.imitation_coef, self.rl_coef = torch.ones((), device=device), torch.ones((), device=device)
         self.flat = {name: self.buffer[name].reshape(self.batch, -1).squeeze(-1) for name in names}
         self.flat |= {"returns": zeros(self.batch), "advantages": zeros(self.batch)}
         self.old_std = zeros(action_dim)
@@ -125,17 +145,29 @@ class PPO:
         """Return the actions of the policy without exploration noise."""
         return self.agent.actor(self.agent.obs(obs))
 
-    def act(self, obs):
+    def _value(self, normalized, critic_obs, update=False):
+        """Return the value of a step from the critic's observations, or from the policy's normalized ones."""
+        if critic_obs is None:
+            return self.agent.value(normalized)
+        if update:
+            self.agent.critic_obs.update(critic_obs)
+        return self.agent.value(self.agent.critic_obs(critic_obs))
+
+    def act(self, obs, critic_obs=None, targets=None, target_weights=None):
         """Return exploring actions for ``obs``, and store the step."""
         agent, buffer, t = self.agent, self.buffer, self.t
         with torch.no_grad():
             agent.obs.update(obs)
             normalized = agent.obs(obs)
-            mean, value = agent.actor(normalized), agent.value(normalized)
+            mean, value = agent.actor(normalized), self._value(normalized, critic_obs, update=True)
             std = agent.log_std.exp()
             action = mean + std * torch.randn_like(mean)
             buffer["obs"][t], buffer["actions"][t], buffer["values"][t], buffer["means"][t] = obs, action, value, mean
             buffer["log_probs"][t] = (-0.5 * ((action - mean) / std) ** 2 - agent.log_std).sum(-1)
+            if critic_obs is not None:
+                buffer["critic_obs"][t] = critic_obs
+            if targets is not None:
+                buffer["targets"][t], buffer["target_weights"][t] = targets, target_weights
         return action
 
     def record(self, reward, terminated, truncated):
@@ -145,11 +177,11 @@ class PPO:
         self.buffer["done"][self.t] = terminated | truncated
         self.t += 1
 
-    def update(self, obs):
+    def update(self, obs, critic_obs=None):
         """Compute returns and advantages with the value of the observations after the rollout, and update."""
         agent, buffer, flat, steps = self.agent, self.buffer, self.flat, self.steps
         with torch.no_grad():
-            buffer["values"][steps] = agent.value(agent.obs(obs))
+            buffer["values"][steps] = self._value(agent.obs(obs), critic_obs)
             advantages = torch.zeros_like(buffer["rewards"])
             last = torch.zeros_like(buffer["rewards"][0])
             for t in reversed(range(steps)):
@@ -189,14 +221,19 @@ class PPO:
                 for name, param in agent.named_parameters():
                     views[name] = self.vector[offset : offset + param.numel()].view(param.shape)
                     offset += param.numel()
-                inputs = (flat["obs"][indices], flat["actions"][indices])
-                log_prob, value, mean, std = torch.func.functional_call(agent, views, inputs)
+                inputs = [flat["obs"][indices], flat["actions"][indices]]
+                if "critic_obs" in flat:
+                    inputs.append(flat["critic_obs"][indices])
+                log_prob, value, mean, std = torch.func.functional_call(agent, views, tuple(inputs))
                 ratio = (log_prob - flat["log_probs"][indices]).exp()
                 advantage = flat["advantages"][indices]
                 clipped = ratio.clamp(1.0 - self.clip, 1.0 + self.clip) * advantage
-                loss = -torch.min(ratio * advantage, clipped).mean()
+                loss = -self.rl_coef * torch.min(ratio * advantage, clipped).mean()
                 loss = loss + self.value_coef * (value - flat["returns"][indices]).square().mean()
                 loss = loss - self.entropy * views["log_std"].sum()
+                if "targets" in flat:
+                    distance = (mean - flat["targets"][indices]).square().sum(-1)
+                    loss = loss + self.imitation_coef * (flat["target_weights"][indices] * distance).mean()
                 (gradient,) = torch.autograd.grad(loss, self.vector)
                 with torch.no_grad():
                     kl = flat["means"][indices] - mean
