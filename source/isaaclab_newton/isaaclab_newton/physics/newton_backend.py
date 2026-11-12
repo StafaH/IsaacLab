@@ -30,6 +30,7 @@ from isaaclab.utils.version import has_kit
 
 from isaaclab_newton.renderers.visual_material import VisualMaterialWriter
 
+from .mjwarp_solver import MJWarpSolver
 from .newton_builder_cfg import NewtonBuilderCfg
 from .newton_manager_cfg import NewtonCfg
 
@@ -611,14 +612,19 @@ class NewtonBackend:
     def _simulate(self, steps: int) -> None:
         """Run ``steps`` physics steps with the Newton actuators, then finish the step."""
         actuators = self.actuators
-        self._stage_body_forces()
+        # Without intervening callbacks or actuators, the first substep can consume authored forces in place.
+        direct_forces = actuators is None and not self.pre_actuator_callbacks and not self.post_actuator_callbacks
+        if not direct_forces or steps * self.num_substeps > 1:
+            self._stage_body_forces()
         for i in range(steps):
             self._before_actuators()
             if actuators is not None:
                 # An odd step count copies the last actuator output back, keeping buffer addresses stable.
                 swap_state = steps % 2 == 0 or i < steps - 1
                 actuators.step(self.state_0, self.control, self.dt, swap_state=swap_state)
-            self._after_actuators(self.contact_observables if i == steps - 1 else None)
+            self._after_actuators(
+                self.contact_observables if i == steps - 1 else None, restore_forces=i > 0 or not direct_forces
+            )
         self._finish_step()
 
     def _before_actuators(self) -> None:
@@ -632,12 +638,12 @@ class NewtonBackend:
             # the asset writes replace the body forces staged before the step
             self._stage_body_forces()
 
-    def _after_actuators(self, observables: SolverBase.Observables | None) -> None:
+    def _after_actuators(self, observables: SolverBase.Observables | None, *, restore_forces: bool = True) -> None:
         """Run the post-actuator callbacks and the solver substeps of one physics step."""
         for callback in self.post_actuator_callbacks:
             callback()
         contacts = self.contacts if self.collision_pipeline is not None or observables is not None else None
-        self._run_solver_substeps(contacts, observables=observables)
+        self._run_solver_substeps(contacts, observables=observables, restore_forces=restore_forces)
 
     def _finish_step(self) -> None:
         """Run the post-step callbacks and update the sensors once after the last physics step."""
@@ -650,26 +656,50 @@ class NewtonBackend:
         if self.staged_body_f is not None:
             wp.copy(self.staged_body_f, self.state_0.body_f)
 
-    def _run_solver_substeps(self, contacts: Contacts | None, *, observables: SolverBase.Observables | None) -> None:
+    def _run_solver_substeps(
+        self, contacts: Contacts | None, *, observables: SolverBase.Observables | None, restore_forces: bool = True
+    ) -> None:
         """Run the solver substeps of one physics step, ending in :attr:`state_0`.
 
-        Each substep restores the staged body forces, then state-force callbacks add to them.
+        Each substep restores the staged body forces, then state-force callbacks add to them. With
+        ``restore_forces=False`` the first substep instead consumes the unchanged authored forces in place.
         """
         ops = self.solver_ops
         num_substeps, control, dt = self.num_substeps, self.control, self.solver_dt
         collide_every = self.cfg.collision_decimation
         # The last substep is skipped: its contacts would only feed the next physics step's collision.
         collide_mid_loop = collide_every > 0 and self.collision_pipeline is not None and contacts is not None
+        # Evaluated during graph capture; registering consumers invalidates the captured graph.
+        defer_body_state = (
+            isinstance(ops, MJWarpSolver)
+            and ops.cfg.defer_body_state
+            and not ops.native.use_mujoco_cpu
+            and ops.native.mjw_model.opt.run_collision_detection
+            and num_substeps > 1
+            and self.collision_pipeline is None
+            and self.actuators is None
+            and not self.pre_actuator_callbacks
+            and not self.post_actuator_callbacks
+            and not self.state_force_callbacks
+            and not self.imu_sensors
+            and not self.contact_sensors
+            and self.contact_observables is None
+            and self.state_0.body_qdd is None
+            and self.state_0.body_parent_f is None
+        )
         for i in range(num_substeps):
             state = self.state_0
-            if self.staged_body_f is not None:
+            if self.staged_body_f is not None and (restore_forces or i > 0):
                 wp.copy(state.body_f, self.staged_body_f)
             for callback in self.state_force_callbacks:
                 callback(state)
             state_out = state if ops.single_state else self.state_1
             # Only final-substep contact forces are read by sensors.
             step_observables = observables if i == num_substeps - 1 else None
-            ops.step(state, state_out, control, contacts, dt, observables=step_observables)
+            if defer_body_state and i < num_substeps - 1:
+                ops.step(state, state_out, control, contacts, dt, update_body_state=False)
+            else:
+                ops.step(state, state_out, control, contacts, dt, observables=step_observables)
             if not ops.single_state:
                 if num_substeps % 2 == 1 and i == num_substeps - 1:
                     state.assign(self.state_1)

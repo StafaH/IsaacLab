@@ -105,6 +105,39 @@ def update_wrench_array_with_force_and_torque_ordered(
 
 
 @wp.kernel
+def update_acceleration_history(
+    joint_vel: wp.array2d(dtype=wp.float32),
+    prev_joint_vel: wp.array2d(dtype=wp.float32),
+    body_com_vel_backend: wp.array2d(dtype=wp.spatial_vectorf),
+    prev_body_com_vel_backend: wp.array2d(dtype=wp.spatial_vectorf),
+    user_to_backend: wp.array(dtype=wp.int32),
+    has_ordering: bool,
+    joint_dt: wp.float32,
+    body_dt: wp.float32,
+    joint_acc: wp.array2d(dtype=wp.float32),
+    body_com_acc_user: wp.array2d(dtype=wp.spatial_vectorf),
+) -> None:
+    """Refresh joint and body acceleration histories together at the scene update boundary.
+
+    Each elapsed interval is independent because either acceleration buffer may already be current.
+    Nonpositive intervals leave that buffer and its velocity history untouched. Body velocities and
+    their history use backend order; the public acceleration uses user order.
+    """
+    env_id, index = wp.tid()
+    if joint_dt > 0.0 and index < joint_vel.shape[1]:
+        velocity = joint_vel[env_id, index]
+        joint_acc[env_id, index] = (velocity - prev_joint_vel[env_id, index]) / joint_dt
+        prev_joint_vel[env_id, index] = velocity
+    if body_dt > 0.0 and index < body_com_vel_backend.shape[1]:
+        backend_body_id = resolve_backend_index(index, user_to_backend, has_ordering)
+        body_velocity = body_com_vel_backend[env_id, backend_body_id]
+        body_com_acc_user[env_id, index] = (
+            body_velocity - prev_body_com_vel_backend[env_id, backend_body_id]
+        ) / body_dt
+        prev_body_com_vel_backend[env_id, backend_body_id] = body_velocity
+
+
+@wp.kernel
 def get_joint_acc_from_joint_vel(
     joint_vel: wp.array2d(dtype=wp.float32),
     prev_joint_vel: wp.array2d(dtype=wp.float32),

@@ -160,8 +160,30 @@ class ArticulationData(BaseArticulationData):
         self._backend_manager.backend.state_version += 1
         # Trigger an update of the joint and body com acceleration buffers at a higher frequency
         # since we do finite differencing.
-        self.joint_acc
-        self.body_com_acc_w
+        joint_dt = self._sim_timestamp - self._joint_acc.timestamp
+        body_dt = self._sim_timestamp - self._body_com_acc_w.timestamp
+        if joint_dt > 0.0 or body_dt > 0.0:
+            body_ordering = self.body_ordering
+            wp.launch(
+                articulation_kernels.update_acceleration_history,
+                dim=(self._num_instances, max(self._num_joints, self._num_bodies)),
+                inputs=[
+                    self._joint_vel_ta,
+                    self._previous_joint_vel,
+                    self._sim_bind_body_com_vel_w,
+                    self._previous_body_com_vel,
+                    body_ordering.user_to_backend if body_ordering is not None else None,
+                    body_ordering is not None,
+                    joint_dt,
+                    body_dt,
+                ],
+                outputs=[self._joint_acc.data, self._body_com_acc_w.data],
+                device=self.device,
+            )
+            if joint_dt > 0.0:
+                self._joint_acc.timestamp = self._sim_timestamp
+            if body_dt > 0.0:
+                self._body_com_acc_w.timestamp = self._sim_timestamp
 
     def _update_body_state(self) -> None:
         """Resolve shared FK, then refresh this view's reordered body state after a manual write."""

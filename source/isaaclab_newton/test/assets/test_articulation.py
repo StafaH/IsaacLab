@@ -1540,6 +1540,7 @@ def test_newton_ordered_state_publishes_in_step_and_refreshes_same_timestamp_wri
 
     Root pose and velocity writes at the current simulation timestamp must then refresh the ordered body
     pose and velocity, including after another consumer has resolved the shared forward kinematics.
+    Acceleration histories must also track every update, even when their public values are not read.
     """
     device = scene.device
     articulation = scene.articulations["ordered"]
@@ -1597,6 +1598,28 @@ def test_newton_ordered_state_publishes_in_step_and_refreshes_same_timestamp_wri
     refreshed_body_vel = data.body_com_vel_w.torch[:, root_body_idx]
     torch.testing.assert_close(refreshed_body_vel, written_root_vel)
     assert not torch.equal(refreshed_body_vel, cached_body_vel)
+    scene.rest(articulation)
+
+    # Sample public velocities independently across physical steps. Distinct joint targets make a wrong
+    # body permutation observable, and skipping acceleration reads checks that histories still advance.
+    targets = data.default_joint_pos.torch.clone()
+    targets[1] += torch.linspace(0.05, 0.3, articulation.num_joints, device=device)
+    articulation.actuators.target_command.set_position_index(value=targets)
+    scene.step("ordered")
+    for step in range(4):
+        previous_joint_velocity = data.joint_vel.torch.clone()
+        previous_body_velocity = data.body_com_vel_w.torch.clone()
+        scene.step("ordered")
+        if step % 2 == 0:
+            continue
+        expected_joint_acceleration = (data.joint_vel.torch - previous_joint_velocity) / scene.sim.cfg.dt
+        expected_body_acceleration = (data.body_com_vel_w.torch - previous_body_velocity) / scene.sim.cfg.dt
+        torch.testing.assert_close(data.joint_acc.torch, expected_joint_acceleration, atol=1e-4, rtol=1e-4)
+        torch.testing.assert_close(data.body_com_acc_w.torch, expected_body_acceleration, atol=1e-4, rtol=1e-4)
+        # A zero-duration refresh must preserve both acceleration observations and their histories.
+        articulation.update(0.0)
+        torch.testing.assert_close(data.joint_acc.torch, expected_joint_acceleration, atol=1e-4, rtol=1e-4)
+        torch.testing.assert_close(data.body_com_acc_w.torch, expected_body_acceleration, atol=1e-4, rtol=1e-4)
     scene.rest(articulation)
 
 

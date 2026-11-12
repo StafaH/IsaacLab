@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import warp as wp
-from newton import Contacts, Model, State
-from newton.solvers import SolverMuJoCo
+from newton import Contacts, Control, Model, State
+from newton.solvers import SolverBase, SolverMuJoCo
 
 from .newton_solver import NewtonSolver, solver_kwargs
 
@@ -34,6 +34,25 @@ class MJWarpSolver(NewtonSolver):
     solver_class = SolverMuJoCo
     single_state = True
     deterministic = True
+
+    def step(
+        self,
+        state_in: State,
+        state_out: State,
+        control: Control,
+        contacts: Contacts | None,
+        dt: float,
+        *,
+        observables: SolverBase.Observables | None = None,
+        update_body_state: bool = True,
+    ) -> None:
+        """Advance a substep, optionally leaving intermediate body state unpublished."""
+        if update_body_state:
+            super().step(state_in, state_out, control, contacts, dt, observables=observables)
+        else:
+            self.native.step(
+                state_in, state_out, control, contacts, dt, observables=observables, update_body_state=False
+            )
 
     @classmethod
     def applied_deterministic_mode(cls, cfg: MJWarpSolverCfg, mode: wp.DeterministicMode) -> wp.DeterministicMode:

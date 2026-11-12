@@ -938,6 +938,54 @@ def test_captured_step_holds_staged_forces_and_recaptures_after_decimation_chang
             assert manager.backend.graphs
             np.testing.assert_allclose(manager.backend.state_0.joint_qd.numpy(), 0.0, atol=1e-6)
             assert counter.numpy()[0] == step + 1
+        # Authored forces last for this step's substeps, not for the next graph replay.
+        sim.step(render=False)
+        np.testing.assert_allclose(
+            manager.backend.state_0.body_qd.numpy()[0, 2], -9.81 * sim_cfg.dt * decimation, atol=1e-6
+        )
+        assert counter.numpy()[0] == 4
+
+
+@wp.kernel
+def _apply_body_velocity_damping(velocity: wp.array(dtype=wp.spatial_vector), force: wp.array(dtype=wp.spatial_vector)):
+    body = wp.tid()
+    force[body] -= 2.0 * velocity[body]
+
+
+@pytest.mark.parametrize("device", test_devices(DeviceScope.CUDA))
+def test_deferred_body_state_recaptures_for_body_dependent_forces(device):
+    """An opt-in captured trajectory stays equivalent when a new force callback needs every substep's body velocity."""
+    trajectories = []
+    for defer_body_state in (False, True):
+        cfg = SimulationCfg(
+            dt=0.02,
+            device=device,
+            physics=NewtonCfg(
+                solver_cfg=MJWarpSolverCfg(use_mujoco_contacts=True, defer_body_state=defer_body_state),
+                num_substeps=4,
+            ),
+        )
+        with build_simulation_context(sim_cfg=cfg) as sim:
+            builder = sim.get_or_create_backend(NewtonBuilderCfg(physics_cfg=sim.cfg.physics))
+            builder.add_body(mass=1.0)
+            sim.reset()
+            manager = sim.backend_manager
+            states = []
+            for step in range(12):
+                if step == 4:
+                    manager.register_state_force_callback(
+                        lambda state: wp.launch(
+                            _apply_body_velocity_damping,
+                            state.body_count,
+                            inputs=[state.body_qd, state.body_f],
+                            device=state.body_qd.device,
+                        )
+                    )
+                sim.step(render=False)
+                states.append(manager.backend.state_0.body_qd.numpy().copy())
+            trajectories.append(np.array(states))
+    np.testing.assert_allclose(trajectories[1], trajectories[0], atol=1e-6, rtol=1e-6)
+    assert abs(trajectories[0][-1, 0, 2]) > 0.1
 
 
 def test_stateful_actuators_replay_like_eager_steps_across_decimation_changes(monkeypatch):

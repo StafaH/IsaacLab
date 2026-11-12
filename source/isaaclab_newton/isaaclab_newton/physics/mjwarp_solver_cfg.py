@@ -29,6 +29,14 @@ class MJWarpSolverCfg(NewtonSolverCfg):
     solver_type: str = "mujoco_warp"
     """Solver type. Can be "mujoco_warp"."""
 
+    defer_body_state: bool = False
+    """Publish body poses and velocities only after the final solver substep when safe.
+
+    Defaults to False. Requires Newton's ``update_body_state`` step option. The scheduler falls back
+    to full updates for external collision, native actuators, force callbacks, or body-state sensors.
+    Joint state is updated each substep and the final body state remains fully populated.
+    """
+
     njmax: int = 300
     """Number of constraints per environment (world)."""
 
