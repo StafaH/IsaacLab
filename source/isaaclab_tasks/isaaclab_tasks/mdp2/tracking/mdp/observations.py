@@ -48,8 +48,9 @@ def _reference_body_pos_b(
     clip_body_pos: wp.array3d(dtype=float),
     start: wp.array(dtype=float),
     episode_length: wp.array(dtype=wp.int32),
+    end: wp.array(dtype=float),
 ) -> float:
-    frame = reference_frame(world, start, episode_length, clip_body_pos.shape[0] - 1) + 1
+    frame = reference_frame(world, start, episode_length, end, 1)
     target = wp.vec3f(clip_body_pos[frame, body, 0], clip_body_pos[frame, body, 1], clip_body_pos[frame, body, 2])
     return wp.transform_point(wp.transform_inverse(root_link_pose_w[world]), target + env_origins[world])[axis]
 

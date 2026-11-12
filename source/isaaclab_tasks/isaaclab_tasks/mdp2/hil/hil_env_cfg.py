@@ -27,7 +27,11 @@ joints = robot.joints(".*")
 root_state = {"root_link_pose_w": robot.root_link_pose_w, "root_com_vel_w": robot.root_com_vel_w}
 joint_state = {"joint_pos": robot.joint_pos, "joint_vel": robot.joint_vel}
 RESET = "events.reset_to_motion"
-progress = {"start": mdp2.term_state(RESET, "start"), "episode_length": mdp2.episode_length}
+progress = {
+    "start": mdp2.term_state(RESET, "start"),
+    "end": mdp2.term_state(RESET, "end"),
+    "episode_length": mdp2.episode_length,
+}
 
 
 def hil_tasks(
@@ -110,8 +114,9 @@ def hil_tasks(
                 inputs={"env_origins": scene.env_origins, "soft_joint_pos_limits": robot.soft_joint_pos_limits},
                 outputs={**joint_state, **root_state},
                 params={
-                    "motion_file": motion_file,
+                    "motion_files": (motion_file,),
                     "frames": frames,
+                    "clips": 1,
                     "bodies": num_bodies,
                     "start_range": (0.0, 0.9),
                     "noise": 0.05,
@@ -172,11 +177,7 @@ def hil_tasks(
         rewards={**tracking_rewards, "style": following.rewards["style"]},
         terminations={
             "time_out": following.terminations["time_out"],
-            "motion_ended": mdp2.Termination(
-                tracking.motion_ended,
-                inputs={"clip_joint_pos": clip_state["clip_joint_pos"], **progress},
-                time_out=True,
-            ),
+            "motion_ended": mdp2.Termination(tracking.motion_ended, inputs=progress, time_out=True),
             "tracking_lost": mdp2.Termination(
                 tracking.is_above, inputs={"value": mdp2.quantities.body_pos_error}, params={"threshold": 0.0625}
             ),

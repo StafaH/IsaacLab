@@ -12,10 +12,8 @@ clip, starts the reset worlds on it, and gives the terms the frame they track, a
 
 from __future__ import annotations
 
-import os
 from types import SimpleNamespace
 
-import numpy as np
 import torch
 
 import isaaclab.envs.mdp as mdp
@@ -36,11 +34,11 @@ from isaaclab.utils import math as math_utils
 
 from isaaclab_tasks.mdp2.tracking.config.humanoid.humanoid_env_cfg import (
     DECIMATION,
-    MOTIONS_DIR,
     NUM_BODIES,
     SIM_DT,
     HumanoidTrackingPhysicsCfg,
     HumanoidTrackingSceneCfg,
+    humanoid_task,
 )
 from isaaclab_tasks.mdp2.tracking.mdp import events as tracking
 
@@ -58,6 +56,7 @@ class MotionCommand(CommandTerm):
             "clip_root_pose": (cfg.frames, 7),
             "clip_root_vel": (cfg.frames, 6),
             "clip_body_pos": (cfg.frames, NUM_BODIES, 3),
+            "clip_range": (len(cfg.motion["motion_files"]), 2),
         }
         self.clip = {name: torch.zeros(shape, device=self.device) for name, shape in shapes.items()}
         self.start = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
@@ -65,7 +64,8 @@ class MotionCommand(CommandTerm):
         context = SimpleNamespace(
             entity=lambda name: self.robot, step_dt=env.step_dt, state={**self.clip, "start": self.start}
         )
-        tracking._load_motion(context, **cfg.motion)
+        tracking._load_motions(context, **cfg.motion)
+        self.end = torch.zeros_like(self.start)
 
     @property
     def command(self) -> torch.Tensor:
@@ -76,8 +76,8 @@ class MotionCommand(CommandTerm):
         """The frame each world tracks at its current step, or at the next one."""
         frame = self.start + self._env.episode_length_buf
         if next_step:
-            return frame.clamp(max=self.cfg.frames - 2) + 1
-        return frame.clamp(max=self.cfg.frames - 1)
+            return torch.minimum(frame + 1, self.end - 1)
+        return torch.minimum(frame, self.end - 1)
 
     def body_pos_error(self) -> torch.Tensor:
         """Mean squared distance of the bodies to their positions in the tracked frame [m^2]."""
@@ -87,11 +87,14 @@ class MotionCommand(CommandTerm):
     def _resample_command(self, env_ids):
         if isinstance(env_ids, slice):
             env_ids = torch.arange(self.num_envs, device=self.device)
-        frames = self.cfg.frames
+        ranges = self.clip["clip_range"].long()
+        clip = torch.randint(len(ranges), (len(env_ids),), device=self.device)
+        first, last = ranges[clip, 0], ranges[clip, 1]
         low, high = self.cfg.start_range
         fraction = torch.rand(len(env_ids), device=self.device) * (high - low) + low
-        frame = (fraction * frames).long().clamp(max=frames - 2)
+        frame = first + torch.minimum((fraction * (last - first)).long(), last - first - 2)
         self.start[env_ids] = frame
+        self.end[env_ids] = last
 
         limits = self.robot.data.soft_joint_pos_limits.torch[env_ids]
         noise = (2.0 * torch.rand(len(env_ids), limits.shape[1], device=self.device) - 1.0) * self.cfg.noise
@@ -200,7 +203,7 @@ def root_vel_reward(env, scale: float, angular_scale: float) -> torch.Tensor:
 
 def motion_ended(env) -> torch.Tensor:
     motion = env.command_manager.get_term("motion")
-    return motion.start + env.episode_length_buf >= motion.cfg.frames - 2
+    return motion.start + env.episode_length_buf >= motion.end - 2
 
 
 def tracking_lost(env, threshold: float) -> torch.Tensor:
@@ -278,21 +281,13 @@ class HumanoidTrackingMDP1EnvCfg(ManagerBasedRLEnvCfg):
     decimation: int = DECIMATION
 
 
-def tracking_cfg(motion: str, start_range: tuple[float, float] = (0.0, 0.9), noise: float = 0.02):
-    """Return the MDP1 environment config that tracks the clip ``motion``, like the MDP2 ``tracking_task``."""
-    motion_file = os.path.join(MOTIONS_DIR, f"humanoid_{motion}.npz")
-    clip = np.load(motion_file)
-    frames = len(clip["dof_positions"][:: round(float(clip["fps"]) * SIM_DT * DECIMATION)])
+def tracking_cfg(motions: str, start_range: tuple[float, float] = (0.0, 0.9), noise: float = 0.02):
+    """Return the MDP1 environment config that tracks the clips ``motions``, like the MDP2 ``humanoid_task``."""
+    params = humanoid_task(motions).events["reset_to_motion"].params
     cfg = HumanoidTrackingMDP1EnvCfg()
-    cfg.episode_length_s = frames * SIM_DT * DECIMATION
-    cfg.commands.motion.motion = {
-        "motion_file": motion_file,
-        "frames": frames,
-        "bodies": NUM_BODIES,
-        "start_range": start_range,
-        "noise": noise,
-    }
-    cfg.commands.motion.frames = frames
+    cfg.episode_length_s = humanoid_task(motions).terminations["time_out"].episode_length_s
+    cfg.commands.motion.motion = {**params, "start_range": start_range, "noise": noise}
+    cfg.commands.motion.frames = params["frames"]
     cfg.commands.motion.start_range = start_range
     cfg.commands.motion.noise = noise
     return cfg

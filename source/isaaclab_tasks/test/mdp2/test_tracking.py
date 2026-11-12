@@ -64,3 +64,35 @@ def test_reset_starts_on_the_clip_and_actions_correct_the_reference():
         assert torch.equal(env.observations["policy"][:, 111:139], reference)
     finally:
         env.close()
+
+
+def test_failure_driven_resets_start_where_episodes_ended():
+    cfg = HumanoidTrackingEnvCfg()
+    cfg.sim.physics = HumanoidTrackingPhysicsCfg().newton_mjwarp
+    cfg.sim.device = "cuda:0"
+    cfg.scene.num_envs = 64
+    cfg.seed = 0
+    cfg.task = humanoid_task("walk,run", adaptive=1.0)
+    # Limp joints: every world falls off its clip within a few steps, so the failures pile up near the starts.
+    cfg.task.actions["joint_pos"].scale = 0.0
+    cfg.task.terminations["tracking_lost"].params["threshold"] = 0.01
+    env = MDP2RLEnv(cfg)
+    try:
+        env.reset()
+        state = {name: env.state.arrays[mdp2.term_state(RESET, name)].torch for name in ("failures", "start", "end")}
+        assert state["failures"].sum() == 0.0
+        actions = torch.zeros(env.num_envs, env.mdp.action_dim, device=env.device)
+        for _ in range(60):
+            env.step(actions)
+        assert env.num_graphs == 1
+
+        # Starts are drawn from the bins that hold failures, up to one bin before them, and stay on their clip.
+        failures = state["failures"]
+        assert failures.sum() > 0.0
+        clip_range = env.state.arrays[mdp2.term_state(RESET, "clip_range")].torch
+        start, end = state["start"], state["end"]
+        assert ((end == clip_range[0, 1]) | (end == clip_range[1, 1])).all() and (start < end - 1).all()
+        near_failures = torch.nn.functional.max_pool1d(failures[None, None], 3, 1, 1)[0, 0] > 0.0
+        assert near_failures[(start / 15).long()].float().mean() > 0.9
+    finally:
+        env.close()

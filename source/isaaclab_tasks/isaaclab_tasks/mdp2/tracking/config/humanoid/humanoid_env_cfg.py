@@ -24,7 +24,8 @@ from isaaclab_tasks.utils import PresetCfg
 from isaaclab_assets import HUMANOID_28_CFG
 
 MOTIONS_DIR = os.path.join(os.path.dirname(__file__), *[".."] * 4, "contrib", "humanoid_amp", "motions")
-"""The clips of the 28-DoF humanoid that ship with the AMP task."""
+"""The clips of the 28-DoF humanoid that ship with the AMP task. More are in ``motions`` next to this file, converted
+from the same public set with ``scripts/reinforcement_learning/mdp2/convert_amp_motion.py``."""
 
 SIM_DT = 1 / 60
 DECIMATION = 2
@@ -79,10 +80,16 @@ class HumanoidTrackingPhysicsCfg(PresetCfg):
     default: NewtonCfg = newton_mjwarp
 
 
-def humanoid_task(motion: str, start_range: tuple[float, float] = (0.0, 0.9)) -> mdp2.TaskCfg:
-    """Return the MDP that tracks the humanoid clip ``motion``, such as ``"walk"``."""
-    motion_file = os.path.join(MOTIONS_DIR, f"humanoid_{motion}.npz")
-    return tracking_task(motion_file, SIM_DT * DECIMATION, NUM_BODIES, start_range)
+def humanoid_task(motions: str, start_range: tuple[float, float] = (0.0, 0.9), adaptive: float = 0.0) -> mdp2.TaskCfg:
+    """Return the MDP that tracks the humanoid clips ``motions``, such as ``"walk"`` or ``"walk,run,backflip"``."""
+    local = os.path.join(os.path.dirname(__file__), "motions")
+    files = [os.path.join(MOTIONS_DIR, f"humanoid_{motion}.npz") for motion in motions.split(",")]
+    files = [file if os.path.exists(file) else os.path.join(local, os.path.basename(file)) for file in files]
+    return tracking_task(files, SIM_DT * DECIMATION, NUM_BODIES, start_range, adaptive)
+
+
+MOTIONS = ("walk", "run", "dance", "hop", "cartwheel", "backflip")
+"""The clips of the humanoid."""
 
 
 @configclass
@@ -109,3 +116,32 @@ class HumanoidTrackingDanceEnvCfg(HumanoidTrackingEnvCfg):
     """The environment for the dance clip."""
 
     task: mdp2.TaskCfg = humanoid_task("dance")
+
+
+@configclass
+class HumanoidTrackingBackflipEnvCfg(HumanoidTrackingEnvCfg):
+    """The environment for the backflip clip."""
+
+    task: mdp2.TaskCfg = humanoid_task("backflip")
+
+
+@configclass
+class HumanoidTrackingCartwheelEnvCfg(HumanoidTrackingEnvCfg):
+    """The environment for the cartwheel clip."""
+
+    task: mdp2.TaskCfg = humanoid_task("cartwheel")
+
+
+@configclass
+class HumanoidTrackingHopEnvCfg(HumanoidTrackingEnvCfg):
+    """The environment for the hop clip."""
+
+    task: mdp2.TaskCfg = humanoid_task("hop")
+
+
+@configclass
+class HumanoidTrackingAllEnvCfg(HumanoidTrackingEnvCfg):
+    """The environment in which every world tracks one of all the clips, for one policy that tracks them all. Half of
+    the episodes start where episodes fail."""
+
+    task: mdp2.TaskCfg = humanoid_task(",".join(MOTIONS), adaptive=0.5)

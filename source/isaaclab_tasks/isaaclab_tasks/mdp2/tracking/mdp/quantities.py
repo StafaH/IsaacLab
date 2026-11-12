@@ -20,9 +20,10 @@ def _reference_joint_pos(
     clip_joint_pos: wp.array2d(dtype=float),
     start: wp.array(dtype=float),
     episode_length: wp.array(dtype=wp.int32),
+    end: wp.array(dtype=float),
     joint_ids: wp.array(dtype=wp.int32),
 ) -> float:
-    frame = reference_frame(world, start, episode_length, clip_joint_pos.shape[0] - 1) + 1
+    frame = reference_frame(world, start, episode_length, end, 1)
     return clip_joint_pos[frame, joint_ids[joint]]
 
 
@@ -37,8 +38,9 @@ def _joint_pos_error(
     clip_joint_pos: wp.array2d(dtype=float),
     start: wp.array(dtype=float),
     episode_length: wp.array(dtype=wp.int32),
+    end: wp.array(dtype=float),
 ) -> float:
-    frame = reference_frame(world, start, episode_length, clip_joint_pos.shape[0])
+    frame = reference_frame(world, start, episode_length, end, 0)
     total = float(0.0)
     for j in range(joint_pos.shape[1]):
         error = joint_pos[world, j] - clip_joint_pos[frame, j]
@@ -57,8 +59,9 @@ def _joint_vel_error(
     clip_joint_vel: wp.array2d(dtype=float),
     start: wp.array(dtype=float),
     episode_length: wp.array(dtype=wp.int32),
+    end: wp.array(dtype=float),
 ) -> float:
-    frame = reference_frame(world, start, episode_length, clip_joint_vel.shape[0])
+    frame = reference_frame(world, start, episode_length, end, 0)
     total = float(0.0)
     for j in range(joint_vel.shape[1]):
         error = joint_vel[world, j] - clip_joint_vel[frame, j]
@@ -78,8 +81,9 @@ def _body_pos_error(
     clip_body_pos: wp.array3d(dtype=float),
     start: wp.array(dtype=float),
     episode_length: wp.array(dtype=wp.int32),
+    end: wp.array(dtype=float),
 ) -> float:
-    frame = reference_frame(world, start, episode_length, clip_body_pos.shape[0])
+    frame = reference_frame(world, start, episode_length, end, 0)
     total = float(0.0)
     for b in range(body_link_pose_w.shape[1]):
         target = wp.vec3f(clip_body_pos[frame, b, 0], clip_body_pos[frame, b, 1], clip_body_pos[frame, b, 2])
@@ -99,9 +103,10 @@ def _root_vel_error(
     clip_root_vel: wp.array2d(dtype=float),
     start: wp.array(dtype=float),
     episode_length: wp.array(dtype=wp.int32),
+    end: wp.array(dtype=float),
     angular_scale: float,
 ) -> float:
-    frame = reference_frame(world, start, episode_length, clip_root_vel.shape[0])
+    frame = reference_frame(world, start, episode_length, end, 0)
     total = float(0.0)
     for k in range(6):
         error = root_com_vel_w[world][k] - clip_root_vel[frame, k]
@@ -111,3 +116,13 @@ def _root_vel_error(
 
 root_vel_error = mdp2.Term(warp=_root_vel_error)
 """Squared error of the root velocity to the tracked frame, the angular part scaled by ``angular_scale``."""
+
+
+@wp.func
+def _episode_steps(world: int, episode_length: wp.array(dtype=wp.int32)) -> float:
+    return float(episode_length[world])
+
+
+episode_steps = mdp2.Term(warp=_episode_steps)
+"""Steps of the episode so far. A reset event reads it as the length of the episode that ended, which
+``mdp2.episode_length`` no longer holds then."""

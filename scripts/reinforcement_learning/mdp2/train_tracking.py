@@ -49,6 +49,8 @@ parser.add_argument("--entropy", type=float, default=0.0)
 parser.add_argument("--action_scale", type=float, default=None)
 parser.add_argument("--max_lr", type=float, default=1.0e-2)
 parser.add_argument("--tag", default="")
+parser.add_argument("--adaptive", type=float, default=0.0, help="Share of episodes that start where episodes fail")
+parser.add_argument("--lost_distance", type=float, default=None, help="RMS body distance that ends an episode [m]")
 parser.add_argument("--activation", default="elu", choices=["elu", "silu"])
 parser.add_argument("--optimizer", default="adam", choices=["adam", "muon"])
 parser.add_argument("--value_norm", action=argparse.BooleanOptionalAction, default=True)
@@ -67,7 +69,7 @@ parser.add_argument("--video", default=None, help="Path of an MP4 of the final p
 args = parser.parse_args()
 
 DEVICE = "cuda:0"
-TASK = f"Isaac-Tracking-Humanoid-{args.motion.capitalize()}-MDP2"
+TASK = "Isaac-Tracking-Humanoid-Walk-MDP2"
 
 
 def make_env(num_envs, evaluation=False, camera=False):
@@ -83,11 +85,14 @@ def make_env(num_envs, evaluation=False, camera=False):
 
     cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
     cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, num_envs, args.seed
+    cfg.task = humanoid_task(args.motion, adaptive=args.adaptive)
     if evaluation:
         cfg.task = humanoid_task(args.motion, start_range=(0.0, 0.0))
         cfg.task.events["reset_to_motion"].params["noise"] = 0.0
     if args.action_scale is not None:
         cfg.task.actions["joint_pos"].scale = args.action_scale
+    if args.lost_distance is not None:
+        cfg.task.terminations["tracking_lost"].params["threshold"] = args.lost_distance**2
     if camera:
         add_camera(cfg)
     return gym.make(TASK, cfg=cfg).unwrapped
@@ -419,25 +424,41 @@ env.close()
 
 # Evaluate every snapshot without exploration noise, from the first frame of the clip to its end.
 env = make_env(args.eval_envs, evaluation=True)
-horizon = int(env.max_episode_length) - 2
+horizon = int(env.max_episode_length)
+motions = args.motion.split(",")
+if args.runtime == "mdp1":
+    motion_command = env.command_manager.get_term("motion")
+    clip_ends, world_end = motion_command.clip["clip_range"][:, 1], lambda: motion_command.end
+else:
+    reset_state = {
+        name: env.state.arrays[mdp2.term_state("events.reset_to_motion", name)].torch for name in ("clip_range", "end")
+    }
+    clip_ends, world_end = reset_state["clip_range"][:, 1], lambda: reset_state["end"]
 results = []
 with torch.no_grad():
     for index, snapshot in enumerate(snapshots):
         agent.load_state_dict(snapshot)
         obs = env.reset()[0]["policy"]
-        alive = torch.ones(args.eval_envs, dtype=torch.bool, device=DEVICE)
-        error = torch.zeros(args.eval_envs, device=DEVICE)
+        # A world succeeds if its first episode reaches the end of its clip. Worlds draw their clips at random.
+        clip = (world_end().float()[:, None] == clip_ends[None, :]).float().argmax(dim=-1)
+        finished = torch.zeros(args.eval_envs, dtype=torch.bool, device=DEVICE)
+        succeeded = torch.zeros_like(finished)
+        error, steps = torch.zeros(args.eval_envs, device=DEVICE), torch.zeros(args.eval_envs, device=DEVICE)
         for _ in range(horizon):
-            obs, _, terminated, _, _ = env.step(agent.actor(agent.normalize(obs)))
+            error += body_error(env) * ~finished
+            steps += ~finished
+            obs, _, terminated, truncated, _ = env.step(agent.actor(agent.normalize(obs)))
             obs = obs["policy"]
-            alive &= ~terminated
-            error += body_error(env) * alive
+            succeeded |= truncated & ~finished
+            finished |= terminated | truncated
+        per_clip = [succeeded[clip == c].float().mean().item() for c in range(len(motions))]
         results.append(
             {
                 "iteration": (index + 1) * args.snapshot_interval,
                 "time": times[index],
-                "success": alive.float().mean().item(),
-                "body_error_m": (error.sum() / alive.sum().clamp(min=1) / horizon).item(),
+                "success": min(per_clip),
+                "per_clip": per_clip,
+                "body_error_m": (error.sum() / steps.sum().clamp(min=1)).item(),
                 "train_completion": float(curve[index]),
             }
         )
@@ -449,6 +470,7 @@ for result in results:
         f"  it {result['iteration']:4d}  {result['time']:6.2f} s  success {result['success']:.3f}"
         f"  body error {100 * result['body_error_m']:.1f} cm  train completion {result['train_completion']:.3f}"
     )
+print("PER_CLIP " + " ".join(f"{motion} {value:.2f}" for motion, value in zip(motions, results[-1]["per_clip"])))
 print("TIME_TO_90", "none" if first is None else f"{first['time']:.2f} s at iteration {first['iteration']}")
 print(
     f"SUMMARY {args.tag} t90 {'none' if first is None else round(first['time'], 2)} final {results[-1]['success']:.3f}"
@@ -462,7 +484,9 @@ if args.out:
         json.dump(summary, file)
 
 if args.video:
-    # The final policy from the first frame of the clip, three times over.
-    env = make_env(1, evaluation=True, camera=True)
-    record(env, lambda obs: agent.actor(agent.normalize(obs)), args.video, 3 * int(env.max_episode_length), 1)
+    # The final policy from the first frame of its clips: one world for a single clip, a row of worlds for many.
+    tiles = 1 if len(motions) == 1 else 6
+    env = make_env(tiles, evaluation=True, camera=True)
+    steps = 3 * int(env.max_episode_length) if len(motions) == 1 else 450
+    record(env, lambda obs: agent.actor(agent.normalize(obs)), args.video, steps, min(tiles, 3))
     env.close()

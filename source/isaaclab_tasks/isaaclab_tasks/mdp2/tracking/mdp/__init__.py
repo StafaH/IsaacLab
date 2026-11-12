@@ -5,8 +5,8 @@
 
 """Terms of the motion tracking tasks."""
 
-from .events import reference_frame, reset_to_motion
+from .events import reference_frame, reset_to_failures, reset_to_motion
 from .observations import body_pos_b, reference_body_pos_b, root_height
-from .quantities import body_pos_error, joint_pos_error, joint_vel_error, reference_joint_pos, root_vel_error
+from .quantities import body_pos_error, episode_steps, joint_pos_error, joint_vel_error, reference_joint_pos, root_vel_error
 from .rewards import exp_kernel
 from .terminations import is_above, motion_ended

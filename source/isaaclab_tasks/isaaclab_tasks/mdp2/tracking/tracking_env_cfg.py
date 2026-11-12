@@ -9,6 +9,8 @@ import numpy as np
 from isaaclab_experimental import mdp2
 from isaaclab_experimental.mdp2 import mdp
 
+from isaaclab.utils import replace
+
 from . import mdp as tracking
 
 robot = mdp2.Entity("robot")
@@ -17,7 +19,11 @@ joints = robot.joints(".*")
 
 root_state = {"root_link_pose_w": robot.root_link_pose_w, "root_com_vel_w": robot.root_com_vel_w}
 RESET = "events.reset_to_motion"
-progress = {"start": mdp2.term_state(RESET, "start"), "episode_length": mdp2.episode_length}
+progress = {
+    "start": mdp2.term_state(RESET, "start"),
+    "end": mdp2.term_state(RESET, "end"),
+    "episode_length": mdp2.episode_length,
+}
 clip_joint_pos = {"clip_joint_pos": mdp2.term_state(RESET, "clip_joint_pos"), **progress}
 clip_body_pos = {
     "clip_body_pos": mdp2.term_state(RESET, "clip_body_pos"),
@@ -27,14 +33,42 @@ clip_body_pos = {
 
 
 def tracking_task(
-    motion_file: str, step_dt: float, num_bodies: int, start_range: tuple[float, float] = (0.0, 0.9)
+    motion_files: list[str],
+    step_dt: float,
+    num_bodies: int,
+    start_range: tuple[float, float] = (0.0, 0.9),
+    adaptive: float = 0.0,
 ) -> mdp2.TaskCfg:
-    """Return the MDP in which the ``robot`` tracks the clip in ``motion_file``, frame by frame.
+    """Return the MDP in which the ``robot`` tracks the clips in ``motion_files``, frame by frame.
 
-    The clip is sampled every ``step_dt`` seconds, and episodes start in the fraction ``start_range`` of it.
+    Every world tracks one clip per episode. The clips are sampled every ``step_dt`` seconds, and episodes start in
+    the fraction ``start_range`` of a clip. A fraction ``adaptive`` of them start where episodes fail instead.
     """
-    clip = np.load(motion_file)
-    frames = len(clip["dof_positions"][:: round(float(clip["fps"]) * step_dt)])
+    lengths = []
+    for motion_file in motion_files:
+        clip = np.load(motion_file)
+        lengths.append(len(clip["dof_positions"][:: round(float(clip["fps"]) * step_dt)]))
+    frames = sum(lengths)
+    reset = mdp2.Event(
+        tracking.reset_to_motion,
+        inputs={"env_origins": scene.env_origins, "soft_joint_pos_limits": robot.soft_joint_pos_limits},
+        outputs={"joint_pos": robot.joint_pos, "joint_vel": robot.joint_vel, **root_state},
+        params={
+            "motion_files": tuple(motion_files),
+            "frames": frames,
+            "clips": len(motion_files),
+            "bodies": num_bodies,
+            "start_range": start_range,
+            "noise": 0.02,
+        },
+    )
+    if adaptive > 0.0:
+        reset = replace(
+            reset,
+            term=tracking.reset_to_failures,
+            inputs={**reset.inputs, "terminated": mdp2.terminated, "episode_steps": mdp2.quantities.episode_steps},
+            params={**reset.params, "adaptive": adaptive, "bin_frames": 15, "bins": -(-frames // 15), "decay": 0.999},
+        )
 
     return mdp2.TaskCfg(
         # The policy corrects the pose of the frame it tracks next.
@@ -47,6 +81,7 @@ def tracking_task(
             "reference_joint_pos": mdp2.Quantity(
                 tracking.reference_joint_pos, inputs={**clip_joint_pos, "joint_ids": joints}
             ),
+            "episode_steps": mdp2.Quantity(tracking.episode_steps, inputs={"episode_length": mdp2.episode_length}),
             "joint_pos_error": mdp2.Quantity(
                 tracking.joint_pos_error, inputs={"joint_pos": robot.joint_pos, **clip_joint_pos}, log=True
             ),
@@ -130,25 +165,14 @@ def tracking_task(
             "action_rate_l2": mdp2.Reward(mdp.action_rate_l2, inputs={"actions": mdp2.last_action}, weight=-0.03),
         },
         terminations={
-            "time_out": mdp2.TimeLimit(episode_length_s=frames * step_dt),
-            "motion_ended": mdp2.Termination(tracking.motion_ended, inputs=clip_joint_pos, time_out=True),
+            "time_out": mdp2.TimeLimit(episode_length_s=max(lengths) * step_dt),
+            "motion_ended": mdp2.Termination(tracking.motion_ended, inputs=progress, time_out=True),
             # A mean distance of 0.25 m to the tracked bodies.
             "tracking_lost": mdp2.Termination(
                 tracking.is_above, inputs={"value": mdp2.quantities.body_pos_error}, params={"threshold": 0.0625}
             ),
         },
         events={
-            "reset_to_motion": mdp2.Event(
-                tracking.reset_to_motion,
-                inputs={"env_origins": scene.env_origins, "soft_joint_pos_limits": robot.soft_joint_pos_limits},
-                outputs={"joint_pos": robot.joint_pos, "joint_vel": robot.joint_vel, **root_state},
-                params={
-                    "motion_file": motion_file,
-                    "frames": frames,
-                    "bodies": num_bodies,
-                    "start_range": start_range,
-                    "noise": 0.02,
-                },
-            ),
+            "reset_to_motion": reset,
         },
     )

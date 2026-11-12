@@ -18,9 +18,10 @@ def _reference_goal(
     clip_root_vel: wp.array2d(dtype=float),
     start: wp.array(dtype=float),
     episode_length: wp.array(dtype=wp.int32),
+    end: wp.array(dtype=float),
     lookahead: int,
 ):
-    frame = wp.min(int(start[world]) + episode_length[world] + lookahead, clip_root_vel.shape[0] - 1)
+    frame = wp.min(int(start[world]) + episode_length[world] + lookahead, int(end[world]) - 1)
     velocity = wp.vec2f(clip_root_vel[frame, 0], clip_root_vel[frame, 1])
     speed = wp.length(velocity)
     command[world, 0] = velocity[0] / wp.max(speed, 1.0e-6)

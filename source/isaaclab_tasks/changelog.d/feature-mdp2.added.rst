@@ -17,3 +17,6 @@
 * Added ``Isaac-RewardSearch-Humanoid-Walk-MDP2``, which splits the worlds of the humanoid tracking task between
   sixteen weightings of its rewards that share one set of kernels, for training one policy per candidate in one
   simulation and for population-based training on the per-world reward weights.
+* Added ``Isaac-Tracking-Humanoid-{Hop,Cartwheel,Backflip,All}-MDP2``: the motion tracking task takes several clips
+  for one policy, with three more clips of the humanoid, and can start episodes where earlier episodes failed, with a
+  reset event that counts failures per segment of the clips inside the step's CUDA graph.

@@ -22,12 +22,9 @@ is_above = mdp2.Term(warp=_is_above)
 
 @wp.func
 def _motion_ended(
-    world: int,
-    clip_joint_pos: wp.array2d(dtype=float),
-    start: wp.array(dtype=float),
-    episode_length: wp.array(dtype=wp.int32),
+    world: int, start: wp.array(dtype=float), episode_length: wp.array(dtype=wp.int32), end: wp.array(dtype=float)
 ) -> bool:
-    return int(start[world]) + episode_length[world] >= clip_joint_pos.shape[0] - 2
+    return int(start[world]) + episode_length[world] >= int(end[world]) - 2
 
 
 motion_ended = mdp2.Term(warp=_motion_ended)
