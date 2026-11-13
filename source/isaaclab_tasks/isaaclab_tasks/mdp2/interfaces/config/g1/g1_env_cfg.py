@@ -75,6 +75,9 @@ INTERFACES = {
 }
 """The target groups of every interface. The robot has no head body, so its torso stands for the head."""
 
+PARENTS = {"full": (), "key_points": ("full",), "three_point": ("key_points",), "upper_body": ("key_points",)}
+"""The interfaces that an interface relaxes: an allocator opens it once the policy is competent in them."""
+
 
 def frames(name: str) -> int:
     """Return the number of frames of a clip, one per row of its file."""

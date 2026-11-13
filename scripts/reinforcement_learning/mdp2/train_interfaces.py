@@ -16,6 +16,12 @@ averaged over the start frames, and the mean distance of the bodies to the clip 
 mean reward of the training worlds, the mean length of their episodes and the share of them that failed.
 ``--save_every`` saves the state of the learner while training.
 
+``--allocator`` moves the shares while training, at every ``--allocate_every`` log rows: ``progress``, ``failure``
+and ``uniform`` are the rules of :class:`~isaaclab_tasks.mdp2.interfaces.allocation.Allocator` on the competence of
+every interface, the share of an episode that its evaluation worlds on training clips track, or with ``--signal
+rollout`` that its training worlds track. ``tscl`` and ``alp`` follow the mean reward of the training worlds, and
+``ranked`` their mean absolute advantage.
+
 ``--teacher`` loads a policy that labels every step with its action from the targets of every group, and
 ``--self_distill`` uses the learning policy's own action from those targets as the label in the worlds of the
 other interfaces. ``--imitation`` weights the distance to the labels, and ``--rl 0`` leaves only that loss.
@@ -32,7 +38,8 @@ from isaaclab_experimental import mdp2
 from ppo import PPO, Agent
 
 import isaaclab_tasks  # noqa: F401
-from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import INTERFACES, TRAIN_CLIPS
+from isaaclab_tasks.mdp2.interfaces.allocation import ALP, TSCL, Allocator, RankedScore
+from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import INTERFACES, PARENTS, TRAIN_CLIPS
 from isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg import INTERFACE
 from isaaclab_tasks.utils import load_cfg_from_registry
 from isaaclab_tasks.utils.hydra import resolve_presets
@@ -45,6 +52,17 @@ parser.add_argument("--budget", type=float, default=1000.0, help="Samples to tra
 parser.add_argument("--shares", default="full=1", help="Shares of the interfaces, such as full=1,three_point=1")
 parser.add_argument("--shares_after", default=None, help="Shares after --switch_at")
 parser.add_argument("--switch_at", type=float, default=0.0, help="Samples after which the shares change, in millions")
+parser.add_argument("--allocator", default=None, choices=["progress", "failure", "uniform", "tscl", "alp", "ranked"])
+parser.add_argument("--signal", default="eval", choices=["eval", "rollout"])
+parser.add_argument("--allocate_every", type=int, default=1, help="Log rows between two updates of the shares")
+parser.add_argument(
+    "--graph", action=argparse.BooleanOptionalAction, default=True, help="Open arms after their parents"
+)
+parser.add_argument("--floor", type=float, default=0.05, help="Least share of an open arm")
+parser.add_argument("--anchor_share", type=float, default=0.2, help="Least share of the arms without parents")
+parser.add_argument("--fast", type=float, default=0.3, help="Rate of the fast average of the competence")
+parser.add_argument("--slow", type=float, default=0.05, help="Rate of the slow average of the competence")
+parser.add_argument("--rate", type=float, default=0.2, help="Rate at which the shares follow their target")
 parser.add_argument("--teacher", default=None, help="Model of a policy that labels the steps")
 parser.add_argument("--self_distill", action="store_true")
 parser.add_argument("--imitation", type=float, default=1.0)
@@ -96,6 +114,25 @@ for index in range(len(NAMES) * len(SPLITS)):
     arrays[mdp2.term_state(INTERFACE, "fixed")].torch[worlds] = index // len(SPLITS)
 shares.copy_(parse_shares(args.shares))
 
+allocator = None
+if args.allocator in ("progress", "failure", "uniform"):
+    parents = [[NAMES.index(parent) for parent in PARENTS[name]] if args.graph else [] for name in NAMES]
+    anchors = [index for index, name in enumerate(NAMES) if not PARENTS[name]]
+    allocator = Allocator(
+        parents,
+        anchors,
+        args.allocator,
+        args.fast,
+        args.slow,
+        floor=args.floor,
+        anchor_share=args.anchor_share,
+        rate=args.rate,
+    )
+elif args.allocator:
+    allocator = {"tscl": TSCL, "alp": ALP, "ranked": RankedScore}[args.allocator](len(NAMES))
+if allocator is not None:
+    shares.copy_(torch.tensor(allocator.shares, device=DEVICE))
+
 obs = env.reset()[0]
 obs_dim, critic_dim, action_dim = obs["policy"].shape[1], obs["critic"].shape[1], env.mdp.action_dim
 imitate = args.teacher is not None or args.self_distill
@@ -129,13 +166,17 @@ distance, counted = torch.zeros(E, device=DEVICE), torch.zeros(E, device=DEVICE)
 alive, lengths = torch.zeros(N, device=DEVICE), torch.zeros(E, device=DEVICE)
 # Of the training worlds, per interface: steps, summed reward, episodes that ended, their steps, and failures.
 rollout = torch.zeros(5, len(NAMES), device=DEVICE)
+# The interface of every sample of a rollout, and per interface the samples and their summed absolute advantage.
+sample_interface = torch.zeros(args.steps, T, dtype=torch.long, device=DEVICE)
+advantage = torch.zeros(2, len(NAMES), device=DEVICE)
+signal = [0.0] * len(NAMES)
 history = []
 wp.synchronize()
 start = time.perf_counter()
 for k in range(1, iterations + 1):
     if args.shares_after and (k - 1) * args.steps * T >= args.switch_at * 1.0e6:
         shares.copy_(parse_shares(args.shares_after))
-    for _ in range(args.steps):
+    for step in range(args.steps):
         with torch.no_grad():
             targets, weights = None, None
             if teacher is not None:
@@ -148,6 +189,7 @@ for k in range(1, iterations + 1):
             action = torch.cat([action, ppo.policy(obs["policy"][T:])])
             # The step draws the interface of the next episode of a world that ends: keep the one it had.
             had = interface[:T].long()
+            sample_interface[step] = had
         obs, reward, terminated, truncated, _ = env.step(action)
         ppo.record(reward[:T], terminated[:T], truncated[:T])
         done = terminated | truncated
@@ -162,6 +204,8 @@ for k in range(1, iterations + 1):
         rollout.index_add_(1, had, values)
         alive *= ~done
     ppo.update(obs["policy"][:T], obs["critic"][:T])
+    magnitude = ppo.flat["advantages"].abs()
+    advantage.index_add_(1, sample_interface.reshape(-1), torch.stack([torch.ones_like(magnitude), magnitude]))
 
     if k % args.log_interval == 0 or k == iterations:
         torch.cuda.synchronize()
@@ -182,8 +226,20 @@ for k in range(1, iterations + 1):
             row[f"{name}/rollout/reward"] = rewards / max(steps, 1.0)
             row[f"{name}/rollout/length"] = ended_steps / max(ended, 1.0)
             row[f"{name}/rollout/failed"] = failed / max(ended, 1.0)
-        for value in (episodes, completed, distance, counted, lengths, rollout):
+            row[f"{name}/rollout/advantage"] = advantage[1, index].item() / max(advantage[0, index].item(), 1.0)
+            # The signal of the allocator; an interface without training worlds keeps the one it had.
+            if args.allocator in ("tscl", "alp"):
+                signal[index] = row[f"{name}/rollout/reward"] if steps else signal[index]
+            elif args.allocator == "ranked":
+                signal[index] = row[f"{name}/rollout/advantage"] if steps else signal[index]
+            elif args.signal == "rollout":
+                signal[index] = row[f"{name}/rollout/length"] / episode_frames if ended else signal[index]
+            else:
+                signal[index] = row[f"{name}/train/length"] / episode_frames
+        for value in (episodes, completed, distance, counted, lengths, rollout, advantage):
             value.zero_()
+        if allocator is not None and (len(history) + 1) % args.allocate_every == 0:
+            shares.copy_(torch.tensor(allocator.update(signal), device=DEVICE))
         history.append(row)
         summary = " ".join(
             f"{name}:{row[f'{name}/train/success']:.2f}/{row[f'{name}/test/success']:.2f}"
