@@ -648,3 +648,32 @@ result); CoRL 2027 not announced (28 May in 2026).
     problem.
   - Pushed worlds (8 arms, uniform, 1000 M): the clean interfaces reach the level of the four-arm uniform run
     with half of its samples per interface; the pushed ones reach 26 to 33% on held-out clips and still rise.
+- 2026-11-13, night, seed 0 at 2000 M (success per start frame from the log, training clips / held-out clips, as
+  `full`, `key_points`, `three_point`, `upper_body`, then the mean):
+  - Problem 1. Uniform 95 94 89 40, 79.4 / 89 95 91 22, 74.4. Rule `headroom` 91 91 88 73, 85.5 / 86 93 87 23,
+    72.4. Mixture with 70% `upper_body` 90 89 87 80, 86.5 / 83 89 86 20, 69.7. Two-stage (final evaluation) 86 88
+    81 29 / 75 78 73 15. Every method that moves worlds to `upper_body` gains on the training clips and loses 1 to
+    5 points on the held-out clips: `upper_body` on training clips is memorized, not learned. On held-out clips the
+    methods of problem 1 are within 3 points of the uniform mixture, except the 70% mixture, which is 5 below. Judge
+    by the held-out clips from here on.
+  - Pushed worlds (8 arms). Uniform: clean 93 98 93 22, pushed 56 66 58 9 on held-out clips. Pushed arms only: clean
+    96 97 92 22, pushed 84 89 82 17. The pushed arms teach the clean ones for free, and the mean over the eight
+    arms rises from 61.9 to 72.3: this is the problem on which the shares matter.
+  - Throughput is the same with 1, 4 or 8 arms and with or without an allocator: 0.285 to 0.288 M samples/s on one
+    GPU for a specialist, the rules on four arms and the failure rule on eight.
+  - Replaying the rules on the logs of the uniform runs: the gate of `headroom` (progress of 0.01) is at the level
+    of the noise of 64 evaluation worlds, so the rule is the failure rule in practice and sends most worlds to
+    `upper_body`; `progress` gives the clean arms most worlds for the first 800 M, because they rise fastest.
+  - Changes. The floor is now a share that the open arms divide (0.2), not a share per arm: twelve arms kept 60% at
+    uniform. `--signal val` reads the evaluation worlds on every second held-out clip (`VAL_CLIPS`), and
+    `evaluate_interfaces.py` reports the other held-out clips as `unseen`. New rule `gain`: the competence that an
+    arm gains within 100 updates at its present progress, at most what it lacks. Runs with `gain` and the
+    validation signal are queued for the three problems, with the same rule on training clips and on rollouts.
+  - Literature, checked against the arXiv full texts: Wang et al. (2602.20375) adapt the share of imitation worlds
+    from 1.0 to 0.5 with one scalar that follows performance, and report 0% on two skills without it: the closest
+    work, and not a hand-set schedule as written before. DeXtreme (2210.13702) keeps 40% of its worlds for
+    evaluation in the batch to adapt randomisation ranges. LP-ACRL (2601.17428) and Success Guided Sampling
+    (2610.12465) reallocate worlds over terrain, command and reset cells. SONIC: 128 GPUs for 7 days, 611 h of
+    motion. Scaling BFM: 32 to 64 GPUs. HIL: 4 billion samples of tracking, then 2 billion at a fixed half and
+    half. HOVER reports an RL baseline from scratch that is worse on 32 of 32 metrics. The score p (1 - p) is from
+    Tzannetos et al. (2304.12877) and Rutherford et al. (2408.15099).
