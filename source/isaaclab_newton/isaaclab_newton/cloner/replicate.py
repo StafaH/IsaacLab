@@ -330,6 +330,7 @@ def _replicate_newton(  # noqa: C901 -- Resolve source ownership and native geom
     options["per_world_builder_hooks"] = _PER_WORLD_BUILDER_HOOKS if newton_physics else ()
     has_geometry = any(source_cables.values()) or any(result["path_particle_map"] for result in import_results.values())
     options["source_builder_added"] = record_geometry if has_geometry else None
+    options["sleep_inactive_assets"] = newton_physics and getattr(cfg.solver_cfg, "sleep_inactive_assets", False)
     local_site_map, world_xforms = replicate_builder_mapping(
         builder, plan, positions, quaternions, source_builders, source_inverse=source_inverse, **options
     )

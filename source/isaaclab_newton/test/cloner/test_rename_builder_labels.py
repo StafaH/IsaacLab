@@ -17,6 +17,7 @@ from isaaclab_newton.cloner import newton_clone_utils as newton_clone_utils_modu
 from isaaclab_newton.cloner import replicate as replicate_module
 from isaaclab_newton.cloner.newton_clone_utils import replicate_builder_mapping
 from isaaclab_newton.physics import NewtonBackendCfg
+from newton.solvers import SolverMuJoCo
 
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
@@ -59,6 +60,27 @@ class TestReplicateBuilderMapping(unittest.TestCase):
         np.testing.assert_allclose(np.asarray(builder.body_q)[:, :3], np.tile([1, 2, 3], (36, 1)))
         self.assertIn("/World/envs/env_4/Franka_1", builder.body_label)
         self.assertIn("/World/envs/env_8/Banana_1", builder.body_label)
+
+    def test_sleeping_inactive_assets_gives_every_world_every_asset(self):
+        """Worlds of different prototypes hold every asset, and those outside their prototype always sleep."""
+        cfgs = tuple(AssetBaseCfg(prim_path="/World/envs/env_[^/]+/" + name) for name in ("Biped", "Quadruped"))
+        plan = make_clone_plan(cfgs, ((0,), (1,)), 4, positions=np.zeros((4, 3), dtype=np.float32))
+        assets = {}
+        for source in cloner_path.get_asset_prototype_paths(plan):
+            asset = assets[source] = newton.ModelBuilder()
+            SolverMuJoCo.register_custom_attributes(asset)
+            asset.add_body(label=source)
+        builder = newton.ModelBuilder()
+        replicate_builder_mapping(
+            builder, plan, plan.positions, np.tile([0, 0, 0, 1], (4, 1)), assets,
+            source_inverse={path: np.asarray(wp.transform()) for path in assets},
+            env_ids=np.arange(4), sleep_inactive_assets=True,
+        )  # fmt: skip
+        self.assertEqual(builder.body_count, 8)
+        policy = builder.finalize(device="cpu").mujoco.sleep_policy.numpy()
+        asleep = [builder.body_label[body] for body in np.flatnonzero(policy == SolverMuJoCo.SleepPolicy.ALWAYS)]
+        expected = [f"/World/envs/env_{world}/{name}" for world, name in enumerate(["Quadruped"] * 2 + ["Biped"] * 2)]
+        self.assertEqual(asleep, expected)
 
     def test_local_and_env_root_sites_keep_indices_labels_and_world_positions(self):
         source_path = "/World/envs/env_0/Robot"
