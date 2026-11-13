@@ -55,6 +55,8 @@ TEST_CLIPS = (
     "walk2_subject4",
     "walk3_subject5",
 )
+# The held-out clips that an allocator may read. The other held-out clips stay unseen by every choice of a run.
+VAL_CLIPS = TEST_CLIPS[::2]
 
 BODY_GROUPS = {
     "root": robot.bodies("pelvis"),

@@ -10,7 +10,8 @@
 Every interface and split (training clips, held-out clips) gets the same number of worlds, on start frames spread
 evenly over the clips of the split. Every world runs one episode without exploration noise. The script reports, per
 interface and split, the share of the episodes that track for their whole length, their mean length [steps] and the
-mean distance of the bodies to the clip [mm], and the share per clip.
+mean distance of the bodies to the clip [mm], and the share per clip. For the held-out clips it also reports the
+share on the clips that no allocator reads (``unseen``).
 """
 
 import argparse
@@ -22,7 +23,7 @@ from isaaclab_experimental import mdp2
 from ppo import Agent
 
 import isaaclab_tasks  # noqa: F401
-from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import TEST_CLIPS, TRAIN_CLIPS, arm_names
+from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import TEST_CLIPS, TRAIN_CLIPS, VAL_CLIPS, arm_names
 from isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg import INTERFACE
 from isaaclab_tasks.utils import load_cfg_from_registry
 from isaaclab_tasks.utils.hydra import resolve_presets
@@ -96,6 +97,9 @@ for index in range(len(NAMES) * len(SPLITS)):
     result[f"{name}/error_mm"] = 1.0e3 * (distance[worlds].sum() / length[worlds].sum()).item()
     for k in clip[worlds].unique().tolist():
         result[f"{name}/clips/{CLIPS[k]}"] = success[worlds & (clip == k)].mean().item()
+    if index % len(SPLITS) == 1:
+        unseen = worlds & ~sum(clip == CLIPS.index(k) for k in VAL_CLIPS).bool()
+        result[f"{NAMES[index // len(SPLITS)]}/unseen/success"] = success[unseen].mean().item()
     print(
         f"EVAL {name} success {result[f'{name}/success']:.3f} length {result[f'{name}/length']:.0f}"
         f" error {result[f'{name}/error_mm']:.0f} mm"

@@ -19,7 +19,8 @@ fresh simulation.
 
 ``--allocator`` moves the shares while training, at every ``--allocate_every`` log rows: ``progress``, ``failure``,
 ``headroom`` and ``uniform`` are the rules of :class:`~isaaclab_tasks.mdp2.interfaces.allocation.Allocator` on the
-competence of every interface, the share of an episode that its evaluation worlds on training clips track, or with
+competence of every interface, the share of an episode that its evaluation worlds on training clips track, with
+``--signal val`` that its evaluation worlds on the validation clips track, a part of the held-out clips, or with
 ``--signal rollout`` that its training worlds track. ``frontier`` gives the worlds to the interfaces whose
 evaluation worlds on training clips have an open outcome: the priority of an interface is the mean of ``p (1 - p)``
 over their start frames, with ``p`` the share of the recent episodes from a start frame that tracked to the end.
@@ -46,7 +47,7 @@ from ppo import PPO, Agent
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.mdp2.interfaces.allocation import ALP, TSCL, Allocator, RankedScore
-from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import PARENTS, TRAIN_CLIPS, arm_names
+from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import PARENTS, TEST_CLIPS, TRAIN_CLIPS, VAL_CLIPS, arm_names
 from isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg import INTERFACE
 from isaaclab_tasks.utils import load_cfg_from_registry
 from isaaclab_tasks.utils.hydra import resolve_presets
@@ -66,7 +67,7 @@ parser.add_argument(
     default=None,
     choices=["progress", "failure", "headroom", "frontier", "uniform", "tscl", "alp", "ranked"],
 )
-parser.add_argument("--signal", default="eval", choices=["eval", "rollout"])
+parser.add_argument("--signal", default="eval", choices=["eval", "val", "rollout"])
 parser.add_argument("--allocate_every", type=int, default=1, help="Log rows between two updates of the shares")
 parser.add_argument("--graph", action="store_true", help="Open an arm once the policy is competent in its parents")
 parser.add_argument("--floor", type=float, default=0.2, help="Share that the open arms keep in equal parts")
@@ -119,12 +120,19 @@ N, E = args.num_envs, args.eval_envs
 T, block = N - E, E // (len(NAMES) * len(SPLITS))
 episode_frames = round(10.0 / env.step_dt)
 group = torch.arange(E, device=DEVICE) // block
+# The evaluation worlds on the validation clips.
+val = torch.zeros(E, dtype=torch.bool, device=DEVICE)
+val_ranges = [clip_range[len(TRAIN_CLIPS) + TEST_CLIPS.index(name)].tolist() for name in VAL_CLIPS]
 for index in range(len(NAMES) * len(SPLITS)):
     clips = clip_range[: len(TRAIN_CLIPS)] if index % len(SPLITS) == 0 else clip_range[len(TRAIN_CLIPS) :]
     frames = torch.cat([torch.arange(first, last - episode_frames, device=DEVICE) for first, last in clips.tolist()])
     worlds = slice(T + index * block, T + (index + 1) * block)
     starts = frames[torch.linspace(0, len(frames) - 1, block, device=DEVICE).long()]
     arrays[mdp2.term_state("events.reset_to_motion", "fixed_start")].torch[worlds] = starts.float()
+    if index % len(SPLITS) == 1:
+        val[index * block : (index + 1) * block] = sum(
+            (starts >= first) & (starts < last) for first, last in val_ranges
+        )
     arrays[mdp2.term_state(INTERFACE, "fixed")].torch[worlds] = index // len(SPLITS)
 shares.copy_(parse_shares(args.shares))
 
@@ -247,6 +255,9 @@ for k in range(1, iterations + 1):
             ended = episodes[worlds].clamp(min=1.0)
             row[f"{name}/start_success"] = succeeded[worlds].mean().item()
             row[f"{name}/length"] = (lengths[worlds] / ended).mean().item()
+            if index % len(SPLITS) == 1:
+                seen = val[worlds]
+                row[f"{NAMES[index // len(SPLITS)]}/val/length"] = (lengths[worlds] / ended)[seen].mean().item()
         for index, name in enumerate(NAMES):
             steps, rewards, ended, ended_steps, failed = rollout[:, index].tolist()
             row[f"{name}/rollout/reward"] = rewards / max(steps, 1.0)
@@ -261,7 +272,7 @@ for k in range(1, iterations + 1):
             elif args.signal == "rollout":
                 signal[index] = row[f"{name}/rollout/length"] / episode_frames if ended else signal[index]
             else:
-                signal[index] = row[f"{name}/train/length"] / episode_frames
+                signal[index] = row[f"{name}/{'val' if args.signal == 'val' else 'train'}/length"] / episode_frames
             if args.signal == "rollout":
                 # Training worlds have no fixed start frames: the share of their episodes that fail stands in.
                 failed = row[f"{name}/rollout/failed"]
