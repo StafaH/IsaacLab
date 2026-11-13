@@ -14,7 +14,8 @@ without exploration noise, and gives no data to the learner. The script logs, pe
 of evaluation episodes that track for their whole length, the same share and the length of an episode [steps]
 averaged over the start frames, and the mean distance of the bodies to the clip [mm]. Per interface it logs the
 mean reward of the training worlds, the mean length of their episodes and the share of them that failed.
-``--save_every`` saves the state of the learner while training.
+``--save_every`` saves the state of the learner while training, and ``--resume`` continues from such a state in a
+fresh simulation.
 
 ``--allocator`` moves the shares while training, at every ``--allocate_every`` log rows: ``progress``, ``failure``
 and ``uniform`` are the rules of :class:`~isaaclab_tasks.mdp2.interfaces.allocation.Allocator` on the competence of
@@ -77,6 +78,7 @@ parser.add_argument("--log_interval", type=int, default=50)
 parser.add_argument("--out", default=None, help="Path of a JSON file with the log")
 parser.add_argument("--save", default=None, help="Path to save the model to")
 parser.add_argument("--save_every", type=float, default=0.0, help="Samples between checkpoints, in millions")
+parser.add_argument("--resume", default=None, help="Checkpoint to continue from; samples count from zero again")
 args = parser.parse_args()
 
 TASK, DEVICE = args.task, "cuda:0"
@@ -153,6 +155,11 @@ ppo = PPO(
 )
 ppo.imitation_coef.fill_(args.imitation)
 ppo.rl_coef.fill_(args.rl)
+if args.resume:
+    state = torch.load(args.resume)
+    ppo.agent.load_state_dict(state["agent"])
+    for name in ("first", "second", "count", "lr"):
+        getattr(ppo, name).copy_(state[name])
 teacher = None
 if args.teacher:
     teacher = Agent(obs_dim, action_dim, args.hidden, args.init_std, critic_dim).to(DEVICE)
