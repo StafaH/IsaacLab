@@ -3,11 +3,18 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Record a policy in an MDP2 environment with the Newton Warp renderer, one tile per world, as an MP4."""
+"""Record a policy in an MDP2 environment, one tile per world, as an MP4.
+
+The Newton Warp renderer draws the tiles by default. A renderer configuration such as
+``isaaclab_ov.renderers.OVRTXRendererCfg`` draws them with RTX instead: create the environment inside
+``isaaclab.app.launch_simulation(cfg)`` then, and install the renderer with ``uv sync --extra ovrtx``.
+"""
 
 import subprocess
 
+import numpy as np
 import torch
+from PIL import Image, ImageDraw, ImageFont
 
 import isaaclab.sim as sim_utils
 from isaaclab.sensors import CameraCfg
@@ -16,7 +23,9 @@ EYE = (2.6, -3.0, 0.5)
 """Camera position relative to the root of the world's robot [m]. The camera looks at the root."""
 
 
-def add_camera(cfg, width: int = 480, height: int = 480, eye: tuple[float, float, float] = EYE) -> None:
+def add_camera(
+    cfg, width: int = 480, height: int = 480, eye: tuple[float, float, float] = EYE, renderer_cfg=None
+) -> None:
     """Add a camera to every world of an environment config, and step it without capture, which rendering needs."""
     from isaaclab_newton.renderers import NewtonWarpRendererCfg  # noqa: PLC0415
 
@@ -27,7 +36,7 @@ def add_camera(cfg, width: int = 480, height: int = 480, eye: tuple[float, float
         spawn=sim_utils.PinholeCameraCfg(focal_length=24.0, horizontal_aperture=20.955, clipping_range=(0.1, 100.0)),
         width=width,
         height=height,
-        renderer_cfg=NewtonWarpRendererCfg(enable_shadows=True),
+        renderer_cfg=renderer_cfg or NewtonWarpRendererCfg(enable_shadows=True),
     )
     cfg.capture = False
 
@@ -40,10 +49,11 @@ def record(
     columns: int,
     eye: tuple[float, float, float] = EYE,
     center: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    labels: list[str] | None = None,
 ) -> None:
     """Step ``env`` with ``policy(observations)`` and write its worlds as a grid of ``columns`` tiles per row.
 
-    The camera looks at ``center``, relative to the root of the robot [m].
+    The camera looks at ``center``, relative to the root of the robot [m]. ``labels`` gives a caption per world.
     """
     camera, robot = env.scene["video_camera"], env.scene["robot"]
     offset = torch.tensor(eye, device=env.device)
@@ -61,11 +71,19 @@ def record(
             image = (image.torch if hasattr(image, "torch") else image)[..., :3]
             rows = image.reshape(-1, columns, *image.shape[1:]).permute(0, 2, 1, 3, 4)
             frame = rows.reshape(rows.shape[0] * image.shape[1], columns * image.shape[2], 3)
+            frame = frame.to(torch.uint8).cpu().numpy()
+            if labels:
+                canvas = Image.fromarray(frame)
+                draw, font = ImageDraw.Draw(canvas), ImageFont.load_default(size=image.shape[1] // 18)
+                for index, label in enumerate(labels):
+                    corner = (index % columns * image.shape[2] + 16, index // columns * image.shape[1] + 12)
+                    draw.text(corner, label, fill=(20, 20, 20), font=font, stroke_width=3, stroke_fill=(255, 255, 255))
+                frame = np.asarray(canvas)
             if writer is None:
                 size = f"{frame.shape[1]}x{frame.shape[0]}"
                 command = ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", size]
-                command += ["-r", str(round(1.0 / env.step_dt)), "-i", "-", "-pix_fmt", "yuv420p", "-crf", "26", path]
+                command += ["-r", str(round(1.0 / env.step_dt)), "-i", "-", "-pix_fmt", "yuv420p", "-crf", "20", path]
                 writer = subprocess.Popen(command, stdin=subprocess.PIPE)
-            writer.stdin.write(frame.to(torch.uint8).cpu().numpy().tobytes())
+            writer.stdin.write(frame.tobytes())
     writer.stdin.close()
     writer.wait()
