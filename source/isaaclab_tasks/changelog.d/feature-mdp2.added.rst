@@ -30,3 +30,6 @@
   the first frame without noise next to the training worlds, for an evaluation read from the training simulation.
 * Added ``Isaac-Tracking-G1-MDP2``, motion tracking with the 29-DoF Unitree G1 on clips of the LAFAN1 retargeting
   dataset, which are downloaded and not part of the repository.
+* Added ``Isaac-Velocity-Flat-G1-MDP2``, velocity tracking with the Unitree G1 on flat ground, and
+  ``Isaac-Velocity-Flat-G1-Go2-MDP2``, in which half of the worlds hold a G1 and the other half a Go2, each half
+  with the velocity task of its robot.

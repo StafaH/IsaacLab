@@ -40,21 +40,25 @@ def record(
     columns: int,
     eye: tuple[float, float, float] = EYE,
     center: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    roots=None,
 ) -> None:
     """Step ``env`` with ``policy(observations)`` and write its worlds as a grid of ``columns`` tiles per row.
 
-    The camera looks at ``center``, relative to the root of the robot [m].
+    The camera looks at ``center``, relative to the root of the robot [m], or to the positions that ``roots()``
+    returns for the worlds, for scenes with other robots.
     """
-    camera, robot = env.scene["video_camera"], env.scene["robot"]
+    camera = env.scene["video_camera"]
+    if roots is None:
+        roots = lambda: env.scene["robot"].data.root_link_pose_w.torch[:, :3]  # noqa: E731
     offset = torch.tensor(eye, device=env.device)
     obs = env.reset()[0]["policy"]
     center = torch.tensor(center, device=env.device)
-    target = robot.data.root_link_pose_w.torch[:, :3] + center
+    target = roots() + center
     writer = None
     with torch.no_grad():
         for _ in range(steps):
             # The camera follows the root smoothly, so that its bobbing stays visible.
-            target += 0.2 * (robot.data.root_link_pose_w.torch[:, :3] + center - target)
+            target += 0.2 * (roots() + center - target)
             camera.set_world_poses_from_view(target + offset, target)
             obs = env.step(policy(obs))[0]["policy"]
             image = camera.data.output["rgb"]

@@ -92,6 +92,42 @@ each runtime function's steps.
 weights, in different worlds of one scene.
 
 
+Different robots in different worlds
+------------------------------------
+
+The worlds of one environment can also hold different robots, each with its own task. The scene declares every
+robot and the combinations of assets that a world may hold, the physics keeps the assets outside a world's
+combination asleep, and the environment takes one task per combination, in their order:
+
+.. code-block:: python
+
+   @configclass
+   class G1Go2FlatSceneCfg(InteractiveSceneCfg):
+       g1: ArticulationCfg = replace(G1_MINIMAL_CFG, prim_path="{ENV_REGEX_NS}/G1")
+       go2: ArticulationCfg = replace(UNITREE_GO2_CFG, prim_path="{ENV_REGEX_NS}/Go2")
+       clone_cfg: CloneCfg = CloneCfg(clone_combinations=[InclusionSet(assets=["g1"]), InclusionSet(assets=["go2"])])
+
+
+   physics = NewtonCfg(solver_cfg=MJWarpSolverCfg(sleep_inactive_assets=True))
+   task = [g1_task, go2_task]
+
+MuJoCo Warp simulates worlds of one structure. With
+:attr:`~isaaclab_newton.physics.MJWarpSolverCfg.sleep_inactive_assets`, every world holds every robot and keeps the
+ones outside its combination always asleep: they do not move or collide, are not rendered, and take no room in the
+constraint solver. Each robot then has data for every world, and a task reads and writes its robot in the worlds of
+its combination. Observations and actions are padded to those of the widest task; ``mdp.world_configs`` holds the
+worlds of each task and the columns that it uses. Uses of one name share their state between the tasks, so the
+rewards and terminations of robots whose actions differ in size need names of their own.
+
+``Isaac-Velocity-Flat-G1-Go2-MDP2`` trains a Unitree G1 in half of the worlds and a Unitree Go2 in the other half
+to follow velocity commands, with the tasks ``Isaac-Velocity-Flat-G1-MDP2`` and
+``Isaac-Velocity-Flat-UnitreeGo2-MDP2`` as they are and a policy per robot:
+
+.. code-block:: bash
+
+   uv run python scripts/reinforcement_learning/mdp2/train_velocity_g1_go2.py --budget 800
+
+
 Backends and capture
 --------------------
 
@@ -112,8 +148,10 @@ the environment captures the work before and after them, physics included, and r
 Limitations
 -----------
 
-- Newton only. Different robots in different worlds are not supported, since Newton's articulation views need
-  homogeneous worlds; different task configs on the same robot are.
+- Newton only. Different robots in different worlds need MuJoCo Warp contacts and
+  :attr:`~isaaclab_newton.physics.MJWarpSolverCfg.sleep_inactive_assets`. The scene and the solver keep the data
+  of every robot for every world, also where it sleeps, so a step costs more than the steps of the robots simulated
+  apart: 1.3 times for a G1 and a Go2.
 - Asset resets with a mask reset the actuator state of every world, so the environments support implicit, ideal PD,
   and DC motor actuators only, which keep no state, and refuse delayed, actuator-network, and BAM actuators.
 - Joint orderings (``ArticulationCfg.joint_ordering``) are not supported: terms see the solver's joint order.
