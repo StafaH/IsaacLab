@@ -39,12 +39,14 @@ from ppo import PPO, Agent
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.mdp2.interfaces.allocation import ALP, TSCL, Allocator, RankedScore
-from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import INTERFACES, PARENTS, TRAIN_CLIPS
+from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import INTERFACES, PARENTS, PUSHED, TRAIN_CLIPS
 from isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg import INTERFACE
 from isaaclab_tasks.utils import load_cfg_from_registry
 from isaaclab_tasks.utils.hydra import resolve_presets
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--task", default="Isaac-Interfaces-G1-MDP2")
+parser.add_argument("--push", type=float, default=1.0, help="Scale of the pushes of the pushed worlds")
 parser.add_argument("--num_envs", type=int, default=8192)
 parser.add_argument("--eval_envs", type=int, default=512)
 parser.add_argument("--seed", type=int, default=0)
@@ -77,8 +79,7 @@ parser.add_argument("--save", default=None, help="Path to save the model to")
 parser.add_argument("--save_every", type=float, default=0.0, help="Samples between checkpoints, in millions")
 args = parser.parse_args()
 
-TASK, DEVICE = "Isaac-Interfaces-G1-MDP2", "cuda:0"
-NAMES = list(INTERFACES)
+TASK, DEVICE = args.task, "cuda:0"
 SPLITS = ("train", "test")
 torch.manual_seed(args.seed)
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -93,8 +94,10 @@ def parse_shares(text):
 
 cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
 cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, args.num_envs, args.seed
+NAMES = [*INTERFACES, *PUSHED] if cfg.pushed else list(INTERFACES)
 env = gym.make(TASK, cfg=cfg).unwrapped
 arrays = env.state.arrays
+arrays[mdp2.term_state(INTERFACE, "pushes")].torch.mul_(args.push)
 shares = arrays[mdp2.term_state(INTERFACE, "shares")].torch
 interface = arrays[mdp2.term_state(INTERFACE, "interface")].torch
 clip_range = arrays[mdp2.term_state("events.reset_to_motion", "clip_range")].torch.long()
