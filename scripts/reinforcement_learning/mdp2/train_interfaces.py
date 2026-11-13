@@ -217,7 +217,7 @@ for k in range(1, iterations + 1):
     magnitude = ppo.flat["advantages"].abs()
     advantage.index_add_(1, sample_interface.reshape(-1), torch.stack([torch.ones_like(magnitude), magnitude]))
 
-    if k % args.log_interval == 0 or k == iterations:
+    if k % args.log_interval == 0:
         torch.cuda.synchronize()
         row = {"iteration": k, "samples_m": k * args.steps * T / 1.0e6, "time": time.perf_counter() - start}
         row["reward"] = ppo.buffer["rewards"].mean().item()
