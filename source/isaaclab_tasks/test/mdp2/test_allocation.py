@@ -48,3 +48,11 @@ def test_frontier_gives_the_worlds_to_the_arm_whose_outcome_is_open():
         shares = allocator.update([0.95, 0.6, 0.1], frontier=[0.02, 0.9, 0.0])
     assert abs(shares.sum() - 1.0) < 1.0e-6
     assert shares[1] > 0.8 and 0.05 <= shares[2] < shares[0] < 0.1
+
+
+def test_headroom_gives_the_worlds_to_the_weak_arm_that_moves_and_not_to_the_one_that_is_stuck():
+    # Arm 0 is mastered, arm 1 is weak and improves slowly, and arm 2 is weak and stays where it is.
+    allocator = Allocator(parents=[[], [], []], anchors=(), rule="headroom")
+    for step in range(100):
+        shares = allocator.update([0.95, 0.3 + 0.002 * step, 0.2])
+    assert shares[1] > 0.8 and shares[0] < 0.1 and shares[2] < 0.1

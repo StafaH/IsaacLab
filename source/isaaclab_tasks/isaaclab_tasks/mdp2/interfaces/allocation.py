@@ -20,8 +20,9 @@ class Allocator:
     The priority of an arm is its absolute learning progress, the distance between a fast and a slow average of its
     competence: an arm that improves and an arm that is being forgotten both attract worlds, and an arm that stays
     where it is, mastered or impossible, does not. ``rule`` replaces it by ``"failure"``, one minus the competence,
-    by ``"frontier"``, a priority that the caller passes to :meth:`update`, or by ``"uniform"``, the same priority
-    for every open arm.
+    by ``"headroom"``, one minus the competence for an arm whose progress reaches ``moving`` and proportionally less
+    for an arm that moves less, by ``"frontier"``, a priority that the caller passes to :meth:`update`, or by
+    ``"uniform"``, the same priority for every open arm.
 
     An arm is open once every arm in its ``parents`` has a competence of ``open_at``, and closes when one falls
     below ``close_at``; arms without parents are always open. Every open arm keeps the share ``floor``, the arms in
@@ -42,8 +43,9 @@ class Allocator:
         anchor_share: float = 0.2,
         rate: float = 0.2,
         epsilon: float = 0.002,
+        moving: float = 0.01,
     ):
-        self.parents, self.rule = parents, rule
+        self.parents, self.rule, self.moving = parents, rule, moving
         self.fast_rate, self.slow_rate, self.rate, self.epsilon = fast, slow, rate, epsilon
         self.open_at, self.close_at = open_at, close_at
         count = len(parents)
@@ -59,6 +61,8 @@ class Allocator:
             priority = np.ones(len(self.parents))
         elif self.rule == "failure":
             priority = 1.0 - self.fast
+        elif self.rule == "headroom":
+            priority = (1.0 - self.fast) * np.minimum(np.abs(self.fast - self.slow) / self.moving, 1.0)
         elif self.rule == "frontier":
             priority = self.frontier
         else:

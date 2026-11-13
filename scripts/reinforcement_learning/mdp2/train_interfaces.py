@@ -17,14 +17,14 @@ mean reward of the training worlds, the mean length of their episodes and the sh
 ``--save_every`` saves the state of the learner while training, and ``--resume`` continues from such a state in a
 fresh simulation.
 
-``--allocator`` moves the shares while training, at every ``--allocate_every`` log rows: ``progress``, ``failure``
-and ``uniform`` are the rules of :class:`~isaaclab_tasks.mdp2.interfaces.allocation.Allocator` on the competence of
-every interface, the share of an episode that its evaluation worlds on training clips track, or with ``--signal
-rollout`` that its training worlds track. ``frontier`` gives the worlds to the interfaces whose evaluation worlds on
-training clips have an open outcome: the priority of an interface is the mean of ``p (1 - p)`` over their start
-frames, with ``p`` the share of the recent episodes from a start frame that tracked to the end. ``tscl`` and ``alp``
-follow the mean reward of the training worlds, and ``ranked`` their mean absolute advantage. With ``--graph``, an
-interface gets worlds only once the policy is competent in the interfaces that it relaxes.
+``--allocator`` moves the shares while training, at every ``--allocate_every`` log rows: ``progress``, ``failure``,
+``headroom`` and ``uniform`` are the rules of :class:`~isaaclab_tasks.mdp2.interfaces.allocation.Allocator` on the
+competence of every interface, the share of an episode that its evaluation worlds on training clips track, or with
+``--signal rollout`` that its training worlds track. ``frontier`` gives the worlds to the interfaces whose
+evaluation worlds on training clips have an open outcome: the priority of an interface is the mean of ``p (1 - p)``
+over their start frames, with ``p`` the share of the recent episodes from a start frame that tracked to the end.
+``tscl`` and ``alp`` follow the mean reward of the training worlds, and ``ranked`` their mean absolute advantage.
+With ``--graph``, an interface gets worlds only once the policy is competent in the interfaces that it relaxes.
 
 ``--obs_clip`` bounds the normalized observations. Without it, an input that was constant so far, such as the flag
 of an interface that had no worlds, takes a huge value when it changes.
@@ -62,7 +62,9 @@ parser.add_argument("--shares", default="full=1", help="Shares of the interfaces
 parser.add_argument("--shares_after", default=None, help="Shares after --switch_at")
 parser.add_argument("--switch_at", type=float, default=0.0, help="Samples after which the shares change, in millions")
 parser.add_argument(
-    "--allocator", default=None, choices=["progress", "failure", "frontier", "uniform", "tscl", "alp", "ranked"]
+    "--allocator",
+    default=None,
+    choices=["progress", "failure", "headroom", "frontier", "uniform", "tscl", "alp", "ranked"],
 )
 parser.add_argument("--signal", default="eval", choices=["eval", "rollout"])
 parser.add_argument("--allocate_every", type=int, default=1, help="Log rows between two updates of the shares")
@@ -127,7 +129,7 @@ for index in range(len(NAMES) * len(SPLITS)):
 shares.copy_(parse_shares(args.shares))
 
 allocator = None
-if args.allocator in ("progress", "failure", "frontier", "uniform"):
+if args.allocator in ("progress", "failure", "headroom", "frontier", "uniform"):
     parents = [[NAMES.index(parent) for parent in PARENTS[name]] if args.graph else [] for name in NAMES]
     anchors = [index for index, name in enumerate(NAMES) if not PARENTS[name]]
     allocator = Allocator(
