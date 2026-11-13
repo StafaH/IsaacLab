@@ -69,9 +69,12 @@ for index in range(len(NAMES) * len(SPLITS)):
     arrays[mdp2.term_state(INTERFACE, "fixed")].torch[worlds] = index // len(SPLITS)
 
 obs = env.reset()[0]
-agent = Agent(obs["policy"].shape[1], env.mdp.action_dim, args.hidden, 1.0, obs["critic"].shape[1]).to(DEVICE)
+# The critic keeps the size it was trained with, which differs between the tasks; only the policy acts here.
 state = torch.load(args.model)
-agent.load_state_dict(state.get("agent", state))
+state = state.get("agent", state)
+critic_dim = state["critic.0.weight"].shape[1]
+agent = Agent(obs["policy"].shape[1], env.mdp.action_dim, args.hidden, 1.0, critic_dim).to(DEVICE)
+agent.load_state_dict(state)
 
 # The first episode of every world: whether it is running, its steps, its outcome and its summed distance.
 running = torch.ones(N, dtype=torch.bool, device=DEVICE)
