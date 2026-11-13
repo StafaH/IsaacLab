@@ -212,13 +212,14 @@ Reading so far:
 ## 6. Running batches
 
 One run per GPU, from a queue. The queue is the file `runs/research/queue.txt`, with one run per line: the
-checkout that pins its code, `<batch>/<name>`, then the arguments of `train_interfaces.py`.
+checkout that pins its code, the script (`train_interfaces.py` or `evaluate_interfaces.py`), `<batch>/<name>`, then
+the arguments of the script.
 `scripts/reinforcement_learning/mdp2/run_queue.sh <GPU>` is a worker: it takes the first line of the file whenever
 its GPU is free, until the file is empty, and skips runs that already finished. Start one worker per GPU; edit the
 file at any time to add, drop or reorder runs.
 
 ```bash
-echo "../mdp2-batch gate1/uniform_s0 --seed 0 --budget 2000 --shares $ALL" >> runs/research/queue.txt
+echo "../mdp2-batch train_interfaces.py gate1/uniform_s0 --seed 0 --budget 2000 --shares $ALL" >> runs/research/queue.txt
 for g in 0 1 2 3; do
     setsid nohup scripts/reinforcement_learning/mdp2/run_queue.sh $g > runs/research/worker$g.log 2>&1 &
 done
