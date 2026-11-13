@@ -585,15 +585,15 @@ result); CoRL 2027 not announced (28 May in 2026).
 |---|---|---|
 | Pilot (1000 M, one seed) | STOPPED | 4 of 8 runs complete, section 4; the rest is part of W1 |
 | W0 Bring-up | DONE | 4 x RTX 6000 Ada, 0.29 M samples/s per GPU (half of the pilot's GPU); the reproduction is the `full` run of W1 |
-| W1 Gate 1 batch | DOING | Seed 0 running since 12 November, 15 runs, about 7 hours |
+| W1 Gate 1 batch | DOING | Seed 0 done: the uniform mixture equals the specialists and beats two-stage distillation; seeds 1 and 2 of the uniform row queued |
 | W2 Tooling | DOING | Done: summary (`summarize_interfaces.py`), checkpoints (`--save_every`), final evaluation (`evaluate_interfaces.py`), statistics of the training worlds per interface. Open: resuming a checkpoint, return normalisation per arm |
-| W3 Allocator, version 1 | DOING | Built and tested (`interfaces/allocation.py`, `--allocator`), with the baselines; no runs yet |
-| W4 Harder arms, problems 2 and 3 | DOING | Pushed worlds as arms built (`Isaac-Interfaces-Robust-G1-MDP2`); no runs yet |
-| W5 Transfer probes | TODO | |
+| W3 Allocator, version 1 | DOING | Rule frozen on seed 0: `--allocator gain --signal val` with its defaults. Seeds 1 and 2 and the baselines TSCL, ALP, ranked and progress queued |
+| W4 Harder arms, problems 2 and 3 | DOING | Seed 0 done on pushed worlds (8 arms) and on the stress test (12 arms); the adversarial arm is not built |
+| W5 Transfer probes | DOING | Problem 1 at 250, 500, 1000 and 1500 M done; pushed worlds open |
 | W6 Scale | TODO | |
-| W7 Systems measurements | TODO | |
+| W7 Systems measurements | DOING | Throughput with 1, 4 and 8 arms, with and without an allocator; the rest open |
 | W8 Hardware | TODO | |
-| W9 Abstract and paper | TODO | |
+| W9 Abstract and paper | DOING | Report and draft build from the logs; videos rendered with the RTX renderer |
 | Gate 1 | 26 Nov | |
 | Gate 2 | 17 Dec | |
 
@@ -677,3 +677,24 @@ result); CoRL 2027 not announced (28 May in 2026).
     motion. Scaling BFM: 32 to 64 GPUs. HIL: 4 billion samples of tracking, then 2 billion at a fixed half and
     half. HOVER reports an RL baseline from scratch that is worse on 32 of 32 metrics. The score p (1 - p) is from
     Tzannetos et al. (2304.12877) and Rutherford et al. (2408.15099).
+- 2026-11-13, morning, seed 0 at 2000 M, final evaluation on the unseen clips (success per start frame, 1024
+  starts per arm; `clean` and `pushed` are the means of `full`, `key_points` and `three_point`):
+  - Pushed worlds (8 arms), clean / pushed / all arms. Uniform 89.2 / 54.5 / 58.7. Clean arms only 86.7 / 14.6 /
+    41.5. Pushed arms only 89.3 / 77.4 / 67.7. Failure rule 87.3 / 64.0 / 62.7. `headroom` 86.8 / 62.1 / 62.3.
+    `gain` on validation clips 90.4 / 73.5 / 66.6. The uniform mixture reaches 59% on the pushed arms of the
+    held-out clips at 1935 M, `gain` at 1244 M, the pushed arms alone at 1014 M.
+  - Signal (H4), the rule `gain` on the pushed arms: 73.5 on validation clips, 70.7 on training clips, 65.4 on
+    rollouts. On training clips the two `upper_body` arms hold 44% of the worlds at the end (they are memorized);
+    on rollouts the clean arms hold 60%.
+  - Stress test (12 arms, the third group with pushes of three times the speed; no policy tracks it), clean /
+    pushed / all arms. Uniform 89.2 / 49.4 / 38.0. Failure rule 84.2 / 47.1 / 36.4, with 56% of the worlds on the
+    shoved arms at the end. `gain` 88.7 / 71.9 / 43.4, with 48% of the worlds on the three pushed arms and 20% on
+    the four shoved arms over the run.
+  - Problem 1, mean of the four interfaces: uniform 72.1, failure 71.8, `frontier` 71.6, `headroom` 71.0,
+    progress 73.6, `gain` 71.6, mixture with 70% `upper_body` 67.1, two-stage 59.5. No rule gains on unseen clips.
+  - The rule is frozen: `--allocator gain --signal val` with the default constants. It was shaped on seed 0 of
+    problem 1 and of the pushed worlds; the stress test ran after the freeze. Queued, about 16 hours on the four
+    GPUs: seeds 1 and 2 of the key rows of the three problems; TSCL, ALP, ranked and progress on the pushed
+    worlds; pushed arms only and shoved arms only on the stress test; uniform and `gain` at 4000 M.
+  - Videos of the uniform, `gain` and pushed-only policies on two unseen clips, clean and pushed, rendered with
+    the RTX renderer (`video_interfaces.py`, 1920 x 1080).
