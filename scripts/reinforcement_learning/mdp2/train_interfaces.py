@@ -11,7 +11,9 @@ Every training world is told its targets through an interface drawn from ``--sha
 shares change to ``--shares_after`` once ``--switch_at`` million samples are collected. The last ``--eval_envs``
 worlds evaluate: each has a fixed interface and a fixed start frame, on a training clip or on a held-out clip, acts
 without exploration noise, and gives no data to the learner. The script logs, per interface and split, the share
-of evaluation episodes that track for their whole length and the mean distance of the bodies to the clip [mm].
+of evaluation episodes that track for their whole length, their mean length [steps] and the mean distance of the
+bodies to the clip [mm]; and per interface the mean reward of the training worlds, the mean length of their
+episodes and the share of them that failed. ``--save_every`` saves the state of the learner while training.
 
 ``--teacher`` loads a policy that labels every step with its action from the targets of every group, and
 ``--self_distill`` uses the learning policy's own action from those targets as the label in the worlds of the
@@ -53,6 +55,7 @@ parser.add_argument("--hidden", type=int, nargs="+", default=[1024, 512, 256])
 parser.add_argument("--log_interval", type=int, default=50)
 parser.add_argument("--out", default=None, help="Path of a JSON file with the log")
 parser.add_argument("--save", default=None, help="Path to save the model to")
+parser.add_argument("--save_every", type=float, default=0.0, help="Samples between checkpoints, in millions")
 args = parser.parse_args()
 
 TASK, DEVICE = "Isaac-Interfaces-G1-MDP2", "cuda:0"
@@ -112,12 +115,19 @@ ppo.rl_coef.fill_(args.rl)
 teacher = None
 if args.teacher:
     teacher = Agent(obs_dim, action_dim, args.hidden, args.init_std, critic_dim).to(DEVICE)
-    teacher.load_state_dict(torch.load(args.teacher))
+    state = torch.load(args.teacher)
+    teacher.load_state_dict(state.get("agent", state))
+print(f"DEVICE {torch.cuda.get_device_name(0)}")
 print(f"SETUP obs {obs_dim} critic {critic_dim} actions {action_dim} train worlds {T} eval block {block}", flush=True)
 
 iterations = round(args.budget * 1.0e6 / (args.steps * T))
+save_every = round(args.save_every * 1.0e6 / (args.steps * T))
 episodes, completed = torch.zeros(E, device=DEVICE), torch.zeros(E, device=DEVICE)
 distance, counted = torch.zeros(E, device=DEVICE), torch.zeros(E, device=DEVICE)
+# Steps of the running episode of every world, and of the episodes that ended, for the evaluation worlds.
+alive, lengths = torch.zeros(N, device=DEVICE), torch.zeros(E, device=DEVICE)
+# Of the training worlds, per interface: steps, summed reward, episodes that ended, their steps, and failures.
+rollout = torch.zeros(5, len(NAMES), device=DEVICE)
 history = []
 wp.synchronize()
 start = time.perf_counter()
@@ -135,12 +145,21 @@ for k in range(1, iterations + 1):
                 weights = (interface[:T] != NAMES.index("full")).float()
             action = ppo.act(obs["policy"][:T], obs["critic"][:T], targets, weights)
             action = torch.cat([action, ppo.policy(obs["policy"][T:])])
+            # The step draws the interface of the next episode of a world that ends: keep the one it had.
+            had = interface[:T].long()
         obs, reward, terminated, truncated, _ = env.step(action)
         ppo.record(reward[:T], terminated[:T], truncated[:T])
-        episodes += terminated[T:] | truncated[T:]
+        done = terminated | truncated
+        alive += 1.0
+        episodes += done[T:]
         completed += truncated[T:]
+        lengths += alive[T:] * done[T:]
         distance += body_pos_error[T:].sqrt()
         counted += 1.0
+        ended = done[:T].float()
+        values = torch.stack([torch.ones_like(ended), reward[:T], ended, alive[:T] * ended, terminated[:T].float()])
+        rollout.index_add_(1, had, values)
+        alive *= ~done
     ppo.update(obs["policy"][:T], obs["critic"][:T])
 
     if k % args.log_interval == 0 or k == iterations:
@@ -153,7 +172,13 @@ for k in range(1, iterations + 1):
             worlds = group == index
             row[f"{name}/success"] = (completed[worlds].sum() / episodes[worlds].sum().clamp(min=1.0)).item()
             row[f"{name}/error_mm"] = 1.0e3 * (distance[worlds].sum() / counted[worlds].sum()).item()
-        for value in (episodes, completed, distance, counted):
+            row[f"{name}/length"] = (lengths[worlds].sum() / episodes[worlds].sum().clamp(min=1.0)).item()
+        for index, name in enumerate(NAMES):
+            steps, rewards, ended, ended_steps, failed = rollout[:, index].tolist()
+            row[f"{name}/rollout/reward"] = rewards / max(steps, 1.0)
+            row[f"{name}/rollout/length"] = ended_steps / max(ended, 1.0)
+            row[f"{name}/rollout/failed"] = failed / max(ended, 1.0)
+        for value in (episodes, completed, distance, counted, lengths, rollout):
             value.zero_()
         history.append(row)
         summary = " ".join(
@@ -165,6 +190,10 @@ for k in range(1, iterations + 1):
         if args.out:
             with open(args.out, "w") as file:
                 json.dump({"args": vars(args), "history": history}, file)
+    if args.save and save_every and k % save_every == 0:
+        state = {"agent": ppo.agent.state_dict(), "first": ppo.first, "second": ppo.second}
+        state |= {"count": ppo.count, "lr": ppo.lr, "samples_m": k * args.steps * T / 1.0e6}
+        torch.save(state, f"{args.save.removesuffix('.pt')}_{round(k * args.steps * T / 1.0e6)}M.pt")
 train_time = time.perf_counter() - start
 samples = iterations * args.steps * T
 print(f"TRAIN {train_time:.1f} s, {samples / train_time / 1e6:.2f} M steps/s, graphs {env.num_graphs}")
