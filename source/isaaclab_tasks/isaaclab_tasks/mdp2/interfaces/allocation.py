@@ -20,7 +20,8 @@ class Allocator:
     The priority of an arm is its absolute learning progress, the distance between a fast and a slow average of its
     competence: an arm that improves and an arm that is being forgotten both attract worlds, and an arm that stays
     where it is, mastered or impossible, does not. ``rule`` replaces it by ``"failure"``, one minus the competence,
-    or by ``"uniform"``, the same priority for every open arm.
+    by ``"frontier"``, a priority that the caller passes to :meth:`update`, or by ``"uniform"``, the same priority
+    for every open arm.
 
     An arm is open once every arm in its ``parents`` has a competence of ``open_at``, and closes when one falls
     below ``close_at``; arms without parents are always open. Every open arm keeps the share ``floor``, the arms in
@@ -48,7 +49,7 @@ class Allocator:
         count = len(parents)
         self.floors = np.full(count, floor)
         self.floors[list(anchors)] = np.maximum(anchor_share, floor)
-        self.fast, self.slow = None, None
+        self.fast, self.slow, self.frontier = None, None, None
         self.open = np.array([not arm_parents for arm_parents in parents])
         self.shares = self.target()
 
@@ -58,6 +59,8 @@ class Allocator:
             priority = np.ones(len(self.parents))
         elif self.rule == "failure":
             priority = 1.0 - self.fast
+        elif self.rule == "frontier":
+            priority = self.frontier
         else:
             priority = np.abs(self.fast - self.slow)
         # A small constant, so that open arms share the worlds when no arm has any priority.
@@ -66,9 +69,10 @@ class Allocator:
         floors = floors / max(floors.sum(), 1.0)
         return floors + (1.0 - floors.sum()) * priority / priority.sum()
 
-    def update(self, competence) -> np.ndarray:
-        """Take the competence of every arm and return the new shares."""
+    def update(self, competence, frontier=None) -> np.ndarray:
+        """Take the competence of every arm, and its priority for the rule ``"frontier"``, and return the new shares."""
         competence = np.asarray(competence, dtype=float)
+        self.frontier = None if frontier is None else np.asarray(frontier, dtype=float)
         if self.fast is None:
             self.fast, self.slow = competence.copy(), competence.copy()
         self.fast += self.fast_rate * (competence - self.fast)

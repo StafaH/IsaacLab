@@ -39,3 +39,12 @@ def test_progress_attracts_worlds_and_closed_or_stalled_arms_do_not():
         competence[2] -= 0.05
         shares = allocator.update(competence)
     assert shares[2] > before
+
+
+def test_frontier_gives_the_worlds_to_the_arm_whose_outcome_is_open():
+    # Arm 0 is mastered, arm 1 succeeds on half of its tries, and arm 2 never succeeds.
+    allocator = Allocator(parents=[[], [], []], anchors=(), rule="frontier")
+    for _ in range(50):
+        shares = allocator.update([0.95, 0.6, 0.1], frontier=[0.02, 0.9, 0.0])
+    assert abs(shares.sum() - 1.0) < 1.0e-6
+    assert shares[1] > 0.8 and 0.05 <= shares[2] < shares[0] < 0.1

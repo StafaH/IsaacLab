@@ -16,10 +16,11 @@ def mlp(sizes):
 
 
 class Normalizer(torch.nn.Module):
-    """Running mean and variance of a stream of batches."""
+    """Running mean and variance of a stream of batches. With ``clip``, normalized values stay within its range."""
 
-    def __init__(self, size):
+    def __init__(self, size, clip=None):
         super().__init__()
+        self.clip = clip
         self.register_buffer("mean", torch.zeros(size))
         self.register_buffer("var", torch.ones(size))
         self.register_buffer("count", torch.tensor(1.0e-4))
@@ -35,22 +36,24 @@ class Normalizer(torch.nn.Module):
         self.count.copy_(total)
 
     def forward(self, values):
-        return (values - self.mean) / (self.var.sqrt() + 1.0e-8)
+        values = (values - self.mean) / (self.var.sqrt() + 1.0e-8)
+        return values if self.clip is None else values.clamp(-self.clip, self.clip)
 
 
 class Agent(torch.nn.Module):
     """A Gaussian policy and a critic with normalized inputs and returns.
 
-    The critic reads the policy's observations, or its own of size ``critic_dim``.
+    The critic reads the policy's observations, or its own of size ``critic_dim``. With ``obs_clip``, normalized
+    observations stay within that range.
     """
 
-    def __init__(self, obs_dim, action_dim, hidden, init_std, critic_dim=None):
+    def __init__(self, obs_dim, action_dim, hidden, init_std, critic_dim=None, obs_clip=None):
         super().__init__()
         self.actor = mlp([obs_dim, *hidden, action_dim])
         self.critic = mlp([critic_dim or obs_dim, *hidden, 1])
         self.log_std = torch.nn.Parameter(torch.full((action_dim,), float(torch.tensor(init_std).log())))
-        self.obs = Normalizer(obs_dim)
-        self.critic_obs = Normalizer(critic_dim) if critic_dim else None
+        self.obs = Normalizer(obs_dim, obs_clip)
+        self.critic_obs = Normalizer(critic_dim, obs_clip) if critic_dim else None
         self.returns = Normalizer(())
 
     def value(self, normalized):
@@ -95,8 +98,9 @@ class PPO:
         init_std=1.0,
         critic_dim=None,
         imitation=False,
+        obs_clip=None,
     ):
-        self.agent = Agent(obs_dim, action_dim, hidden, init_std, critic_dim).to(device)
+        self.agent = Agent(obs_dim, action_dim, hidden, init_std, critic_dim, obs_clip).to(device)
         self.steps, self.epochs, self.minibatches, self.batch = steps, epochs, minibatches, steps * num_envs
         self.max_lr, self.kl, self.gamma, self.lam, self.clip = max_lr, kl, gamma, lam, clip
         self.value_coef, self.entropy = value_coef, entropy
