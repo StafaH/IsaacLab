@@ -6,6 +6,7 @@
 """Tests for the allocators of the MDP2 multi-interface tracking task, on synthetic competence curves."""
 
 import numpy as np
+import pytest
 
 from isaaclab_tasks.mdp2.interfaces.allocation import Allocator
 
@@ -50,9 +51,10 @@ def test_frontier_gives_the_worlds_to_the_arm_whose_outcome_is_open():
     assert shares[1] > 0.8 and 0.05 <= shares[2] < shares[0] < 0.1
 
 
-def test_headroom_gives_the_worlds_to_the_weak_arm_that_moves_and_not_to_the_one_that_is_stuck():
+@pytest.mark.parametrize("rule", ["headroom", "gain"])
+def test_the_weak_arm_that_moves_gets_the_worlds_and_the_one_that_is_stuck_does_not(rule):
     # Arm 0 is mastered, arm 1 is weak and improves slowly, and arm 2 is weak and stays where it is.
-    allocator = Allocator(parents=[[], [], []], anchors=(), rule="headroom")
+    allocator = Allocator(parents=[[], [], []], anchors=(), rule=rule)
     for step in range(100):
         shares = allocator.update([0.95, 0.3 + 0.002 * step, 0.2])
     assert shares[1] > 0.8 and shares[0] < 0.1 and shares[2] < 0.1

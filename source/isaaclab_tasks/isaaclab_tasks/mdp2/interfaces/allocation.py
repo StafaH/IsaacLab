@@ -21,8 +21,9 @@ class Allocator:
     competence: an arm that improves and an arm that is being forgotten both attract worlds, and an arm that stays
     where it is, mastered or impossible, does not. ``rule`` replaces it by ``"failure"``, one minus the competence,
     by ``"headroom"``, one minus the competence for an arm whose progress reaches ``moving`` and proportionally less
-    for an arm that moves less, by ``"frontier"``, a priority that the caller passes to :meth:`update`, or by
-    ``"uniform"``, the same priority for every open arm.
+    for an arm that moves less, by ``"gain"``, the competence that the arm gains within ``horizon`` updates at its
+    present progress and at most what it lacks, by ``"frontier"``, a priority that the caller passes to
+    :meth:`update`, or by ``"uniform"``, the same priority for every open arm.
 
     An arm is open once every arm in its ``parents`` has a competence of ``open_at``, and closes when one falls
     below ``close_at``; arms without parents are always open. The open arms keep the share ``floor`` in equal parts,
@@ -44,8 +45,11 @@ class Allocator:
         rate: float = 0.2,
         epsilon: float = 0.002,
         moving: float = 0.01,
+        horizon: float = 100.0,
     ):
         self.parents, self.rule, self.moving = parents, rule, moving
+        # The averages trail the competence by 1 / rate updates: their distance is the progress over the difference.
+        self.gain = horizon / (1.0 / slow - 1.0 / fast)
         self.fast_rate, self.slow_rate, self.rate, self.epsilon = fast, slow, rate, epsilon
         self.open_at, self.close_at = open_at, close_at
         self.floor, self.anchors, self.anchor_share = floor, list(anchors), anchor_share
@@ -61,6 +65,8 @@ class Allocator:
             priority = 1.0 - self.fast
         elif self.rule == "headroom":
             priority = (1.0 - self.fast) * np.minimum(np.abs(self.fast - self.slow) / self.moving, 1.0)
+        elif self.rule == "gain":
+            priority = np.minimum(1.0 - self.fast, self.gain * np.abs(self.fast - self.slow))
         elif self.rule == "frontier":
             priority = self.frontier
         else:

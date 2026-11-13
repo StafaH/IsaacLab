@@ -18,8 +18,9 @@ mean reward of the training worlds, the mean length of their episodes and the sh
 fresh simulation.
 
 ``--allocator`` moves the shares while training, at every ``--allocate_every`` log rows: ``progress``, ``failure``,
-``headroom`` and ``uniform`` are the rules of :class:`~isaaclab_tasks.mdp2.interfaces.allocation.Allocator` on the
-competence of every interface, the share of an episode that its evaluation worlds on training clips track, with
+``headroom``, ``gain`` and ``uniform`` are the rules of
+:class:`~isaaclab_tasks.mdp2.interfaces.allocation.Allocator` on the competence of every interface, the share of an
+episode that its evaluation worlds on training clips track, with
 ``--signal val`` that its evaluation worlds on the validation clips track, a part of the held-out clips, or with
 ``--signal rollout`` that its training worlds track. ``frontier`` gives the worlds to the interfaces whose
 evaluation worlds on training clips have an open outcome: the priority of an interface is the mean of ``p (1 - p)``
@@ -65,7 +66,7 @@ parser.add_argument("--switch_at", type=float, default=0.0, help="Samples after 
 parser.add_argument(
     "--allocator",
     default=None,
-    choices=["progress", "failure", "headroom", "frontier", "uniform", "tscl", "alp", "ranked"],
+    choices=["progress", "failure", "headroom", "gain", "frontier", "uniform", "tscl", "alp", "ranked"],
 )
 parser.add_argument("--signal", default="eval", choices=["eval", "val", "rollout"])
 parser.add_argument("--allocate_every", type=int, default=1, help="Log rows between two updates of the shares")
@@ -75,6 +76,7 @@ parser.add_argument("--anchor_share", type=float, default=0.0, help="Least share
 parser.add_argument("--fast", type=float, default=0.3, help="Rate of the fast average of the competence")
 parser.add_argument("--slow", type=float, default=0.05, help="Rate of the slow average of the competence")
 parser.add_argument("--rate", type=float, default=0.2, help="Rate at which the shares follow their target")
+parser.add_argument("--horizon", type=float, default=100.0, help="Updates that the rule gain looks ahead")
 parser.add_argument("--teacher", default=None, help="Model of a policy that labels the steps")
 parser.add_argument("--self_distill", action="store_true")
 parser.add_argument("--imitation", type=float, default=1.0)
@@ -137,7 +139,7 @@ for index in range(len(NAMES) * len(SPLITS)):
 shares.copy_(parse_shares(args.shares))
 
 allocator = None
-if args.allocator in ("progress", "failure", "headroom", "frontier", "uniform"):
+if args.allocator in ("progress", "failure", "headroom", "gain", "frontier", "uniform"):
     parents = [[NAMES.index(parent) for parent in PARENTS[name]] if args.graph else [] for name in NAMES]
     anchors = [index for index, name in enumerate(NAMES) if not PARENTS[name]]
     allocator = Allocator(
@@ -149,6 +151,7 @@ if args.allocator in ("progress", "failure", "headroom", "frontier", "uniform"):
         floor=args.floor,
         anchor_share=args.anchor_share,
         rate=args.rate,
+        horizon=args.horizon,
     )
 elif args.allocator:
     allocator = {"tscl": TSCL, "alp": ALP, "ranked": RankedScore}[args.allocator](len(NAMES))
