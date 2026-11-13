@@ -16,9 +16,10 @@ from isaaclab.utils import replace
 
 from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import (
     INTERFACES,
-    PUSHED,
+    PUSHES,
     G1InterfacesEnvCfg,
     G1InterfacesPhysicsCfg,
+    arm_names,
     g1_interfaces_task,
 )
 from isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg import INTERFACE
@@ -72,7 +73,7 @@ def test_only_the_worlds_of_pushed_interfaces_are_pushed():
     cfg = G1InterfacesEnvCfg()
     cfg.sim.physics = G1InterfacesPhysicsCfg().newton_mjwarp
     cfg.sim.device, cfg.scene.num_envs, cfg.seed = "cuda:0", 512, 0
-    task = g1_interfaces_task(train=CLIPS[:1], test=CLIPS[1:], pushed=True)
+    task = g1_interfaces_task(train=CLIPS[:1], test=CLIPS[1:], pushes=PUSHES)
     # Push within the first steps, before the robots fall.
     cfg.task = replace(
         task, events={**task.events, "push": replace(task.events["push"], interval_range_s=(0.04, 0.08))}
@@ -80,7 +81,7 @@ def test_only_the_worlds_of_pushed_interfaces_are_pushed():
     env = MDP2RLEnv(cfg)
     try:
         arrays = env.state.arrays
-        names = [*INTERFACES, *PUSHED]
+        names = arm_names(PUSHES)
         fixed = arrays[mdp2.term_state(INTERFACE, "fixed")].torch
         fixed[:256] = names.index("full")
         fixed[256:] = names.index("full_pushed")

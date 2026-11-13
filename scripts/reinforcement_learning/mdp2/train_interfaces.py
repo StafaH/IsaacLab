@@ -46,7 +46,7 @@ from ppo import PPO, Agent
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.mdp2.interfaces.allocation import ALP, TSCL, Allocator, RankedScore
-from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import INTERFACES, PARENTS, PUSHED, TRAIN_CLIPS
+from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import PARENTS, TRAIN_CLIPS, arm_names
 from isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg import INTERFACE
 from isaaclab_tasks.utils import load_cfg_from_registry
 from isaaclab_tasks.utils.hydra import resolve_presets
@@ -103,7 +103,7 @@ def parse_shares(text):
 
 cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
 cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, args.num_envs, args.seed
-NAMES = [*INTERFACES, *PUSHED] if cfg.pushed else list(INTERFACES)
+NAMES = arm_names(cfg.pushes)
 env = gym.make(TASK, cfg=cfg).unwrapped
 arrays = env.state.arrays
 arrays[mdp2.term_state(INTERFACE, "pushes")].torch.mul_(args.push)
@@ -260,7 +260,12 @@ for k in range(1, iterations + 1):
                 signal[index] = row[f"{name}/rollout/length"] / episode_frames if ended else signal[index]
             else:
                 signal[index] = row[f"{name}/train/length"] / episode_frames
-            frontier[index] = row[f"{name}/train/frontier"]
+            if args.signal == "rollout":
+                # Training worlds have no fixed start frames: the share of their episodes that fail stands in.
+                failed = row[f"{name}/rollout/failed"]
+                frontier[index] = 4.0 * failed * (1.0 - failed) if ended else frontier[index]
+            else:
+                frontier[index] = row[f"{name}/train/frontier"]
         for value in (episodes, completed, distance, counted, lengths, rollout, advantage):
             value.zero_()
         if allocator is not None and (len(history) + 1) % args.allocate_every == 0:

@@ -75,12 +75,21 @@ INTERFACES = {
 }
 """The target groups of every interface. The robot has no head body, so its torso stands for the head."""
 
-PUSHED = {f"{name}_pushed": groups for name, groups in INTERFACES.items()}
-"""Every interface again, for worlds whose robot is pushed."""
+PUSHES = {"pushed": 1.0}
+"""The kinds of pushed worlds of the robust task, with the scale of their pushes."""
+
+STRESS_PUSHES = {"pushed": 1.0, "shoved": 3.0}
+"""The kinds of pushed worlds of the stress task: nobody is expected to track a robot that is shoved."""
 
 PARENTS = {"full": (), "key_points": ("full",), "three_point": ("key_points",), "upper_body": ("key_points",)}
 PARENTS |= {f"{name}_pushed": (name,) for name in INTERFACES}
+PARENTS |= {f"{name}_shoved": (f"{name}_pushed",) for name in INTERFACES}
 """The interfaces that an interface relaxes: an allocator opens it once the policy is competent in them."""
+
+
+def arm_names(pushes: dict[str, float]) -> list[str]:
+    """Return the names of the arms: the interfaces, then every interface again per kind of push."""
+    return [*INTERFACES, *(f"{name}_{kind}" for kind in pushes for name in INTERFACES)]
 
 
 def frames(name: str) -> int:
@@ -90,13 +99,15 @@ def frames(name: str) -> int:
 
 
 def g1_interfaces_task(
-    train: tuple[str, ...] = TRAIN_CLIPS, test: tuple[str, ...] = TEST_CLIPS, pushed: bool = False
+    train: tuple[str, ...] = TRAIN_CLIPS, test: tuple[str, ...] = TEST_CLIPS, pushes: dict[str, float] | None = None
 ) -> mdp2.TaskCfg:
     """Return the MDP that tracks the ``train`` clips through the interfaces, with the ``test`` clips for evaluation.
 
-    With ``pushed``, every interface exists a second time, for worlds whose robot is pushed.
+    Every interface exists again per kind in ``pushes``, for worlds whose robot is pushed at the scale of the kind.
     """
     clips = (*train, *test)
+    pushes = pushes or {}
+    names = arm_names(pushes)
     task = interface_task(
         [os.path.join(MOTIONS_DIR, f"{name}.csv") for name in clips],
         [frames(name) for name in clips],
@@ -104,9 +115,9 @@ def g1_interfaces_task(
         NUM_BODIES,
         BODY_GROUPS,
         JOINT_GROUPS,
-        {**INTERFACES, **PUSHED} if pushed else INTERFACES,
+        {name: INTERFACES[names[index % len(INTERFACES)]] for index, name in enumerate(names)},
         train_clips=len(train),
-        pushes=dict.fromkeys(PUSHED, 1.0) if pushed else None,
+        pushes={f"{name}_{kind}": scale for kind, scale in pushes.items() for name in INTERFACES} or None,
     )
     # The policy moves the 29 joints of the body; the fingers keep their default pose.
     action = replace(task.actions["joint_pos"], subset=robot.joints("(?!.*_hand_).*"))
@@ -135,17 +146,24 @@ class G1InterfacesEnvCfg(MDP2RLEnvCfg):
     scene: G1TrackingSceneCfg = G1TrackingSceneCfg(num_envs=8192, env_spacing=4.0)
     task: mdp2.TaskCfg = None
     decimation: int = DECIMATION
-    pushed: bool = False
-    """Whether every interface exists a second time, for worlds whose robot is pushed."""
+    pushes: dict[str, float] = {}
+    """The kinds of pushed worlds, with the scale of their pushes: every interface exists again per kind."""
 
     def __post_init__(self):
         # Built here, not at import: the task reads the lengths of the downloaded clips.
         if self.task is None:
-            self.task = g1_interfaces_task(pushed=self.pushed)
+            self.task = g1_interfaces_task(pushes=self.pushes)
 
 
 @configclass
 class G1RobustInterfacesEnvCfg(G1InterfacesEnvCfg):
     """Configuration of the G1 multi-interface tracking environment with pushed worlds."""
 
-    pushed: bool = True
+    pushes: dict[str, float] = PUSHES
+
+
+@configclass
+class G1StressInterfacesEnvCfg(G1InterfacesEnvCfg):
+    """Configuration of the G1 multi-interface tracking environment with pushed worlds and shoved worlds."""
+
+    pushes: dict[str, float] = STRESS_PUSHES

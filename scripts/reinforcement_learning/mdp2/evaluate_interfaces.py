@@ -22,7 +22,7 @@ from isaaclab_experimental import mdp2
 from ppo import Agent
 
 import isaaclab_tasks  # noqa: F401
-from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import INTERFACES, PUSHED, TEST_CLIPS, TRAIN_CLIPS
+from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import TEST_CLIPS, TRAIN_CLIPS, arm_names
 from isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg import INTERFACE
 from isaaclab_tasks.utils import load_cfg_from_registry
 from isaaclab_tasks.utils.hydra import resolve_presets
@@ -43,7 +43,7 @@ SPLITS = ("train", "test")
 
 cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
 cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, args.num_envs, args.seed
-NAMES = [*INTERFACES, *PUSHED] if cfg.pushed else list(INTERFACES)
+NAMES = arm_names(cfg.pushes)
 env = gym.make(TASK, cfg=cfg).unwrapped
 arrays = env.state.arrays
 arrays[mdp2.term_state(INTERFACE, "pushes")].torch.mul_(args.push)

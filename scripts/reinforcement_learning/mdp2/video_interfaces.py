@@ -26,7 +26,7 @@ from isaaclab.app import launch_simulation
 from isaaclab.assets import AssetBaseCfg
 
 import isaaclab_tasks  # noqa: F401
-from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import INTERFACES, PUSHED, TEST_CLIPS, TRAIN_CLIPS
+from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import TEST_CLIPS, TRAIN_CLIPS, arm_names
 from isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg import INTERFACE
 from isaaclab_tasks.utils import load_cfg_from_registry
 from isaaclab_tasks.utils.hydra import resolve_presets
@@ -51,7 +51,7 @@ TASK, DEVICE = args.task, "cuda:0"
 CLIPS = (*TRAIN_CLIPS, *TEST_CLIPS)
 
 cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
-names = [*INTERFACES, *PUSHED] if cfg.pushed else list(INTERFACES)
+names = arm_names(cfg.pushes)
 shown = args.interfaces or names
 # The worlds are far apart, so that a tile shows one robot.
 cfg.sim.device, cfg.scene.num_envs, cfg.scene.env_spacing = DEVICE, len(shown), 40.0
