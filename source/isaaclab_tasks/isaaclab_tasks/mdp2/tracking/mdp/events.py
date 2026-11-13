@@ -220,6 +220,9 @@ last of its clip. Joint positions get uniform ``noise`` [rad].
 """
 
 
+CSV_FPS = 30.0
+"""Frames per second of the Unitree G1 retargeting files."""
+
 CSV_JOINTS = (
     *(f"{side}_{joint}_joint" for side in ("left", "right") for joint in LEG_JOINTS),
     *(f"waist_{axis}_joint" for axis in ("yaw", "roll", "pitch")),
@@ -228,17 +231,45 @@ CSV_JOINTS = (
 """Joints of the rows of the Unitree G1 retargeting files, after the seven values of the root."""
 
 
-def _load_csv_motions(ctx, *, motion_files, windows, frames, bodies, clips, ground_clearance=None, **reset_params):
+def _load_csv_motions(
+    ctx,
+    *,
+    motion_files,
+    windows,
+    frames,
+    bodies,
+    clips,
+    ground_clearance=None,
+    joints=None,
+    height_offset=0.0,
+    columns=None,
+    fps=CSV_FPS,
+    **reset_params,
+):
     robot = ctx.entity("joint_pos")
     device = ctx.state["start"].device
-    columns = [robot.joint_names.index(name) for name in CSV_JOINTS]
+    # A robot with other joints takes the columns of the joints that ``joints`` maps to its own.
+    columns = CSV_JOINTS if columns is None else columns
+    names = {name: name for name in columns} if joints is None else dict(joints)
+    columns = [(7 + k, robot.joint_names.index(names[name])) for k, name in enumerate(columns) if name in names]
     values = {name: [] for name in ("clip_joint_pos", "clip_joint_vel", "clip_root_pose", "clip_root_vel")}
     ranges, begin = [], 0
     for motion_file, (first, count) in zip(motion_files, windows):
         rows = torch.from_numpy(np.loadtxt(motion_file, delimiter=",", dtype=np.float32)[first : first + count])
+        # Interpolate the rows of the file at the control rate.
+        times = torch.arange(round((count - 1) / (fps * ctx.step_dt)) + 1) * ctx.step_dt * fps
+        before = times.floor().long().clamp(max=count - 2)
+        blend = (times - before)[:, None]
+        rows = torch.lerp(rows[before], rows[before + 1], blend)
+        rows[:, 3:7] = torch.nn.functional.normalize(rows[:, 3:7], dim=-1)
         root_pose = rows[:, :7]
+        root_pose[:, 2] += height_offset
+        # The joints that the files do not hold stay at zero, or with ``joints`` at their default positions.
         joint_pos = torch.zeros(len(rows), len(robot.joint_names))
-        joint_pos[:, columns] = rows[:, 7:]
+        if joints is not None:
+            joint_pos += robot.data.default_joint_pos.torch[0].cpu()
+        for column, joint in columns:
+            joint_pos[:, joint] = rows[:, column]
         # The angular velocity is the rotation between consecutive frames, in the world frame.
         delta = math_utils.quat_mul(root_pose[1:, 3:7], math_utils.quat_conjugate(root_pose[:-1, 3:7]))
         angular = math_utils.axis_angle_from_quat(delta) / ctx.step_dt
@@ -274,9 +305,14 @@ def _load_csv_motions(ctx, *, motion_files, windows, frames, bodies, clips, grou
 
 reset_to_csv_motion = mdp2.Term(warp=_reset_to_motion, state=CLIP_STATE, random=True, init=_load_csv_motions)
 """Like :data:`reset_to_motion`, for the retargeting files of the Unitree G1: ``windows`` gives the first frame and
-the number of frames to take of each file, at the control rate of 30 fps. The files hold the root and the joints;
-the positions of the bodies come from posing the robot on every frame, so the event also takes
-``body_link_pose_w``. With ``ground_clearance``, frames with a body below that height [m] are lifted to it.
+the number of frames to take of each file, at their 30 fps, which are interpolated at the control rate. The files
+hold the root and the joints; the positions of the bodies come from posing the robot on every frame, so the event
+also takes ``body_link_pose_w``. With ``ground_clearance``, frames with a body below that height [m] are lifted to
+it.
+
+Files of other robots hold their rows at ``fps`` and the joints of ``columns`` after the seven values of the root.
+``joints`` pairs the joints of the files with those of a robot that names them differently or lacks some, and
+``height_offset`` [m] moves the root of every frame up, for a robot with legs of another length.
 """
 
 

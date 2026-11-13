@@ -33,3 +33,7 @@
 * Added ``Isaac-Velocity-Flat-G1-MDP2``, velocity tracking with the Unitree G1 on flat ground, and
   ``Isaac-Velocity-Flat-G1-Go2-MDP2``, in which half of the worlds hold a G1 and the other half a Go2, each half
   with the velocity task of its robot.
+* Added ``Isaac-Velocity-Flat-G1-Style-MDP2`` and ``Isaac-Velocity-Flat-UnitreeGo2-Style-MDP2``, in which half of
+  the worlds of a velocity task follow the commands in the style of motion clips, with a style reward from a
+  discriminator in place of the rewards that shape the gait. The reset event of the motion tracking tasks reads
+  clips of other robots and frame rates.
