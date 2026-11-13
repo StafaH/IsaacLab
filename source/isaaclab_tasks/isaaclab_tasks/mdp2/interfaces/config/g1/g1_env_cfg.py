@@ -75,7 +75,11 @@ INTERFACES = {
 }
 """The target groups of every interface. The robot has no head body, so its torso stands for the head."""
 
+PUSHED = {f"{name}_pushed": groups for name, groups in INTERFACES.items()}
+"""Every interface again, for worlds whose robot is pushed."""
+
 PARENTS = {"full": (), "key_points": ("full",), "three_point": ("key_points",), "upper_body": ("key_points",)}
+PARENTS |= {f"{name}_pushed": (name,) for name in INTERFACES}
 """The interfaces that an interface relaxes: an allocator opens it once the policy is competent in them."""
 
 
@@ -85,8 +89,13 @@ def frames(name: str) -> int:
         return sum(1 for _ in file)
 
 
-def g1_interfaces_task(train: tuple[str, ...] = TRAIN_CLIPS, test: tuple[str, ...] = TEST_CLIPS) -> mdp2.TaskCfg:
-    """Return the MDP that tracks the ``train`` clips through the interfaces, with the ``test`` clips for evaluation."""
+def g1_interfaces_task(
+    train: tuple[str, ...] = TRAIN_CLIPS, test: tuple[str, ...] = TEST_CLIPS, pushed: bool = False
+) -> mdp2.TaskCfg:
+    """Return the MDP that tracks the ``train`` clips through the interfaces, with the ``test`` clips for evaluation.
+
+    With ``pushed``, every interface exists a second time, for worlds whose robot is pushed.
+    """
     clips = (*train, *test)
     task = interface_task(
         [os.path.join(MOTIONS_DIR, f"{name}.csv") for name in clips],
@@ -95,8 +104,9 @@ def g1_interfaces_task(train: tuple[str, ...] = TRAIN_CLIPS, test: tuple[str, ..
         NUM_BODIES,
         BODY_GROUPS,
         JOINT_GROUPS,
-        INTERFACES,
+        {**INTERFACES, **PUSHED} if pushed else INTERFACES,
         train_clips=len(train),
+        pushes=dict.fromkeys(PUSHED, 1.0) if pushed else None,
     )
     # The policy moves the 29 joints of the body; the fingers keep their default pose.
     action = replace(task.actions["joint_pos"], subset=robot.joints("(?!.*_hand_).*"))
@@ -125,8 +135,17 @@ class G1InterfacesEnvCfg(MDP2RLEnvCfg):
     scene: G1TrackingSceneCfg = G1TrackingSceneCfg(num_envs=8192, env_spacing=4.0)
     task: mdp2.TaskCfg = None
     decimation: int = DECIMATION
+    pushed: bool = False
+    """Whether every interface exists a second time, for worlds whose robot is pushed."""
 
     def __post_init__(self):
         # Built here, not at import: the task reads the lengths of the downloaded clips.
         if self.task is None:
-            self.task = g1_interfaces_task()
+            self.task = g1_interfaces_task(pushed=self.pushed)
+
+
+@configclass
+class G1RobustInterfacesEnvCfg(G1InterfacesEnvCfg):
+    """Configuration of the G1 multi-interface tracking environment with pushed worlds."""
+
+    pushed: bool = True

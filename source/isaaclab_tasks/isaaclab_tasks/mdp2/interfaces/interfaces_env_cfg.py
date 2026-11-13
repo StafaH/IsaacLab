@@ -38,12 +38,18 @@ def interface_task(
     horizons: tuple[int, ...] = (1, 5, 15),
     adaptive: float = 0.5,
     episode_length_s: float = 10.0,
+    pushes: dict[str, float] | None = None,
+    push_velocity: tuple[float, float, float] = (1.0, 1.0, 0.3),
+    push_interval_s: tuple[float, float] = (1.0, 3.0),
 ) -> mdp2.TaskCfg:
     """Return the MDP in which the ``robot`` tracks the clips, told through one of ``interfaces`` per episode.
 
     ``body_groups`` and ``joint_groups`` name the groups of targets, and an interface is the names of its groups.
     The first ``train_clips`` clips are for training; evaluation worlds start on frames that the learner fixes.
     Targets are given ``horizons`` steps ahead, and episodes last ``episode_length_s`` at most.
+
+    The worlds of the interfaces in ``pushes`` are pushed every ``push_interval_s``: their root gets a velocity of up
+    to ``push_velocity`` [m/s] along x, y and z, times the value of the interface in ``pushes``.
     """
     task = tracking_task(motion_files, step_dt, num_bodies, lengths=lengths)
     groups = [*body_groups, *joint_groups]
@@ -106,26 +112,38 @@ def interface_task(
         name: policy[name] for name in ("base_ang_vel", "projected_gravity", "joint_pos", "joint_vel", "actions")
     }
     interface = mdp2.Observation(mdp.generated_commands, inputs={"command": mdp2.commands.interface})
+    command = {"interfaces": patterns, "count": len(patterns), "groups": len(groups)}
+    critic, events = {**policy, "interface": interface}, {"reset_to_motion": reset}
+    if pushes:
+        # The critic sees how hard its world is pushed; the policy does not.
+        push = mdp2.term_state(INTERFACE, "push")
+        command["push_scales"] = tuple(pushes.get(name, 0.0) for name in interfaces)
+        critic["push"] = mdp2.Observation(interfaces_mdp.world_value, inputs={"value": push})
+        events["push"] = mdp2.Event(
+            interfaces_mdp.scaled_push,
+            inputs={"scale": push},
+            outputs={"root_com_vel_w": robot.root_com_vel_w},
+            mode=mdp2.EventMode.INTERVAL,
+            interval_range_s=push_interval_s,
+            params={"velocity_range": (*((-speed, speed) for speed in push_velocity), *(((0.0, 0.0),) * 3))},
+        )
     return replace(
         task,
         # Targets for the joints are offsets from the default pose: the policy is not given the clip's pose.
         actions={"joint_pos": mdp2.DirectAction(robot.joint_pos_target, scale=0.25, offset=robot.default_joint_pos)},
         commands={
-            "interface": mdp2.Command(
-                interfaces_mdp.sampled_interface,
-                params={"interfaces": patterns, "count": len(patterns), "groups": len(groups)},
-            ),
+            "interface": mdp2.Command(interfaces_mdp.sampled_interface, params=command),
             "every_group": mdp2.Command(interfaces_mdp.ones_command, params={"groups": len(groups)}),
         },
         observations={
             "policy": mdp2.ObservationGroup(**measured, **targets(mdp2.commands.interface)),
             "teacher": mdp2.ObservationGroup(**measured, **targets(mdp2.commands.every_group)),
-            "critic": mdp2.ObservationGroup(**policy, interface=interface),
+            "critic": mdp2.ObservationGroup(**critic),
         },
         terminations={
             **task.terminations,
             "time_out": mdp2.TimeLimit(episode_length_s=episode_length_s),
             "diverged": mdp2.Termination(tracking.is_not_finite, inputs={"value": mdp2.quantities.body_pos_error}),
         },
-        events={"reset_to_motion": reset},
+        events=events,
     )

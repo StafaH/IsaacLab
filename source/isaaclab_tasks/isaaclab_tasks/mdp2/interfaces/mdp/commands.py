@@ -12,10 +12,12 @@ import warp as wp
 from isaaclab_experimental import mdp2
 
 
-def _load_interfaces(ctx, *, interfaces, **params):
+def _load_interfaces(ctx, *, interfaces, push_scales=None, **params):
     patterns = torch.tensor(interfaces, dtype=torch.float32, device=ctx.state["patterns"].device)
     ctx.state["patterns"].copy_(patterns)
     ctx.state["shares"].fill_(1.0 / len(interfaces))
+    if push_scales is not None:
+        ctx.state["pushes"].copy_(torch.tensor(push_scales, dtype=torch.float32, device=patterns.device))
 
 
 @wp.func
@@ -26,6 +28,8 @@ def _sampled_interface(
     shares: wp.array(dtype=float),
     fixed: wp.array(dtype=float),
     interface: wp.array(dtype=float),
+    pushes: wp.array(dtype=float),
+    push: wp.array(dtype=float),
     rng: wp.int32,
 ):
     chosen = int(fixed[world])
@@ -37,6 +41,7 @@ def _sampled_interface(
             chosen += 1
             cumulative += shares[chosen]
     interface[world] = float(chosen)
+    push[world] = pushes[chosen]
     for k in range(command.shape[1]):
         command[world, k] = patterns[chosen, k]
 
@@ -49,6 +54,8 @@ sampled_interface = mdp2.Term(
         "shares": mdp2.State(("count",)),
         "fixed": mdp2.State(initial=-1.0, persistent=True),
         "interface": mdp2.State(persistent=True),
+        "pushes": mdp2.State(("count",)),
+        "push": mdp2.State(persistent=True),
     },
     random=True,
     init=_load_interfaces,
@@ -57,7 +64,8 @@ sampled_interface = mdp2.Term(
 ``interfaces``, drawn on reset.
 
 The ``shares`` state holds the probability of each row, which a learner may rewrite while training. A world whose
-``fixed`` state is the index of a row always gets that row. ``interface`` is the index of the row a world has.
+``fixed`` state is the index of a row always gets that row. ``interface`` is the index of the row a world has, and
+``push`` the entry of ``push_scales`` for that row: how hard the world is pushed, for :data:`scaled_push`.
 """
 
 

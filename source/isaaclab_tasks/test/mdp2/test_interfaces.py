@@ -12,8 +12,11 @@ import torch
 from isaaclab_experimental import mdp2
 from isaaclab_experimental.envs import MDP2RLEnv
 
+from isaaclab.utils import replace
+
 from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import (
     INTERFACES,
+    PUSHED,
     G1InterfacesEnvCfg,
     G1InterfacesPhysicsCfg,
     g1_interfaces_task,
@@ -61,5 +64,37 @@ def test_worlds_see_the_targets_of_their_interface_and_evaluation_worlds_keep_th
         for _ in range(3):
             env.step(torch.zeros(NUM_ENVS, env.mdp.action_dim, device=env.device))
         assert env.num_graphs == 1
+    finally:
+        env.close()
+
+
+def test_only_the_worlds_of_pushed_interfaces_are_pushed():
+    cfg = G1InterfacesEnvCfg()
+    cfg.sim.physics = G1InterfacesPhysicsCfg().newton_mjwarp
+    cfg.sim.device, cfg.scene.num_envs, cfg.seed = "cuda:0", 512, 0
+    task = g1_interfaces_task(train=CLIPS[:1], test=CLIPS[1:], pushed=True)
+    # Push within the first steps, before the robots fall.
+    cfg.task = replace(
+        task, events={**task.events, "push": replace(task.events["push"], interval_range_s=(0.04, 0.08))}
+    )
+    env = MDP2RLEnv(cfg)
+    try:
+        arrays = env.state.arrays
+        names = [*INTERFACES, *PUSHED]
+        fixed = arrays[mdp2.term_state(INTERFACE, "fixed")].torch
+        fixed[:256] = names.index("full")
+        fixed[256:] = names.index("full_pushed")
+        # Pushes of ten times the default, to tell them from the motion of the robots.
+        arrays[mdp2.term_state(INTERFACE, "pushes")].torch.mul_(10.0)
+        observations = env.reset()[0]
+        push = arrays[mdp2.term_state(INTERFACE, "push")].torch
+        assert (push[:256] == 0.0).all() and (push[256:] == 10.0).all()
+        # The critic sees the push of its world, after the targets of the interface.
+        assert torch.equal(observations["critic"][:, -1], push)
+
+        for _ in range(3):
+            env.step(torch.zeros(512, env.mdp.action_dim, device=env.device))
+        error = arrays[mdp2.quantities.root_vel_error].torch
+        assert error[256:].mean() > 10.0 * error[:256].mean()
     finally:
         env.close()

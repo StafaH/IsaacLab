@@ -60,6 +60,15 @@ def _commanded_joint_pos(
     return command[world, group] * clip_joint_pos[frame, joint_ids[joint]]
 
 
+@wp.func
+def _world_value(world: int, value: wp.array(dtype=float)) -> float:
+    return value[world]
+
+
+world_value = mdp2.Term(warp=_world_value)
+"""The ``value`` input of the world, one float."""
+
+
 commanded_joint_pos = mdp2.Term(warp=_commanded_joint_pos, shape=("worlds", "joint_ids"))
 """Positions of the ``joint_ids`` joints in the frame ``ahead`` steps from now [rad].
 
