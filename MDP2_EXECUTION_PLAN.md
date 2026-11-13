@@ -698,3 +698,18 @@ result); CoRL 2027 not announced (28 May in 2026).
     worlds; pushed arms only and shoved arms only on the stress test; uniform and `gain` at 4000 M.
   - Videos of the uniform, `gain` and pushed-only policies on two unseen clips, clean and pushed, rendered with
     the RTX renderer (`video_interfaces.py`, 1920 x 1080).
+- 2026-11-13, midday (unseen clips, as above):
+  - Seed 1 of the pushed worlds, pushed arms, seed 0 / seed 1: uniform 54.5 / 57.4, failure rule 64.0 / 60.6, `gain`
+    73.5 / 74.5, pushed arms only 77.4 / 78.9. A row moves by 1 to 3 points between the seeds.
+  - Baselines on the pushed worlds (seed 0), clean / pushed / all arms. TSCL on the mean reward 79.5 / 22.8 / 41.4:
+    the online rule gives 90% of the worlds to one arm and keeps changing the arm. ALP on the mean reward 87.2 /
+    48.8 / 55.4: the shares stay near uniform. Rank prioritisation on the absolute advantage 78.7 / 60.7 / 58.9:
+    66% of the worlds on `upper_body_pushed` at the end. The rule `progress` on training clips 88.9 / 69.7 / 65.2.
+    None of the three published rules is above the uniform mixture over the eight arms.
+  - Transfer probes on the pushed worlds (W5), 50 M on one group of arms from checkpoints of the uniform run,
+    held-out clips, against 50 M of the uniform mixture, at 500 / 1000 / 1500 M. Pushed arms alone: pushed +2.3 /
+    +3.4 / +5.0, clean -2.0 / -2.8 / -2.6. Clean arms alone: clean +2.6 / +0.4 / -0.7, pushed -0.7 / -4.2 / -5.6.
+    The probe agrees with the full runs: a world is worth more on a pushed arm.
+  - New problem `graded`, queued for seed 0: the stress task with `--push 0.5`, so that the two kinds of pushed
+    worlds are at 0.5 and 1.5 m/s and the hard kind may be learnable. Uniform, failure, `gain`, the hard arms only
+    and both pushed kinds. `runs/research/eval_all.sh` passes the scale of the run to the evaluation.
