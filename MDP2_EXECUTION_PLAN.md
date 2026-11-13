@@ -194,26 +194,30 @@ Reading so far:
    --log_interval 20`. The first run compiles the Warp kernels, which takes minutes. It prints
    `SETUP obs 305 critic 466 actions 29 train worlds 7680 eval block 64`, a few `LOG` lines and
    `TRAIN ... graphs 1`.
-5. **Reproduce.** `mkdir -p runs/research`, then the same script with `--shares full=1 --budget 1000 --out
+5. **Machine notes (4 x RTX 6000 Ada, 13 November).**
+   - Set `TMPDIR` to a folder of your own (`export TMPDIR=$PWD/runs/tmp`): assets are downloaded to the temporary
+     folder, and `/tmp/https` belongs to another user there. Without it every environment fails with a
+     `PermissionError`.
+   - The kernel module of the NVIDIA driver is 595.84 and the libraries are 595.99, until the machine is rebooted.
+     CUDA works; `nvidia-smi` and the RTX renderer (ovrtx) do not. Without root: download
+     `NVIDIA-Linux-x86_64-595.84.run` from download.nvidia.com, unpack it with `--extract-only`, link every
+     `lib*.so.595.84` by its soname and its bare name into one folder, and put that folder first in
+     `LD_LIBRARY_PATH` (here `runs/nvidia/lib`). Training does not need this.
+   - Runs with the same seed are not identical: two runs differ from the first log row on.
+6. **Reproduce.** `mkdir -p runs/research`, then the same script with `--shares full=1 --budget 1000 --out
    runs/research/repro_full.json`. Expect the `full` row of section 4: no success until about 140 M, held-out
    success near 70% at 1000 M. Seeds and GPUs differ, so within about 10 points. Record the throughput of the
    machine's GPU in the log of this file.
 
 ## 6. Running batches
 
-One run per GPU. A batch is a text file with one run per line: a name, then the arguments of
-`train_interfaces.py`. This function runs it over the GPUs and skips runs that already finished (dry-run tested):
+One run per GPU. A batch is a text file `runs/research/<batch>.txt` with one run per line: a name, then the
+arguments of `train_interfaces.py`. `scripts/reinforcement_learning/mdp2/launch_batch.sh <batch> "<GPUs>" [checkout]`
+runs it over the GPUs, in a checkout that pins the code, and skips the runs that already finished:
 
 ```bash
-launch() {  # launch <batch> <number of GPUs>, with the runs in runs/research/<batch>.txt
-    mkdir -p runs/research/$1
-    grep -v '^#' runs/research/$1.txt | PHASE=$1 xargs -P $2 --process-slot-var=GPU -L 1 bash -c '
-        out=runs/research/$PHASE/$0
-        grep -qs "^TRAIN" $out.log && exit 0
-        echo "COMMIT $(git rev-parse --short HEAD) GPU $(nvidia-smi -i $GPU --query-gpu=name --format=csv,noheader)" > $out.log
-        CUDA_VISIBLE_DEVICES=$GPU .venv/bin/python scripts/reinforcement_learning/mdp2/train_interfaces.py \
-            --out $out.json --save $out.pt "$@" >> $out.log 2>&1'
-}
+setsid nohup scripts/reinforcement_learning/mdp2/launch_batch.sh gate1 "0 1 2 3" ../mdp2-batch \
+    > runs/research/gate1.launch.log 2>&1 &
 ```
 
 - **Outputs** go to `runs/research/<batch>/<name>.{json,log,pt}`. `runs/` is ignored by git; copy what must be kept
@@ -229,6 +233,8 @@ launch() {  # launch <batch> <number of GPUs>, with the runs in runs/research/<b
   A change to `ppo.py`, `train_interfaces.py`, `mdp2/interfaces/` or `mdp2/tracking/mdp/` starts a new protocol
   (P2, ...): note it in the log and rerun the baselines it is compared with.
 - **Timing claims** only from runs that had their GPU to themselves, with the GPU model named.
+- **Do not test on a GPU that runs a batch.** Throughput is bound by the GPU: two runs on one GPU get half each,
+  and 4096, 8192 and 16384 worlds give the same samples per second.
 - The script takes the device `cuda:0`, so `CUDA_VISIBLE_DEVICES` selects the GPU. Training one run on several
   GPUs is not built and not needed before W6.
 
@@ -573,11 +579,11 @@ result); CoRL 2027 not announced (28 May in 2026).
 | Item | Status | Notes |
 |---|---|---|
 | Pilot (1000 M, one seed) | STOPPED | 4 of 8 runs complete, section 4; the rest is part of W1 |
-| W0 Bring-up | TODO | |
-| W1 Gate 1 batch | TODO | |
-| W2 Tooling | TODO | |
-| W3 Allocator, version 1 | TODO | |
-| W4 Harder arms, problems 2 and 3 | TODO | |
+| W0 Bring-up | DONE | 4 x RTX 6000 Ada, 0.29 M samples/s per GPU (half of the pilot's GPU); the reproduction is the `full` run of W1 |
+| W1 Gate 1 batch | DOING | Seed 0 running since 13 November, 15 runs, about 7 hours |
+| W2 Tooling | DOING | Done: summary (`summarize_interfaces.py`), checkpoints (`--save_every`), final evaluation (`evaluate_interfaces.py`), statistics of the training worlds per interface. Open: resuming a checkpoint, return normalisation per arm |
+| W3 Allocator, version 1 | DOING | Built and tested (`interfaces/allocation.py`, `--allocator`), with the baselines; no runs yet |
+| W4 Harder arms, problems 2 and 3 | DOING | Pushed worlds as arms built (`Isaac-Interfaces-Robust-G1-MDP2`); no runs yet |
 | W5 Transfer probes | TODO | |
 | W6 Scale | TODO | |
 | W7 Systems measurements | TODO | |
@@ -596,3 +602,19 @@ result); CoRL 2027 not announced (28 May in 2026).
 - 2026-11-12: references to local files replaced by commands and links. Section 4 has the commands of the pilot,
   section 11 says how to get everything that is not in the branch, section 13 names the command behind each
   showcase number, and `MDP2_RESEARCH_PLAN.md` lists the title and the link of every text that was read.
+- 2026-11-13: W0 on a machine with four RTX 6000 Ada. Tests pass (with `TMPDIR` set, section 5). Throughput is
+  0.29 M samples/s per GPU with 4096, 8192 or 16384 worlds, and 0.14 each for two runs on one GPU: half of the
+  pilot's GPU, so 2000 M samples take 1.9 hours and the four GPUs give about 100 billion samples per day. GPU 0
+  runs at 90 degrees and is throttled to about 0.2 M samples/s. Same-seed runs are not identical.
+- 2026-11-13: the learner now also logs, per interface and split, the success and the episode length averaged
+  over the start frames (`start_success`, `length`), and per interface the reward, episode length, failure share
+  and absolute advantage of the training worlds. Reason: `success` is a share of episodes, and a start frame that
+  fails after one second ends ten times as many episodes as one that succeeds, so it understates the share of
+  start frames that are tracked. `success` stays as the measure of the gates; report `start_success` beside it.
+  None of this changes training. W1 seed 0 launched at commit e72952d64 with the teacher taken from the `full` run
+  at 1000 M (`--save_every 250`) instead of a separate teacher run.
+- 2026-11-13: built while W1 runs: the allocator of W3 as `isaaclab_tasks/mdp2/interfaces/allocation.py` with
+  its test and the baselines (failure, TSCL, ALP, ranked advantage), `--allocator` in the learner;
+  `evaluate_interfaces.py` (W2.3); pushed worlds as arms (`Isaac-Interfaces-Robust-G1-MDP2`: every interface a
+  second time with pushes of up to 1 m/s every 1 to 3 s, switched per world by the arm, W4.2). The RTX renderer
+  runs with the libraries of section 5.
