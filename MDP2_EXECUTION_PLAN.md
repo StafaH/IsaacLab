@@ -623,3 +623,28 @@ result); CoRL 2027 not announced (28 May in 2026).
   `evaluate_interfaces.py` (W2.3); pushed worlds as arms (`Isaac-Interfaces-Robust-G1-MDP2`: every interface a
   second time with pushes of up to 1 m/s every 1 to 3 s, switched per world by the arm, W4.2). The RTX renderer
   runs with the libraries of section 5.
+- 2026-11-12, evening, seed 0 at 2000 M (success per start frame, 1024 starts per cell with
+  `evaluate_interfaces.py`, training clips / held-out clips):
+  - Uniform mixture: `full` 94 / 88, `key_points` 94 / 93, `three_point` 92 / 92, `upper_body` 42 / 21.
+    Specialists: `key_points` 97 / 91, `upper_body` 92 / 18, `full` 94 / 87 (log, 1410 M). The mixture equals the
+    specialists of the first three interfaces with a quarter of their samples; `upper_body` is the only interface
+    that wants its own samples, and on held-out clips nobody tracks it (a single root position and the arm joints
+    leave the legs open).
+  - The last row of every log covered only the iterations after the last full interval and lowered the mean of
+    the last ten rows by up to 8 points. The learner no longer writes it and `summarize_interfaces.py` leaves it
+    out; the summary reads `start_success` by default.
+  - Allocator pilots. With the unlock graph, `key_points` opened at 220 M with a share of 3 to 30% and stayed at
+    0% until its share passed 50% at 1550 M, then reached 94% within 200 M; the two interfaces behind it never
+    opened. Without the graph the progress rule gave `upper_body` less than a quarter of the worlds until 1000 M
+    (it progresses slowest) and half of them by the end: 52% on training clips against 40% for the uniform
+    mixture, the rest equal. Consequences: the graph is off by default; the rule `frontier` was added, the mean
+    of p (1 - p) over the fixed start frames of the evaluation worlds; `--obs_clip` was added, because an input
+    that was constant (the flag of an interface without worlds) is divided by a standard deviation of zero.
+    None of this changes runs without the new arguments.
+  - Transfer probes (W5): 50 M on one interface alone from checkpoints of the uniform run, against 50 M of the
+    uniform mixture. At 500 M, `full` alone keeps `key_points` within 2 points of the control and `three_point`
+    within 4; `three_point` alone keeps `key_points` within 1 and loses 7 on `full`; `upper_body` alone gains 6
+    on itself and costs the others 10; every other interface alone costs `upper_body` 3 to 14. H5 holds on this
+    problem.
+  - Pushed worlds (8 arms, uniform, 1000 M): the clean interfaces reach the level of the four-arm uniform run
+    with half of its samples per interface; the pushed ones reach 26 to 33% on held-out clips and still rise.
