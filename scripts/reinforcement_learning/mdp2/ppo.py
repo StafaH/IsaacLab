@@ -41,12 +41,13 @@ class Normalizer(torch.nn.Module):
 class Agent(torch.nn.Module):
     """A Gaussian policy and a critic with normalized inputs and returns.
 
-    The critic reads the policy's observations, or its own of size ``critic_dim``.
+    The critic reads the policy's observations, or its own of size ``critic_dim``. ``actor`` replaces the policy's
+    network, for one that shares layers with the policies of other learners.
     """
 
-    def __init__(self, obs_dim, action_dim, hidden, init_std, critic_dim=None):
+    def __init__(self, obs_dim, action_dim, hidden, init_std, critic_dim=None, actor=None):
         super().__init__()
-        self.actor = mlp([obs_dim, *hidden, action_dim])
+        self.actor = actor or mlp([obs_dim, *hidden, action_dim])
         self.critic = mlp([critic_dim or obs_dim, *hidden, 1])
         self.log_std = torch.nn.Parameter(torch.full((action_dim,), float(torch.tensor(init_std).log())))
         self.obs = Normalizer(obs_dim)
@@ -71,7 +72,8 @@ class PPO:
     With ``critic_dim``, the critic reads observations of its own, passed to :meth:`act` and :meth:`update`. With
     ``imitation``, :meth:`act` also takes target actions and their weights, and the loss is ``rl_coef`` times the
     policy loss plus ``imitation_coef`` times the weighted squared distance of the policy's mean to the targets.
-    Both coefficients are tensors, to change while training.
+    Both coefficients are tensors, to change while training. With ``actor``, the policy is that network: learners
+    whose networks share layers train them in turn, each with its own optimizer state.
     """
 
     def __init__(
@@ -95,8 +97,9 @@ class PPO:
         init_std=1.0,
         critic_dim=None,
         imitation=False,
+        actor=None,
     ):
-        self.agent = Agent(obs_dim, action_dim, hidden, init_std, critic_dim).to(device)
+        self.agent = Agent(obs_dim, action_dim, hidden, init_std, critic_dim, actor).to(device)
         self.steps, self.epochs, self.minibatches, self.batch = steps, epochs, minibatches, steps * num_envs
         self.max_lr, self.kl, self.gamma, self.lam, self.clip = max_lr, kl, gamma, lam, clip
         self.value_coef, self.entropy = value_coef, entropy

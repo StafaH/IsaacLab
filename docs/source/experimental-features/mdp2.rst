@@ -127,6 +127,16 @@ to follow velocity commands, with the tasks ``Isaac-Velocity-Flat-G1-MDP2`` and
 
    uv run python scripts/reinforcement_learning/mdp2/train_velocity_g1_go2.py --budget 800
 
+``--policy shared`` trains one network for both robots: an encoder and a decoder per robot around a trunk that the
+robots share. ``--style 0.5`` gives each robot a second task in half of its worlds, so the simulation runs four
+tasks. The worlds of a style task follow the same commands and start on frames of motion clips, of a person walking
+for the G1 and of a dog trotting for the Go2. In place of the rewards that shape the gait by hand, they get a style
+reward from a discriminator, which the learner trains to tell the motion of the robot from that of the clips. The
+policy of a robot learns from both of its tasks. ``Isaac-Velocity-Flat-G1-Style-MDP2`` and
+``Isaac-Velocity-Flat-UnitreeGo2-Style-MDP2`` are the two tasks of one robot alone. The clips are downloaded, see
+the ``motions`` folders of ``isaaclab_tasks/mdp2/tracking/config/g1`` and
+``isaaclab_tasks/mdp2/velocity_style/config/go2``.
+
 
 Backends and capture
 --------------------

@@ -33,6 +33,8 @@ from isaaclab_assets.robots.unitree import G1_MINIMAL_CFG, UNITREE_GO2_CFG
 from ..velocity_g1.flat_env_cfg import DECIMATION, GROUND_MATERIAL, SIM_DT
 from ..velocity_g1.flat_env_cfg import TASK as G1_TASK
 from ..velocity_go2.flat_env_cfg import TASK as GO2_TASK
+from ..velocity_style.config.g1.g1_env_cfg import G1_STYLE_TASKS
+from ..velocity_style.config.go2.go2_env_cfg import GO2_STYLE_TASKS
 
 CONFIGS = (mdp2.TaskCfg, mdp2.TermCfg, mdp2.DirectAction, mdp2.UniformNoise)
 
@@ -94,19 +96,28 @@ class G1Go2FlatPhysicsCfg(PresetCfg):
 
 
 def robot_task(task: mdp2.TaskCfg, name: str) -> mdp2.TaskCfg:
-    """Return the task of a robot for this scene, with its rewards and terminations named after the robot.
+    """Return the task of a robot for this scene, with its rewards, terminations, and events named after the robot.
 
     Uses of one name share their state and their log entry between the tasks, which the robots cannot: their
-    actions differ in size.
+    actions and their clips differ in size.
     """
-    task = bound(task, {"robot": name, "contact_forces": f"{name}_contact_forces"})
+    entities = {"robot": name, "contact_forces": f"{name}_contact_forces"}
+    entities |= {f"events.{event}": f"events.{name}_{event}" for event in task.events}
+    task = bound(task, entities)
     rewards = {f"{name}_{term}": reward for term, reward in task.rewards.items()}
     terminations = {f"{name}_{term}": termination for term, termination in task.terminations.items()}
-    return replace(task, rewards=rewards, terminations=terminations)
+    events = {f"{name}_{term}": event for term, event in task.events.items()}
+    return replace(task, rewards=rewards, terminations=terminations, events=events)
 
 
 G1_GO2_TASKS = [robot_task(G1_TASK, "g1"), robot_task(GO2_TASK, "go2")]
 """The MDP of the worlds with a G1 and the MDP of the worlds with a Go2."""
+
+G1_GO2_STYLE_TASKS = [
+    *(robot_task(task, "g1") for task in G1_STYLE_TASKS),
+    *(robot_task(task, "go2") for task in GO2_STYLE_TASKS),
+]
+"""The MDPs of the worlds with a G1 and of the worlds with a Go2, two each: the style task and the velocity task."""
 
 
 @configclass
