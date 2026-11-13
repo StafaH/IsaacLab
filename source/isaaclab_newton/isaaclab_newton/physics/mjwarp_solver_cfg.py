@@ -131,6 +131,16 @@ class MJWarpSolverCfg(NewtonSolverCfg):
         :class:`ValueError` because the two collision modes are mutually exclusive.
     """
 
+    sleep_inactive_assets: bool = False
+    """Whether every environment holds the assets of every clone combination, asleep where they are inactive.
+
+    MuJoCo Warp simulates environments of one structure, so
+    :attr:`~isaaclab.cloner.CloneCfg.clone_combinations` cannot give them different articulations. With this
+    option, each environment gets the assets of all combinations and keeps those outside its own combination
+    always asleep: they do not move or collide, are not rendered, and cost the solver no degrees of freedom.
+    Every asset then has an instance in every environment, and the clone plan tells where it is active.
+    """
+
     tolerance: float = 1e-6
     """Solver convergence tolerance for the constraint residual.
 

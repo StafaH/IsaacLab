@@ -253,6 +253,7 @@ def _replicate_newton(
     options["per_world_builder_hooks"] = world_hooks
     has_geometry = any(source_cables.values()) or any(result["path_particle_map"] for result in import_results.values())
     options["source_builder_added"] = record_geometry if has_geometry else None
+    options["sleep_inactive_assets"] = simulation and getattr(cfg.solver_cfg, "sleep_inactive_assets", False)
     local_site_map, world_xforms = replicate_builder_mapping(
         builder, plan, positions, quaternions, source_builders, source_inverse=source_inverse, **options
     )

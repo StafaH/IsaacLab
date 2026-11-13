@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 import warp as wp
 from newton import JointType, ModelBuilder, ShapeFlags
+from newton.solvers import SolverMuJoCo
 
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
@@ -289,8 +290,13 @@ def replicate_builder_mapping(
     env_root_sites: dict[str, wp.transform] | None = None,
     per_world_builder_hooks: Sequence[Callable[[ModelBuilder, int, np.ndarray, np.ndarray], None]] = (),
     source_builder_added: Callable[[str, str, int, int], None] | None = None,
+    sleep_inactive_assets: bool = False,
 ) -> tuple[dict[str, list[list[int]]], list[wp.transform]]:
-    """Compose sources using their authored inverse frames, then place each world from the plan."""
+    """Compose sources using their authored inverse frames, then place each world from the plan.
+
+    With ``sleep_inactive_assets``, every world holds the assets of every world prototype, in one order, and
+    keeps those outside its own prototype always asleep, so worlds that differ still have one structure.
+    """
     topology, env_template = plan.topology, plan.env_template
     layout = topology.world_prototype_layout
     source_site_indices = source_site_indices or {}
@@ -303,9 +309,17 @@ def replicate_builder_mapping(
     sources = clone_path.get_asset_prototype_paths(plan)
     templates, starts = clone_path.get_world_prototype_asset_templates(plan)
     world_builders = {}
+    prototype_paths = {}
     for prototype_id in (-1, *np.unique(layout)):
         start, end = starts[prototype_id + 1 : prototype_id + 3]
-        reference_paths = [(sources[topology.world_prototypes[index]], templates[index]) for index in range(start, end)]
+        prototype_paths[prototype_id] = [
+            (sources[topology.world_prototypes[index]], templates[index]) for index in range(start, end)
+        ]
+    all_paths = list(dict.fromkeys(path for key, paths in prototype_paths.items() if key != -1 for path in paths))
+    if sleep_inactive_assets and len({template for _, template in all_paths}) != len(all_paths):
+        raise ValueError("Assets that sleep where they are inactive need a prim path of their own.")
+    for prototype_id, active_paths in prototype_paths.items():
+        reference_paths = all_paths if sleep_inactive_assets and prototype_id != -1 else active_paths
         available = [(source, template) for source, template in reference_paths if source in source_builders]
         # Newton source validation ensures a nested declaration belongs to its parent's subtree.
         parents = clone_path.get_parent_indices([target for _, target in available])
@@ -319,7 +333,10 @@ def replicate_builder_mapping(
                 sites.setdefault(label, []).extend(prototype.shape_count + index for index in indices)
             prefix = "" if prototype_id == -1 else env_template
             xform = np.asarray(wp.transform(), dtype=np.float32) if prototype_id == -1 else source_inverse[source]
+            first_body = prototype.body_count
             _add_asset_builder(prototype, asset, source, destination, prefix, reference_paths, xform)
+            if (source, destination) not in active_paths:
+                SolverMuJoCo.set_always_asleep(prototype, range(first_body, prototype.body_count))
         if prototype_id == -1:
             for label, indices in sites.items():
                 local_site_map[label] = np.tile(indices, (num_worlds, 1)).tolist()
