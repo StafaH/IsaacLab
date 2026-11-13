@@ -11,9 +11,10 @@ Every training world is told its targets through an interface drawn from ``--sha
 shares change to ``--shares_after`` once ``--switch_at`` million samples are collected. The last ``--eval_envs``
 worlds evaluate: each has a fixed interface and a fixed start frame, on a training clip or on a held-out clip, acts
 without exploration noise, and gives no data to the learner. The script logs, per interface and split, the share
-of evaluation episodes that track for their whole length, their mean length [steps] and the mean distance of the
-bodies to the clip [mm]; and per interface the mean reward of the training worlds, the mean length of their
-episodes and the share of them that failed. ``--save_every`` saves the state of the learner while training.
+of evaluation episodes that track for their whole length, the same share and the length of an episode [steps]
+averaged over the start frames, and the mean distance of the bodies to the clip [mm]. Per interface it logs the
+mean reward of the training worlds, the mean length of their episodes and the share of them that failed.
+``--save_every`` saves the state of the learner while training.
 
 ``--teacher`` loads a policy that labels every step with its action from the targets of every group, and
 ``--self_distill`` uses the learning policy's own action from those targets as the label in the worlds of the
@@ -172,7 +173,10 @@ for k in range(1, iterations + 1):
             worlds = group == index
             row[f"{name}/success"] = (completed[worlds].sum() / episodes[worlds].sum().clamp(min=1.0)).item()
             row[f"{name}/error_mm"] = 1.0e3 * (distance[worlds].sum() / counted[worlds].sum()).item()
-            row[f"{name}/length"] = (lengths[worlds].sum() / episodes[worlds].sum().clamp(min=1.0)).item()
+            # Per start frame, so that a start that fails early does not count more often than one that succeeds.
+            ended = episodes[worlds].clamp(min=1.0)
+            row[f"{name}/start_success"] = (completed[worlds] / ended).mean().item()
+            row[f"{name}/length"] = (lengths[worlds] / ended).mean().item()
         for index, name in enumerate(NAMES):
             steps, rewards, ended, ended_steps, failed = rollout[:, index].tolist()
             row[f"{name}/rollout/reward"] = rewards / max(steps, 1.0)
