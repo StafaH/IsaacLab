@@ -1,9 +1,10 @@
 # MDP2 research: execution plan
 
 The plan to execute, tracked in the branch `feature/mdp2-examples` so that the work can continue on any machine. It
-is written to be enough on its own: sections 11 to 13 record what else was learned on the workstation where the
-project started. `MDP2_RESEARCH_PLAN.md` beside it is the full research plan it was derived from: the claim, the
-literature, the method and the design of the experiments.
+is written to be enough on its own: section 11 says how to get or reproduce everything the branch does not hold,
+and sections 12 and 13 record the background and the lessons so far. `MDP2_RESEARCH_PLAN.md` beside it is the full
+research plan it was derived from: the claim, the literature with titles and links, the method and the design of
+the experiments.
 
 Work through the packages of section 7 in the order of section 8. Keep **Status** and **Log** at the end current
 and commit the file with every update.
@@ -100,11 +101,25 @@ minutes; 6.7 GB of GPU memory per run.
 
 ## 4. Results so far
 
-Pilot on the workstation: seed 0, 1000 million samples per run, protocol P1, the runs of W1 at half the budget with
-one schedule. It was stopped on 12 November to move to the multi-GPU machine: four of eight runs are complete, the
+Pilot: seed 0, 1000 million samples per run, protocol P1, on one RTX PRO 6000 Blackwell. These are the runs of W1
+at half the budget with one schedule. The pilot was stopped on 12 November: four of eight runs are complete, the
 student of the two-stage run was stopped at 101 M, and three runs never started (specialists `key_points` and
 `upper_body`, self-distillation). W1 repeats all of them with seeds. Preliminary: one seed, and no run has
 converged.
+
+To reproduce the runs below (30 minutes each; the last needs the model of the first):
+
+```bash
+T=scripts/reinforcement_learning/mdp2/train_interfaces.py
+ALL=full=1,key_points=1,three_point=1,upper_body=1
+P=runs/research/pilot && mkdir -p $P
+.venv/bin/python $T --budget 1000 --out $P/full.json --shares full=1 --save $P/full.pt
+.venv/bin/python $T --budget 1000 --out $P/three_point.json --shares three_point=1
+.venv/bin/python $T --budget 1000 --out $P/uniform.json --shares $ALL
+.venv/bin/python $T --budget 1000 --out $P/schedule.json --shares full=1 --shares_after $ALL --switch_at 500
+.venv/bin/python $T --budget 1000 --out $P/two_stage.json --shares $ALL --teacher $P/full.pt \
+    --rl 0 --entropy 0 --init_std 0.1
+```
 
 Final held-out success (mean of the last ten log rows), with the mean body error in brackets:
 
@@ -223,7 +238,8 @@ GPU-hours are for the throughput of section 3.
 
 ### W0. Bring-up
 
-Section 5 on the multi-GPU machine. Done when the reproduction matches and its throughput is in the log.
+Section 5 on the machine that runs the batches. Done when the reproduction matches and its throughput is in the
+log.
 
 ### W1. Gate 1 batch (no new code)
 
@@ -419,20 +435,22 @@ interquartile means with bootstrap intervals, samples and GPU-hours for every re
 Decided by the owner on 12 November: the venue is RSS 2027; a G1 is available; compute is a 4-GPU machine and a
 cluster with hundreds of GPUs; only public datasets are used.
 
-## 11. What is not in the branch
+## 11. What is not in the branch, and how to get it
 
-| What | Where it is | What to do |
-|---|---|---|
-| The clips | Hugging Face | Download (section 5); never commit them |
-| Logs of the pilot and the model of its `full` specialist | The first workstation, `runs/research/pilot/` (ignored by git) | Nothing: section 4 holds the numbers and W1 reruns the pilot |
-| The texts of the papers read | The first workstation, in a session directory | Section 12 and `MDP2_RESEARCH_PLAN.md` hold what was drawn from them |
-| Design and build notes of the MDP2 runtime | The first workstation, untracked | For runtime changes read the guide, `docs/source/experimental-features/mdp2.rst`, which is in the branch |
+| What | How to get or reproduce it |
+|---|---|
+| The clips | Download them from the [LAFAN1 retargeting dataset](https://huggingface.co/datasets/lvhaidong/LAFAN1_Retargeting_Dataset) with the command of section 5; never commit them |
+| Logs and models of the pilot | Rerun the commands of section 4; W1 reruns them with seeds anyway |
+| The texts of the papers | `MDP2_RESEARCH_PLAN.md`, section 12, lists the title and the link of every text that was read |
+| The design of the MDP2 runtime | The guide `docs/source/experimental-features/mdp2.rst` in the branch, and pull request [isaac-sim/IsaacLab#9016](https://github.com/isaac-sim/IsaacLab/pull/9016) |
+| The showcase results quoted in section 13 | The learners in `scripts/reinforcement_learning/mdp2/`; section 13 names the command behind each number |
 
 ## 12. Background from the literature review
 
-Seven reading tracks over the publications of Xue Bin Peng and related work, well over a hundred papers. Numbers
-were extracted by reading agents, in places through a summarising model: check each against the PDF before it is
-cited.
+Seven reading tracks over the publications at <https://xbpeng.github.io/> and related work, well over a hundred
+papers. `MDP2_RESEARCH_PLAN.md`, section 12, gives the title and the link of each; an arXiv number N below stands
+for `https://arxiv.org/abs/N`. Numbers were extracted by reading agents, in places through a summarising model:
+check each against the PDF before it is cited.
 
 **What the literature establishes.**
 
@@ -494,10 +512,10 @@ the hybrid problem HIL's direction, facing and skill-fidelity measures. Curves a
 
 | Set | Size | Licence | Use |
 |---|---|---|---|
-| LAFAN1 retargeted to the G1 | 40 clips, 2.45 h | Non-commercial, not redistributable | Development and the standard comparison |
-| PHUMA | 73 h | Apache-2.0 | Scale, and anything released |
-| OmniRetarget | 4 h | MIT | The scene problem |
-| AMASS retargets | | CC-BY-4.0 plus the AMASS licence | Alternative for scale |
+| [LAFAN1 retargeted to the G1](https://huggingface.co/datasets/lvhaidong/LAFAN1_Retargeting_Dataset) | 40 clips, 2.45 h | Non-commercial, not redistributable | Development and the standard comparison |
+| PHUMA ([arXiv 2510.26236](https://arxiv.org/abs/2510.26236)) | 73 h | Apache-2.0 | Scale, and anything released |
+| OmniRetarget ([arXiv 2509.26633](https://arxiv.org/abs/2509.26633)) | 4 h | MIT | The scene problem |
+| [AMASS](https://amass.is.tue.mpg.de/) retargets | | CC-BY-4.0 plus the AMASS licence | Alternative for scale |
 
 **Other deadlines.** ICML 22 January 2027; SIGGRAPH 28 January 2027 (simulation only, gives up the hardware
 result); CoRL 2027 not announced (28 May in 2026).
@@ -524,12 +542,14 @@ result); CoRL 2027 not announced (28 May in 2026).
   state is not finite ends its episode. Check new data for this before training on it.
 - **Physics limits.** The constraint and contact buffers overflowed when hands and knees touched the ground; the
   task sets `njmax=300` and `nconmax=120`.
-- **Shared exploration noise.** The action noise of PPO is one vector for all worlds. In a Go2 mixture a penalty
-  that is sensitive to noise in one arm starved exploration in the others. When one arm of a mixture fails, train
-  it alone with the same code before suspecting the mixture.
+- **Shared exploration noise.** The action noise of PPO is one vector for all worlds. In the Go2 mixture of walking
+  and standing (`Isaac-Velocity-Flat-WalkStand-UnitreeGo2-MDP2`) a penalty that is sensitive to noise in one arm
+  starved exploration in the other. When one arm of a mixture fails, train it alone with the same code before
+  suspecting the mixture.
 - **Saved models.** On the manipulation showcase a saved model evaluated in a fresh simulation gave 34% and 32%
-  where training reported 97% and 98%; the cause was not found. Check W2.2 and W2.3 against the evaluation worlds
-  of the training run before trusting them.
+  where training reported 97% and 98%; the cause was not found. Reproduce with `train_manipulation.py --iterations
+  4000 --log_dir <dir>`, then the same script with `--checkpoint <model in dir>`. Check W2.2 and W2.3 against the
+  evaluation worlds of the training run before trusting them.
 - **MDP2.** A `Quantity` takes `term=`; a quantity that reads another is listed after it. A logged quantity that
   only some world configurations compute used to be averaged over all worlds (fixed in the runtime).
 - **Warp.** A variable that starts as a constant and changes inside a loop of dynamic length must be declared with
@@ -538,16 +558,22 @@ result); CoRL 2027 not announced (28 May in 2026).
 - **Step time of the showcase tasks,** MDP1 managers against MDP2 at 4096 worlds, one measurement each [ms]: push
   recovery 3.89 / 2.34, reward search 4.29 / 2.42, hybrid imitation 4.50 / 2.47, distillation 5.39 / 3.64, skills
   8.01 / 4.11, tracking 3.82 / 2.41. Physics is the floor: the MDP is about 0.07 ms of the 2.41 ms. None has more
-  than four arms, which is what W7 has to add.
-- **Unsolved cases** that problem 3 can use: the cartwheel that is unstable in the six-clip tracking policy, the
-  get-up and handstand skills of the Go2, the reorientation skill of the Kuka Allegro (3% success).
+  than four arms, which is what W7 has to add. The MDP1 side is `mdp1_baselines.py <recovery | reward_search | hil
+  | distillation> 4096`, `skills_mdp1_baseline.py 4096` and `train_tracking.py --runtime mdp1`. The MDP2 side is
+  the same loop on the MDP2 environment of each task: 60 warm-up steps, then 300 timed calls of `env.step` with
+  random actions.
+- **Unsolved cases** that problem 3 can use: the cartwheel that is unstable in the six-clip tracking policy
+  (`train_tracking.py --motion walk,run,dance,hop,cartwheel,backflip`), the get-up and handstand skills of the Go2
+  (`train_skills.py --skills walk,hind_legs,hind_walk,get_up`; the handstand is defined in the task but not among
+  its skills), and the reorientation skill of the Kuka Allegro (`train_manipulation.py --skills
+  lift,place,reorient`: 3% success).
 
 ## Status
 
 | Item | Status | Notes |
 |---|---|---|
-| Pilot on the workstation (1000 M, one seed) | STOPPED | 4 of 8 runs complete, section 4; the rest is part of W1 |
-| W0 Bring-up on the multi-GPU machine | TODO | |
+| Pilot (1000 M, one seed) | STOPPED | 4 of 8 runs complete, section 4; the rest is part of W1 |
+| W0 Bring-up | TODO | |
 | W1 Gate 1 batch | TODO | |
 | W2 Tooling | TODO | |
 | W3 Allocator, version 1 | TODO | |
@@ -562,9 +588,11 @@ result); CoRL 2027 not announced (28 May in 2026).
 
 ## Log
 
-- 2026-11-12: task, learner and test committed. Pilot batch of eight runs started on the workstation (RTX PRO 6000
-  Blackwell, 0.56 M samples/s); `full`, `uniform`, `three_point` and the schedule done, see section 4. This plan
-  written.
-- 2026-11-12: pilot stopped by the owner to continue on the multi-GPU machine. The two-stage student was at 101 M;
-  the specialists `key_points` and `upper_body` and self-distillation had not started. Results, background and
-  lessons recorded in sections 4, 12 and 13. Branch pushed to the owner's fork. Next: W0.
+- 2026-11-12: task, learner and test committed. Pilot batch of eight runs started on one RTX PRO 6000 Blackwell
+  (0.56 M samples/s); `full`, `uniform`, `three_point` and the schedule done, see section 4. This plan written.
+- 2026-11-12: pilot stopped by the owner to continue with several GPUs. The two-stage student was at 101 M; the
+  specialists `key_points` and `upper_body` and self-distillation had not started. Results, background and lessons
+  recorded in sections 4, 12 and 13. Branch pushed to the owner's fork. Next: W0.
+- 2026-11-12: references to local files replaced by commands and links. Section 4 has the commands of the pilot,
+  section 11 says how to get everything that is not in the branch, section 13 names the command behind each
+  showcase number, and `MDP2_RESEARCH_PLAN.md` lists the title and the link of every text that was read.
