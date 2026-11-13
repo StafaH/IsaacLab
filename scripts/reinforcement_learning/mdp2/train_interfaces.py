@@ -69,7 +69,7 @@ parser.add_argument(
 parser.add_argument("--signal", default="eval", choices=["eval", "rollout"])
 parser.add_argument("--allocate_every", type=int, default=1, help="Log rows between two updates of the shares")
 parser.add_argument("--graph", action="store_true", help="Open an arm once the policy is competent in its parents")
-parser.add_argument("--floor", type=float, default=0.05, help="Least share of an open arm")
+parser.add_argument("--floor", type=float, default=0.2, help="Share that the open arms keep in equal parts")
 parser.add_argument("--anchor_share", type=float, default=0.0, help="Least share of the arms without parents")
 parser.add_argument("--fast", type=float, default=0.3, help="Rate of the fast average of the competence")
 parser.add_argument("--slow", type=float, default=0.05, help="Rate of the slow average of the competence")

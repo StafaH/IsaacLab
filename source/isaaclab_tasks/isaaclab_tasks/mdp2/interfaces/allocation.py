@@ -25,9 +25,9 @@ class Allocator:
     ``"uniform"``, the same priority for every open arm.
 
     An arm is open once every arm in its ``parents`` has a competence of ``open_at``, and closes when one falls
-    below ``close_at``; arms without parents are always open. Every open arm keeps the share ``floor``, the arms in
-    ``anchors`` keep ``anchor_share``, and the rest is divided by priority. The shares move towards that target by
-    ``rate`` per update.
+    below ``close_at``; arms without parents are always open. The open arms keep the share ``floor`` in equal parts,
+    the arms in ``anchors`` keep ``anchor_share`` each, and the rest is divided by priority. The shares move towards
+    that target by ``rate`` per update.
     """
 
     def __init__(
@@ -39,7 +39,7 @@ class Allocator:
         slow: float = 0.05,
         open_at: float = 0.5,
         close_at: float = 0.4,
-        floor: float = 0.05,
+        floor: float = 0.2,
         anchor_share: float = 0.2,
         rate: float = 0.2,
         epsilon: float = 0.002,
@@ -48,9 +48,7 @@ class Allocator:
         self.parents, self.rule, self.moving = parents, rule, moving
         self.fast_rate, self.slow_rate, self.rate, self.epsilon = fast, slow, rate, epsilon
         self.open_at, self.close_at = open_at, close_at
-        count = len(parents)
-        self.floors = np.full(count, floor)
-        self.floors[list(anchors)] = np.maximum(anchor_share, floor)
+        self.floor, self.anchors, self.anchor_share = floor, list(anchors), anchor_share
         self.fast, self.slow, self.frontier = None, None, None
         self.open = np.array([not arm_parents for arm_parents in parents])
         self.shares = self.target()
@@ -69,7 +67,8 @@ class Allocator:
             priority = np.abs(self.fast - self.slow)
         # A small constant, so that open arms share the worlds when no arm has any priority.
         priority = np.where(self.open, priority + self.epsilon, 0.0)
-        floors = np.where(self.open, self.floors, 0.0)
+        floors = np.where(self.open, self.floor / self.open.sum(), 0.0)
+        floors[self.anchors] = np.maximum(floors[self.anchors], self.anchor_share)
         floors = floors / max(floors.sum(), 1.0)
         return floors + (1.0 - floors.sum()) * priority / priority.sum()
 
