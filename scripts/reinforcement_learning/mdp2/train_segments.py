@@ -69,6 +69,7 @@ parser.add_argument("--horizon", type=float, default=100.0, help="Updates that t
 parser.add_argument("--feet", type=float, default=6.0, help="Weight of the rewards for the feet")
 parser.add_argument("--substeps", type=int, default=2, help="Physics steps per physics step of the task")
 parser.add_argument("--local", action="store_true", help="Track without the position of the robot")
+parser.add_argument("--randomize", action="store_true", help="Give every world its own robot and noisy measurements")
 parser.add_argument("--num_envs", type=int, default=9728)
 parser.add_argument("--segment_envs", type=int, default=1536)
 parser.add_argument("--test_envs", type=int, default=512)
@@ -110,6 +111,7 @@ cfg.task = g1_interfaces_task(
     adaptive=1.0 if args.allocator else args.adaptive,
     count_failures=args.allocator is None,
     local=args.local,
+    randomize=args.randomize,
 )
 NAMES = arm_names(cfg.pushes)
 env = gym.make(TASK, cfg=cfg).unwrapped

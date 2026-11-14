@@ -22,8 +22,46 @@ from . import mdp as interfaces_mdp
 
 robot = mdp2.Entity("robot")
 
+MEASUREMENT_NOISE = {"base_ang_vel": 0.2, "projected_gravity": 0.05, "joint_pos": 0.01, "joint_vel": 0.5}
+"""The half width of the uniform noise on what the robot measures [rad/s, -, rad, rad/s], before any scaling."""
+
 INTERFACE = "commands.interface"
 """The command whose state a learner sets: ``shares`` of the interfaces, and the ``fixed`` interface of a world."""
+
+
+def robot_randomization(torso: mdp2.SubsetSelector) -> dict[str, mdp2.Event]:
+    """Return the events that give every world its own robot when the simulation starts."""
+    startup = mdp2.EventMode.STARTUP
+    return {
+        "friction": mdp2.Event(
+            mdp.randomize_rigid_body_material,
+            mode=startup,
+            inputs={"body_ids": robot.bodies(".*")},
+            params={"friction_range": (0.3, 1.6), "restitution_range": (0.0, 0.0)},
+        ),
+        "mass": mdp2.Event(
+            mdp.randomize_rigid_body_mass,
+            mode=startup,
+            inputs={"body_ids": robot.bodies(".*")},
+            params={"mass_distribution_params": (0.9, 1.1), "operation": "scale"},
+        ),
+        "torso_com": mdp2.Event(
+            mdp.randomize_rigid_body_com,
+            mode=startup,
+            inputs={"body_ids": torso},
+            params={"com_range": ((-0.025, 0.025), (-0.05, 0.05), (-0.05, 0.05))},
+        ),
+        "gains": mdp2.Event(
+            mdp.randomize_actuator_gains,
+            mode=startup,
+            inputs={"joint_ids": robot.joints(".*")},
+            params={
+                "stiffness_distribution_params": (0.9, 1.1),
+                "damping_distribution_params": (0.9, 1.1),
+                "operation": "scale",
+            },
+        ),
+    }
 
 
 def interface_task(
@@ -46,6 +84,8 @@ def interface_task(
     feet_weight: float = 0.0,
     action_rate_weight: float = 0.03,
     local: bool = False,
+    randomize: bool = False,
+    torso: mdp2.SubsetSelector | None = None,
 ) -> mdp2.TaskCfg:
     """Return the MDP in which the ``robot`` tracks the clips, told through one of ``interfaces`` per episode.
 
@@ -68,6 +108,11 @@ def interface_task(
     distance of the bodies to the clip, in the reward and in the termination, is taken with the clip moved
     horizontally onto the robot, and a wide reward for the horizontal position of the root keeps the robot from
     drifting away.
+
+    With ``randomize``, every world gets its own robot when the simulation starts: the friction of its bodies,
+    their masses, the center of mass of its torso and the gains of its joints differ from world to world, and the
+    policy sees its measurements with noise. The critic sees them without. ``torso`` is the body whose center of
+    mass moves.
     """
     task = tracking_task(motion_files, step_dt, num_bodies, lengths=lengths)
     groups = [*body_groups, *joint_groups]
@@ -134,6 +179,13 @@ def interface_task(
     measured = {
         name: policy[name] for name in ("base_ang_vel", "projected_gravity", "joint_pos", "joint_vel", "actions")
     }
+    if randomize:
+        measured = {
+            name: replace(term, noise=mdp2.UniformNoise(-MEASUREMENT_NOISE[name], MEASUREMENT_NOISE[name]))
+            if name in MEASUREMENT_NOISE
+            else term
+            for name, term in measured.items()
+        }
     interface = mdp2.Observation(mdp.generated_commands, inputs={"command": mdp2.commands.interface})
     command = {"interfaces": patterns, "count": len(patterns), "groups": len(groups)}
     critic, events = {**policy, "interface": interface}, {"reset_to_motion": reset}
@@ -150,6 +202,8 @@ def interface_task(
             interval_range_s=push_interval_s,
             params={"velocity_range": (*((-speed, speed) for speed in push_velocity), *(((0.0, 0.0),) * 3))},
         )
+    if randomize:
+        events |= robot_randomization(torso)
     quantities, rewards = dict(task.quantities), dict(task.rewards)
     rewards["action_rate_l2"] = replace(rewards["action_rate_l2"], weight=-action_rate_weight)
     pos_error, pos_inputs = tracking.subset_pos_error, clip_body_pos
