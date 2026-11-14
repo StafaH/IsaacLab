@@ -940,3 +940,14 @@ result); CoRL 2027 not announced (28 May in 2026).
     `failure` on the evaluation worlds and 85.3 and 87.6 for `sampling`. It stays between the two, 3 points
     under the evaluation worlds. At 1000 M it has 11% of the training worlds on the segments under 0.95, where
     `failure` has 42%: the failure rates of the training worlds separate the segments less.
+- 2026-11-14, 13:45. The policy for the robot, `hardware/g1_s0` (`--clips curated --adaptive 0.5 --local
+  --randomize --armature`, 2000 M):
+  - Final policy on fresh starts with every clip of LAFAN1: 100.0% of the curated clips and 94.4% of the unseen
+    clips, 99.8 and 93.6 pushed. `segments/local_s0`, without the randomisation and the armature: 99.9 and 93.8,
+    99.2 and 92.3 pushed. The randomisation costs nothing here.
+  - Export (`runs/research/hardware/after_g1.sh`, `export_g1/`) in MuJoCo, 20 episodes of 10 s on walk, dance,
+    run and jumps: 95, 95, 90 and 95% with the armature of the model, 95, 95, 80 and 95% with the torques within
+    their limits; 26 to 41 mm of body error, 0.6 to 1.6 m from the end of the clip; largest torques of 3.1, 1.5,
+    3.8 and 3.7 times the limit, on the wrists but for the dance.
+  - `deploy_interfaces.py --mujoco` from rest on the whole clips: the walk to its end (238 s, largest lean
+    0.67 rad, 5.6 m from the start), a fall after 68 s of the dance, 33 s of the run and 182 s of the jumps.
