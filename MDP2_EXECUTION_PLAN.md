@@ -741,3 +741,27 @@ result); CoRL 2027 not announced (28 May in 2026).
   - Batch `fixed`, queued from the worktree `mdp2-batch5` (f7e302276): the pushed worlds with `--feet 6 --substeps
     2`, seeds 0 and 1 of the uniform mixture, the failure rule, `gain` on validation clips and the pushed arms
     only, 2000 M each, about 7 hours on the four GPUs. `eval_all.sh` evaluates a run at its own physics step.
+- 2026-11-13, night. The owner has a physical G1 with 29 joints, and plans a 5-page abstract on simulation results
+  first and the hardware experiments for the 8-page submission. The main experiment moves to arms that are
+  segments of the clips:
+  - Why. On the interface arms the rule recovers a split that people already choose by hand. Where the worlds
+    start on the clips is chosen in every tracking paper, by failure counts (BeyondMimic) or by hand: the training
+    set here left out the six clips that fall and get up, and three curated clips fail on the same 20 to 26% of
+    their start frames for every split. All runs so far drew half of their starts by failure counts.
+  - `train_segments.py` (6210d6aee). The training clips are cut into 10 s segments: 567 for the curated clips, 657
+    with the six hard clips (`--clips all`). 1536 evaluation worlds take the segments in turn, and the competence
+    of a segment is the share of its frames that they track. `--allocator` writes the shares of the segments to
+    the reset event as a weight per bin, with the constants of the frozen rule. Without it the task draws a share
+    `--adaptive` of the starts by its failure counts. The interfaces are `full` and `full_pushed`, half each, on
+    the fixed task (`--feet 6 --substeps 2`), with 7680 training worlds as before.
+  - Batch `segments`, 2000 M each: `gain` (the rule), `sampling` (failure counts, half of the starts), `uniform`,
+    `failure` (the failure rule on the same signal), all on every clip; `curated` (the hand-made set with failure
+    counts) and `curated_gain`. Seed 1 of the first four follows. The first three share GPUs with the last runs
+    of the batch `fixed`, whose second seeds moved to the end of the queue.
+  - What the policy sees is not what a robot measures: the targets of the bodies are given in the robot's root
+    frame from their positions in the world, and the tracking error is a distance in the world. `--local`
+    (42e690b98) gives the targets from the root of the clip in the axes of the robot's root, takes the tracking
+    error with the clip moved horizontally onto the robot, and adds a wide reward on the horizontal position of
+    the root. `segments/local_s0` checks it on the curated clips. Still open for the hardware: the control rate of
+    30 Hz, randomisation of friction, masses and gains, noise on the observations, and the hands (the asset has
+    hands that the policy does not move; their mass is to be randomised).
