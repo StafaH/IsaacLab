@@ -256,6 +256,9 @@ for k in range(1, iterations + 1):
             action = ppo.act(obs["policy"][:T], obs["critic"][:T])
             action = torch.cat([action, ppo.policy(obs["policy"][T:])])
         obs, reward, terminated, truncated, _ = env.step(action)
+        # A world whose physics diverges ends its episode on numbers that are not finite: the learner gets zeros.
+        obs = {name: value.nan_to_num(0.0, 0.0, 0.0) for name, value in obs.items()}
+        reward = reward.nan_to_num(0.0, 0.0, 0.0)
         ppo.record(reward[:T], terminated[:T], truncated[:T])
         done = terminated | truncated
         alive += 1.0
