@@ -899,3 +899,8 @@ result); CoRL 2027 not announced (28 May in 2026).
     95, 90, 100 and 100% with the torques within their limits; 31 to 47 mm of body error, 0.9 to 2.1 m from the
     end of the clip. `deploy_interfaces.py --mujoco` from rest on the whole clips: the dance to its end (130 s),
     a fall after 224 s of the walk, 32 s of the run and 90 s of the jumps.
+- 2026-11-14, 07:25. `segments/hybrid_s0`, `gain` for the segment and the failures of the training worlds for half
+  of the starts inside it (`--within 0.5`), final policy on fresh starts: 97.7, 92.1 and 83.9 on the curated
+  clips, the get-up clips and the unseen clips, 41.0, 50.7 and 37.3 pushed. On the get-up clips it is ahead of
+  the task's sampling (83.6 and 42.9 pushed) and of `gain` alone (77.9, 40.0); on the unseen clips it is behind
+  the sampling (90.4, 46.5 pushed). One seed. `amass/hybrid_s0` is next in the queue.
