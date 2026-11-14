@@ -713,3 +713,31 @@ result); CoRL 2027 not announced (28 May in 2026).
   - New problem `graded`, queued for seed 0: the stress task with `--push 0.5`, so that the two kinds of pushed
     worlds are at 0.5 and 1.5 m/s and the hard kind may be learnable. Uniform, failure, `gain`, the hard arms only
     and both pushed kinds. `runs/research/eval_all.sh` passes the scale of the run to the evaluation.
+- 2026-11-13, evening (unseen clips, as above):
+  - Seed 1 of the stress test, clean / pushed / all arms, seed 0 / seed 1: uniform 89.2 / 49.4 / 38.0 and 87.8 /
+    50.2 / 37.5, failure rule 84.2 / 47.1 / 36.4 and 83.4 / 46.2 / 36.3, `gain` 88.7 / 71.9 / 43.4 and 89.0 / 72.4 /
+    43.8. Hand-set splits (seed 0): pushed arms only 88.8 / 76.4 / 44.6, shoved arms only 76.7 / 12.3 / 24.5.
+  - `graded` (seed 0), clean / light pushes / hard pushes: uniform 88.8 / 85.7 / 1.5, `gain` 88.3 / 85.4 / 1.6, the
+    hard arms only 82.9 / 80.2 / 13.8. The light pushes are learned by every split, so the rule has nothing to
+    move, and it does not find the slow gain of the hard arms: a limit of a rule that reads the gain of the last
+    updates.
+  - The feet. The policies step in place where the clip stands still. Measured on the `gain` policy with
+    `runs/research/feet.py` (unseen clips, `full`): 2.4 lift-offs per foot and second against 1.0 in the clips, a
+    foot faster than 0.3 m/s on 81% of the frames on which the clip's foot is planted, and a foot more than 2 cm
+    below its standing height on 15% of the frames. Three causes: the feet are 2 of the 51 bodies of the position
+    reward, the 60 Hz physics step lets the feet sink into the ground, and the penalty on the change of the
+    actions is 2% of the reward.
+  - The fix, probed by 300 M of fine-tuning from 1500 M (lift-offs per second while both feet of the clip are
+    planted / share of planted frames with a moving foot / success on `full` and `full_pushed`): control 1.50 /
+    81% / 87 and 65; foot rewards of weight 6 (`--feet 6`) 1.00 / 75% / 88 and 66; a 120 Hz physics step
+    (`--substeps 2`) 0.48 / 51% / 87 and 58; both 0.34 / 44% / 88 and 60. A penalty of 0.5 on the change of the
+    actions with both gives 0.25 / 31% but 78 and 20, and a penalty of 2.0 collapses. Smoothing the actions of a
+    policy that was not trained with it breaks the policy.
+  - From scratch with `--feet 6 --substeps 2` at 500 M: 0.21 lift-offs per second against 1.29 for the original
+    task, at the same success (68% against 70% on `full`), and the same learning curve up to 750 M. A penalty of
+    0.1 on the change of the actions learns slower (31% against 41% on the training clips at 500 M) for the same
+    feet, so the penalty stays at 0.03. The finer step costs throughput: 0.175 M samples per second on a free GPU
+    against 0.285.
+  - Batch `fixed`, queued from the worktree `mdp2-batch5` (f7e302276): the pushed worlds with `--feet 6 --substeps
+    2`, seeds 0 and 1 of the uniform mixture, the failure rule, `gain` on validation clips and the pushed arms
+    only, 2000 M each, about 7 hours on the four GPUs. `eval_all.sh` evaluates a run at its own physics step.
