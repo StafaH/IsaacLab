@@ -857,3 +857,17 @@ result); CoRL 2027 not announced (28 May in 2026).
     the same stages. From rest, on whole clips, the 500 M checkpoint falls after 195 s of the walk, 46 s of the
     dance, 89 s of the jumps and 11 s of the run. `unitree_g1.py`, the robot over `unitree_sdk2py`, has not run:
     the package is not installed here.
+- 2026-11-14, 04:30. After the batch `amass`:
+  - `amass/sampling90_s0` ended at 387 M with a reward that is not a number: a world whose physics diverged gave
+    it to the returns. Up to there it sat between `sampling` and `gain` (300 M: 76.7 and 69.6 on the training
+    segments and the unseen clips). The learner now gets zeros for such a step (4d88d649b), and the run started
+    again from zero; its log before the end is `runs/research/amass/crashed/`.
+  - `gain` loses under pushes because its evaluation worlds are clean: it cannot see what the tracked segments
+    still lack under pushes. `--segment_pushed` (1c6f2bf7c) pushes a share of the evaluation worlds of the
+    segments; `amass/gainpush_s0` runs `gain` with half of them pushed. Its log rows mix clean and pushed
+    episodes, so it is compared by the separate evaluation and by the unseen clips, whose worlds stay clean.
+  - `amass/gain_s1` at 500 M: 88, 91 and 82 on the training segments, the validation clips and the unseen clips,
+    against 87.9, 89.9 and 82.2 for seed 0.
+  - `video_interfaces.py --clip <file>` (fe9317e79) shows a clip of the library. Of the 22,305 segments, 16 have a
+    competence over 0.99 with `gain` and under 0.2 with the other two; `runs/research/videos/amass.sh` renders one
+    for the three policies.
