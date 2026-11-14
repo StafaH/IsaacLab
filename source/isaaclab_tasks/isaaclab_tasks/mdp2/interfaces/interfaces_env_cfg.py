@@ -95,6 +95,7 @@ def interface_task(
             "adaptive": adaptive,
             "bin_frames": 15,
             "bins": -(-frames // 15),
+            "blocks": -(-frames // (15 * tracking.BLOCK_BINS)),
             "decay": 0.999,
             "train_clips": train_clips,
             "count_failures": count_failures,

@@ -5,7 +5,7 @@
 
 """Terms of the motion tracking tasks."""
 
-from .events import reference_frame, reset_to_clips, reset_to_csv_motion, reset_to_failures, reset_to_motion
+from .events import BLOCK_BINS, reference_frame, reset_to_clips, reset_to_csv_motion, reset_to_failures, reset_to_motion
 from .observations import body_pos_b, reference_body_pos_b, root_height
 from .quantities import (
     body_pos_error,

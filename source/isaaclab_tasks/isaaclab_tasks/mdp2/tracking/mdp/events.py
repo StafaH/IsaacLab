@@ -428,6 +428,10 @@ failure (as the adaptive sampling of BeyondMimic, arXiv 2508.08241).
 """
 
 
+BLOCK_BINS = 512
+"""Bins per block of the failure counts of :data:`reset_to_clips`."""
+
+
 @wp.kernel
 def _start_on_clips(
     mask: wp.array(dtype=wp.bool),
@@ -446,6 +450,7 @@ def _start_on_clips(
     end: wp.array(dtype=float),
     fixed_start: wp.array(dtype=float),
     failures: wp.array(dtype=float),
+    blocks: wp.array(dtype=float),
     rng: wp.array(dtype=wp.int32),
     noise: float,
     adaptive: float,
@@ -470,14 +475,21 @@ def _start_on_clips(
             first + wp.min(int(wp.randf(wp.rand_init(seed, 1)) * float(last - first)), last - first - 2), last
         )
         total = float(0.0)
-        for b in range(failures.shape[0]):
-            total += failures[b]
+        for k in range(blocks.shape[0]):
+            total += blocks[k]
         if total > 0.0 and wp.randf(wp.rand_init(seed, 2)) < adaptive:
             # Draw a bin by its failures, then a frame in it, a few frames before where the episodes failed.
+            # The bin is found in two steps, its block and then the bin, so that a long library stays fast.
             draw = wp.randf(wp.rand_init(seed, 3)) * total
-            chosen = int(0)
-            cumulative = failures[0]
-            while chosen < failures.shape[0] - 1 and cumulative <= draw:
+            block = int(0)
+            cumulative = blocks[0]
+            while block < blocks.shape[0] - 1 and cumulative <= draw:
+                block += 1
+                cumulative += blocks[block]
+            chosen = block * BLOCK_BINS
+            last = wp.min(chosen + BLOCK_BINS, failures.shape[0]) - 1
+            cumulative += failures[chosen] - blocks[block]
+            while chosen < last and cumulative <= draw:
                 chosen += 1
                 cumulative += failures[chosen]
             drawn = chosen * bin_frames + int(wp.randf(wp.rand_init(seed, 4)) * float(bin_frames)) - bin_frames
@@ -505,6 +517,15 @@ def _start_on_clips(
         noise,
         seed,
     )
+
+
+@wp.kernel
+def _sum_blocks(failures: wp.array(dtype=float), blocks: wp.array(dtype=float)):
+    block = wp.tid()
+    total = float(0.0)
+    for b in range(block * BLOCK_BINS, wp.min((block + 1) * BLOCK_BINS, failures.shape[0])):
+        total += failures[b]
+    blocks[block] = total
 
 
 @wp.kernel
@@ -543,6 +564,7 @@ def _reset_to_clips(
     end,
     fixed_start,
     failures,
+    block_sums,
     rng,
     *,
     noise,
@@ -559,7 +581,8 @@ def _reset_to_clips(
         wp.launch(_credit_training_failures, dim=num_worlds, inputs=inputs, device=device)
     fields = [joint_pos, joint_vel, root_link_pose_w, root_com_vel_w, env_origins, soft_joint_pos_limits]
     clips = [clip_joint_pos, clip_joint_vel, clip_root_pose, clip_root_vel, clip_range, start, end]
-    params = [fixed_start, failures, rng, noise, adaptive, bin_frames, train_clips]
+    wp.launch(_sum_blocks, dim=block_sums.shape[0], inputs=[failures, block_sums], device=device)
+    params = [fixed_start, failures, block_sums, rng, noise, adaptive, bin_frames, train_clips]
     wp.launch(_start_on_clips, dim=num_worlds, inputs=[mask, *fields, *clips, *params], device=device)
 
 
@@ -568,6 +591,7 @@ reset_to_clips = mdp2.Term(
     state={
         **CLIP_STATE,
         "failures": mdp2.State(("bins",)),
+        "block_sums": mdp2.State(("blocks",)),
         "fixed_start": mdp2.State(initial=-1.0, persistent=True),
     },
     random=True,
