@@ -14,8 +14,9 @@ the path of its array ``file`` and its ``split`` (``train``, ``val`` or ``unseen
 
 The first ``--segment_envs`` evaluation worlds take the segments in turn: each starts on the first frame of a
 segment, acts without exploration noise, and gives no data to the learner. The competence of a segment is the share
-of its frames that these worlds track. The other ``--test_envs`` evaluation worlds start on fixed frames of the
-held-out clips.
+of its frames that these worlds track. A share ``--segment_pushed`` of these worlds is pushed, so that the
+competence counts tracking under pushes too. The other ``--test_envs`` evaluation worlds start on fixed frames of
+the held-out clips.
 
 Without ``--allocator`` the task chooses the starts: a share ``--adaptive`` of them where the episodes of the
 training worlds fail, the rest uniformly over the training clips. With ``--allocator``, a rule of
@@ -77,6 +78,7 @@ parser.add_argument("--randomize", action="store_true", help="Give every world i
 parser.add_argument("--armature", action="store_true", help="Give the joints the inertia of the real robot's motors")
 parser.add_argument("--num_envs", type=int, default=9728)
 parser.add_argument("--segment_envs", type=int, default=1536)
+parser.add_argument("--segment_pushed", type=float, default=0.0, help="Share of these worlds that is pushed")
 parser.add_argument("--test_envs", type=int, default=512)
 parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--budget", type=float, default=1000.0, help="Samples to train for, in millions")
@@ -192,6 +194,9 @@ fixed_start[test_worlds] = starts.float()
 val_ranges = [test_ranges[test_clips.index(name)] for name in val_clips]
 val = sum((starts >= begin) & (starts < end) for begin, end in val_ranges).bool()
 arrays[mdp2.term_state(INTERFACE, "fixed")].torch[T:] = NAMES.index("full")
+# The pushed evaluation worlds of the segments, which take the segments in turn as the others do.
+pushed = round(args.segment_pushed * SE)
+arrays[mdp2.term_state(INTERFACE, "fixed")].torch[T + SE - pushed : T + SE] = NAMES.index("full_pushed")
 
 allocator = None
 if args.allocator:
