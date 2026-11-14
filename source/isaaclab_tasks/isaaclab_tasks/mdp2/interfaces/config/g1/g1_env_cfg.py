@@ -119,13 +119,15 @@ def g1_interfaces_task(
     action_rate_weight: float = 0.03,
     adaptive: float = 0.5,
     count_failures: bool = True,
+    local: bool = False,
 ) -> mdp2.TaskCfg:
     """Return the MDP that tracks the ``train`` clips through the interfaces, with the ``test`` clips for evaluation.
 
     Every interface exists again per kind in ``pushes``, for worlds whose robot is pushed at the scale of the kind.
     A ``feet_weight`` adds rewards of that weight for the positions and the velocities of the feet, and
     ``action_rate_weight`` weighs the penalty on the change of the actions. ``adaptive`` and ``count_failures`` say
-    where the training worlds start, see :func:`~isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg.interface_task`.
+    where the training worlds start, and ``local`` leaves the position of the robot out of what the policy sees and
+    of the tracking error, see :func:`~isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg.interface_task`.
     """
     clips = (*train, *test)
     pushes = pushes or {}
@@ -145,6 +147,7 @@ def g1_interfaces_task(
         action_rate_weight=action_rate_weight,
         adaptive=adaptive,
         count_failures=count_failures,
+        local=local,
     )
     # The policy moves the 29 joints of the body; the fingers keep their default pose.
     action = replace(task.actions["joint_pos"], subset=robot.joints("(?!.*_hand_).*"))

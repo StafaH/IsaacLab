@@ -7,4 +7,4 @@
 
 from .commands import ones_command, sampled_interface
 from .events import scaled_push
-from .observations import commanded_body_pos_b, commanded_joint_pos, world_value
+from .observations import commanded_body_pos_b, commanded_body_pos_local, commanded_joint_pos, world_value

@@ -122,6 +122,57 @@ subset_pos_error = mdp2.Term(warp=_subset_pos_error)
 
 
 @wp.func
+def _local_pos_error(
+    world: int,
+    body_link_pose_w: wp.array2d(dtype=wp.transformf),
+    root_link_pose_w: wp.array(dtype=wp.transformf),
+    env_origins: wp.array(dtype=wp.vec3f),
+    clip_body_pos: wp.array3d(dtype=float),
+    clip_root_pose: wp.array2d(dtype=float),
+    start: wp.array(dtype=float),
+    episode_length: wp.array(dtype=wp.int32),
+    end: wp.array(dtype=float),
+    body_ids: wp.array(dtype=wp.int32),
+) -> float:
+    frame = reference_frame(world, start, episode_length, end, 0)
+    root = wp.transform_get_translation(root_link_pose_w[world]) - env_origins[world]
+    drift = wp.vec3f(root[0] - clip_root_pose[frame, 0], root[1] - clip_root_pose[frame, 1], 0.0)
+    total = float(0.0)
+    for k in range(body_ids.shape[0]):
+        b = body_ids[k]
+        target = wp.vec3f(clip_body_pos[frame, b, 0], clip_body_pos[frame, b, 1], clip_body_pos[frame, b, 2])
+        position = wp.transform_get_translation(body_link_pose_w[world, b]) - env_origins[world]
+        total += wp.length_sq(position - drift - target)
+    return total / float(body_ids.shape[0])
+
+
+local_pos_error = mdp2.Term(warp=_local_pos_error)
+"""Mean squared distance of the ``body_ids`` bodies to the tracked frame, with the clip moved horizontally onto the
+robot's root [m^2]: the error of the pose, the height and the heading, and not of where the robot stands.
+"""
+
+
+@wp.func
+def _root_drift(
+    world: int,
+    root_link_pose_w: wp.array(dtype=wp.transformf),
+    env_origins: wp.array(dtype=wp.vec3f),
+    clip_root_pose: wp.array2d(dtype=float),
+    start: wp.array(dtype=float),
+    episode_length: wp.array(dtype=wp.int32),
+    end: wp.array(dtype=float),
+) -> float:
+    frame = reference_frame(world, start, episode_length, end, 0)
+    root = wp.transform_get_translation(root_link_pose_w[world]) - env_origins[world]
+    x, y = root[0] - clip_root_pose[frame, 0], root[1] - clip_root_pose[frame, 1]
+    return x * x + y * y
+
+
+root_drift = mdp2.Term(warp=_root_drift)
+"""Squared horizontal distance of the robot's root to the root of the tracked frame [m^2]."""
+
+
+@wp.func
 def _subset_vel_error(
     world: int,
     body_link_pose_w: wp.array2d(dtype=wp.transformf),

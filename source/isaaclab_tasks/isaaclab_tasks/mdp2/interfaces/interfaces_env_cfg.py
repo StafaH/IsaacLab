@@ -16,7 +16,7 @@ from isaaclab_experimental.mdp2 import mdp
 from isaaclab.utils import replace
 
 from isaaclab_tasks.mdp2.tracking import mdp as tracking
-from isaaclab_tasks.mdp2.tracking.tracking_env_cfg import clip_body_pos, clip_joint_pos, tracking_task
+from isaaclab_tasks.mdp2.tracking.tracking_env_cfg import RESET, clip_body_pos, clip_joint_pos, tracking_task
 
 from . import mdp as interfaces_mdp
 
@@ -45,6 +45,7 @@ def interface_task(
     feet: mdp2.SubsetSelector | None = None,
     feet_weight: float = 0.0,
     action_rate_weight: float = 0.03,
+    local: bool = False,
 ) -> mdp2.TaskCfg:
     """Return the MDP in which the ``robot`` tracks the clips, told through one of ``interfaces`` per episode.
 
@@ -61,6 +62,12 @@ def interface_task(
     velocities. The tracking rewards average over every body, most of which are fingers, so without them a policy
     may step where the clip stands still. ``action_rate_weight`` weighs the penalty on the change of the actions:
     the default is small next to the tracking rewards, and lets the targets of the joints jump from step to step.
+
+    With ``local``, the task asks for nothing that a robot cannot measure: the policy sees the targets of the bodies
+    from the root of the clip, in the axes of its own root, which takes its orientation and not its position. The
+    distance of the bodies to the clip, in the reward and in the termination, is taken with the clip moved
+    horizontally onto the robot, and a wide reward for the horizontal position of the root keeps the robot from
+    drifting away.
     """
     task = tracking_task(motion_files, step_dt, num_bodies, lengths=lengths)
     groups = [*body_groups, *joint_groups]
@@ -94,16 +101,19 @@ def interface_task(
         },
     )
 
+    clip_root = {"root_link_pose_w": robot.root_link_pose_w, "clip_root_pose": mdp2.term_state(RESET, "clip_root_pose")}
+    seen_from_clip = {name: value for name, value in clip_body_pos.items() if name != "env_origins"} | clip_root
+
     def targets(command) -> dict[str, mdp2.Observation]:
         """The targets of every group and horizon, shown where ``command`` has the group."""
         terms = {}
         for ahead in horizons:
             for index, (name, bodies) in enumerate(body_groups.items()):
                 terms[f"{name}_{ahead}"] = mdp2.Observation(
-                    interfaces_mdp.commanded_body_pos_b,
+                    interfaces_mdp.commanded_body_pos_local if local else interfaces_mdp.commanded_body_pos_b,
                     inputs={
                         "root_link_pose_w": robot.root_link_pose_w,
-                        **clip_body_pos,
+                        **(seen_from_clip if local else clip_body_pos),
                         "body_ids": bodies,
                         "command": command,
                     },
@@ -141,9 +151,22 @@ def interface_task(
         )
     quantities, rewards = dict(task.quantities), dict(task.rewards)
     rewards["action_rate_l2"] = replace(rewards["action_rate_l2"], weight=-action_rate_weight)
+    pos_error, pos_inputs = tracking.subset_pos_error, clip_body_pos
+    if local:
+        pos_error, pos_inputs = tracking.local_pos_error, {**clip_body_pos, **clip_root}
+        quantities["body_pos_error"] = mdp2.Quantity(
+            pos_error,
+            inputs={"body_link_pose_w": robot.body_link_pose_w, "body_ids": robot.bodies(".*"), **pos_inputs},
+            log=True,
+        )
+        drift = {name: value for name, value in pos_inputs.items() if name != "clip_body_pos"}
+        quantities["root_drift"] = mdp2.Quantity(tracking.root_drift, inputs=drift, log=True)
+        rewards["root_pos"] = mdp2.Reward(
+            tracking.exp_kernel, inputs={"value": mdp2.quantities.root_drift}, params={"scale": 4.0}, weight=3.0
+        )
     if feet_weight > 0.0:
         pose = {"body_link_pose_w": robot.body_link_pose_w, "body_ids": feet}
-        quantities["feet_pos_error"] = mdp2.Quantity(tracking.subset_pos_error, inputs={**pose, **clip_body_pos})
+        quantities["feet_pos_error"] = mdp2.Quantity(pos_error, inputs={**pose, **pos_inputs})
         quantities["feet_vel_error"] = mdp2.Quantity(
             tracking.subset_vel_error,
             inputs={**pose, **{name: value for name, value in clip_body_pos.items() if name != "env_origins"}},

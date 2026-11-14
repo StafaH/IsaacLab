@@ -44,6 +44,43 @@ Zero in the worlds whose ``command``, an interface, is zero at ``group``.
 
 
 @wp.func
+def _commanded_body_pos_local(
+    world: int,
+    body: int,
+    axis: int,
+    root_link_pose_w: wp.array(dtype=wp.transformf),
+    clip_body_pos: wp.array3d(dtype=float),
+    clip_root_pose: wp.array2d(dtype=float),
+    start: wp.array(dtype=float),
+    episode_length: wp.array(dtype=wp.int32),
+    end: wp.array(dtype=float),
+    body_ids: wp.array(dtype=wp.int32),
+    command: wp.array2d(dtype=float),
+    group: int,
+    ahead: int,
+) -> float:
+    frame = reference_frame(world, start, episode_length, end, ahead)
+    now = reference_frame(world, start, episode_length, end, 0)
+    b = body_ids[body]
+    offset = wp.vec3f(
+        clip_body_pos[frame, b, 0] - clip_root_pose[now, 0],
+        clip_body_pos[frame, b, 1] - clip_root_pose[now, 1],
+        clip_body_pos[frame, b, 2] - clip_root_pose[now, 2],
+    )
+    local = wp.quat_rotate_inv(wp.transform_get_rotation(root_link_pose_w[world]), offset)
+    return command[world, group] * local[axis]
+
+
+commanded_body_pos_local = mdp2.Term(warp=_commanded_body_pos_local, shape=("worlds", "body_ids", 3))
+"""Positions of the ``body_ids`` bodies in the frame ``ahead`` steps from now, from the root of the clip's present
+frame, in the axes of the robot's root [m].
+
+Unlike :data:`commanded_body_pos_b` it needs the orientation of the robot and not its position, so a robot can
+compute it from its inertial unit. Zero in the worlds whose ``command``, an interface, is zero at ``group``.
+"""
+
+
+@wp.func
 def _commanded_joint_pos(
     world: int,
     joint: int,
