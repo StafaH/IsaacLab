@@ -235,7 +235,10 @@ def _load_csv_motions(ctx, *, motion_files, windows, frames, bodies, clips, grou
     values = {name: [] for name in ("clip_joint_pos", "clip_joint_vel", "clip_root_pose", "clip_root_vel")}
     ranges, begin = [], 0
     for motion_file, (first, count) in zip(motion_files, windows):
-        rows = torch.from_numpy(np.loadtxt(motion_file, delimiter=",", dtype=np.float32)[first : first + count])
+        if motion_file.endswith(".npy"):
+            rows = torch.from_numpy(np.load(motion_file).astype(np.float32)[first : first + count])
+        else:
+            rows = torch.from_numpy(np.loadtxt(motion_file, delimiter=",", dtype=np.float32)[first : first + count])
         root_pose = rows[:, :7]
         joint_pos = torch.zeros(len(rows), len(robot.joint_names))
         joint_pos[:, columns] = rows[:, 7:]
@@ -274,7 +277,8 @@ def _load_csv_motions(ctx, *, motion_files, windows, frames, bodies, clips, grou
 
 reset_to_csv_motion = mdp2.Term(warp=_reset_to_motion, state=CLIP_STATE, random=True, init=_load_csv_motions)
 """Like :data:`reset_to_motion`, for the retargeting files of the Unitree G1: ``windows`` gives the first frame and
-the number of frames to take of each file, at the control rate of 30 fps. The files hold the root and the joints;
+the number of frames to take of each file, at the control rate of 30 fps. The files hold the root and the joints,
+as rows of text or as an array (``.npy``);
 the positions of the bodies come from posing the robot on every frame, so the event also takes
 ``body_link_pose_w``. With ``ground_clearance``, frames with a body below that height [m] are lifted to it.
 """

@@ -12,6 +12,7 @@ hard clips that a learner may add to the training clips.
 
 import os
 
+import numpy as np
 from isaaclab_experimental import mdp2
 from isaaclab_experimental.envs import MDP2RLEnvCfg
 from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg
@@ -105,9 +106,16 @@ def arm_names(pushes: dict[str, float]) -> list[str]:
     return [*INTERFACES, *(f"{name}_{kind}" for kind in pushes for name in INTERFACES)]
 
 
+def clip_file(name: str) -> str:
+    """Return the file of a clip: ``name`` if it is the path of an array, or the downloaded file of that name."""
+    return name if name.endswith(".npy") else os.path.join(MOTIONS_DIR, f"{name}.csv")
+
+
 def frames(name: str) -> int:
     """Return the number of frames of a clip, one per row of its file."""
-    with open(os.path.join(MOTIONS_DIR, f"{name}.csv")) as file:
+    if name.endswith(".npy"):
+        return len(np.load(name, mmap_mode="r"))
+    with open(clip_file(name)) as file:
         return sum(1 for _ in file)
 
 
@@ -133,7 +141,7 @@ def g1_interfaces_task(
     pushes = pushes or {}
     names = arm_names(pushes)
     task = interface_task(
-        [os.path.join(MOTIONS_DIR, f"{name}.csv") for name in clips],
+        [clip_file(name) for name in clips],
         [frames(name) for name in clips],
         SIM_DT * DECIMATION,
         NUM_BODIES,

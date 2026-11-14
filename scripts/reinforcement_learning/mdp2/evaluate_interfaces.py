@@ -40,6 +40,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--model", required=True, help="Model or checkpoint of train_interfaces.py")
 parser.add_argument("--task", default="Isaac-Interfaces-G1-MDP2")
 parser.add_argument("--clips", default="curated", choices=list(CLIP_SETS), help="The training clips")
+parser.add_argument("--library", default=None, help="Index file of a library of clips, in place of --clips")
 parser.add_argument("--local", action="store_true", help="Track without the position of the robot")
 parser.add_argument("--push", type=float, default=1.0, help="Scale of the pushes of the pushed worlds")
 parser.add_argument("--substeps", type=int, default=1, help="Physics steps per physics step of the task")
@@ -50,16 +51,23 @@ parser.add_argument("--out", default=None, help="Path of a JSON file with the re
 args = parser.parse_args()
 
 TASK, DEVICE = args.task, "cuda:0"
-train_clips = CLIP_SETS[args.clips]
-CLIPS = (*train_clips, *TEST_CLIPS)
+train_clips, test_clips, val_clips = CLIP_SETS[args.clips], TEST_CLIPS, VAL_CLIPS
+if args.library:
+    with open(args.library) as file:
+        library = json.load(file)
+    train_clips, val_clips, unseen_clips = (
+        tuple(entry["file"] for entry in library if entry["split"] == split) for split in ("train", "val", "unseen")
+    )
+    test_clips = (*val_clips, *unseen_clips)
+CLIPS = (*train_clips, *test_clips)
 SPLITS = ("train", "test")
 
 cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
 cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, args.num_envs, args.seed
 cfg.sim.dt, cfg.decimation = cfg.sim.dt / args.substeps, cfg.decimation * args.substeps
 cfg.sim.render_interval = cfg.decimation
-if args.clips != "curated" or args.local:
-    cfg.task = g1_interfaces_task(train=train_clips, pushes=cfg.pushes, local=args.local)
+if args.clips != "curated" or args.local or args.library:
+    cfg.task = g1_interfaces_task(train=train_clips, test=test_clips, pushes=cfg.pushes, local=args.local)
 NAMES = arm_names(cfg.pushes)
 env = gym.make(TASK, cfg=cfg).unwrapped
 arrays = env.state.arrays
@@ -76,10 +84,10 @@ clip = torch.zeros(N, dtype=torch.long, device=DEVICE)
 for index in range(len(NAMES) * len(SPLITS)):
     first = 0 if index % len(SPLITS) == 0 else len(train_clips)
     clips = clip_range[first : len(train_clips) if first == 0 else len(CLIPS)]
-    frames = torch.cat([torch.arange(a, b - episode_frames, device=DEVICE) for a, b in clips.tolist()])
-    owner = torch.cat(
-        [torch.full((b - episode_frames - a,), first + k, device=DEVICE) for k, (a, b) in enumerate(clips.tolist())]
-    )
+    # A clip that is shorter than an episode has one start, on its first frame.
+    counts = [max(1, b - episode_frames - a) for a, b in clips.tolist()]
+    frames = torch.cat([torch.arange(a, a + count, device=DEVICE) for (a, _), count in zip(clips.tolist(), counts)])
+    owner = torch.cat([torch.full((count,), first + k, device=DEVICE) for k, count in enumerate(counts)])
     worlds = slice(index * block, (index + 1) * block)
     chosen = torch.linspace(0, len(frames) - 1, block, device=DEVICE).long()
     fixed_start[worlds], clip[worlds] = frames[chosen].float(), owner[chosen]
@@ -105,18 +113,19 @@ with torch.no_grad():
         running &= ~(terminated | truncated)
 
 result = {"model": args.model, "episodes": block}
+val_ids = torch.tensor([CLIPS.index(name) for name in val_clips], device=DEVICE)
 for index in range(len(NAMES) * len(SPLITS)):
     name = f"{NAMES[index // len(SPLITS)]}/{SPLITS[index % len(SPLITS)]}"
     worlds = group == index
     result[f"{name}/success"] = success[worlds].mean().item()
     result[f"{name}/length"] = length[worlds].mean().item()
     result[f"{name}/error_mm"] = 1.0e3 * (distance[worlds].sum() / length[worlds].sum()).item()
-    for k in clip[worlds].unique().tolist():
+    for k in clip[worlds].unique().tolist() if not args.library else ():
         result[f"{name}/clips/{CLIPS[k]}"] = success[worlds & (clip == k)].mean().item()
     if index % len(SPLITS) == 1:
-        unseen = worlds & ~sum(clip == CLIPS.index(k) for k in VAL_CLIPS).bool()
+        unseen = worlds & ~torch.isin(clip, val_ids)
         result[f"{NAMES[index // len(SPLITS)]}/unseen/success"] = success[unseen].mean().item()
-    elif len(train_clips) > len(TRAIN_CLIPS):
+    elif args.clips == "all" and not args.library:
         hard = worlds & (clip >= len(TRAIN_CLIPS))
         result[f"{NAMES[index // len(SPLITS)]}/hard/success"] = success[hard].mean().item()
         result[f"{NAMES[index // len(SPLITS)]}/curated/success"] = success[worlds & ~hard].mean().item()

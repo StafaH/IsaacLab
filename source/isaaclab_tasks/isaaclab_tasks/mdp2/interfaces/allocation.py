@@ -28,7 +28,8 @@ class Allocator:
     An arm is open once every arm in its ``parents`` has a competence of ``open_at``, and closes when one falls
     below ``close_at``; arms without parents are always open. The open arms keep the share ``floor`` in equal parts,
     the arms in ``anchors`` keep ``anchor_share`` each, and the rest is divided by priority. The shares move towards
-    that target by ``rate`` per update.
+    that target by ``rate`` per update. With many arms an update may measure only some of them: the averages of
+    the other arms stay as they are.
     """
 
     def __init__(
@@ -54,6 +55,7 @@ class Allocator:
         self.open_at, self.close_at = open_at, close_at
         self.floor, self.anchors, self.anchor_share = floor, list(anchors), anchor_share
         self.fast, self.slow, self.frontier = None, None, None
+        self.seen = np.zeros(len(parents), dtype=bool)
         self.open = np.array([not arm_parents for arm_parents in parents])
         self.shares = self.target()
 
@@ -78,14 +80,22 @@ class Allocator:
         floors = floors / max(floors.sum(), 1.0)
         return floors + (1.0 - floors.sum()) * priority / priority.sum()
 
-    def update(self, competence, frontier=None) -> np.ndarray:
-        """Take the competence of every arm, and its priority for the rule ``"frontier"``, and return the new shares."""
+    def update(self, competence, frontier=None, measured=None) -> np.ndarray:
+        """Take the competence of every arm, and its priority for the rule ``"frontier"``, and return the new shares.
+
+        ``measured`` marks the arms whose competence is new; all of them by default.
+        """
         competence = np.asarray(competence, dtype=float)
         self.frontier = None if frontier is None else np.asarray(frontier, dtype=float)
+        measured = np.ones(len(competence), dtype=bool) if measured is None else np.asarray(measured, dtype=bool)
         if self.fast is None:
             self.fast, self.slow = competence.copy(), competence.copy()
-        self.fast += self.fast_rate * (competence - self.fast)
-        self.slow += self.slow_rate * (competence - self.slow)
+        # The averages of an arm start at its first measurement.
+        first = measured & ~self.seen
+        self.fast[first], self.slow[first] = competence[first], competence[first]
+        self.seen |= measured
+        self.fast += measured * self.fast_rate * (competence - self.fast)
+        self.slow += measured * self.slow_rate * (competence - self.slow)
         for arm, arm_parents in enumerate(self.parents):
             if arm_parents:
                 level = self.close_at if self.open[arm] else self.open_at
