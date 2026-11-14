@@ -951,3 +951,17 @@ result); CoRL 2027 not announced (28 May in 2026).
     3.8 and 3.7 times the limit, on the wrists but for the dance.
   - `deploy_interfaces.py --mujoco` from rest on the whole clips: the walk to its end (238 s, largest lean
     0.67 rad, 5.6 m from the start), a fall after 68 s of the dance, 33 s of the run and 182 s of the jumps.
+- 2026-11-14, 13:55. The end of `amass/rollout_s0`, the failure rule of the segments on the episodes of the
+  training worlds:
+  - Unseen clips at 2000 M: 90.9%, against 92.8 for `failure` on the evaluation worlds, 93.2 and 94.0 for
+    `gain`, 88.9 and 89.4 for `sampling`. Final policy on fresh starts: 93.1 and 91.3 on the training segments
+    and the unseen clips, 64.1 and 62.7 pushed, against 94.7 and 92.8, 56.9 and 54.6 pushed for `failure_s0`.
+  - The lead of the evaluation worlds over the same rule on the training worlds, 5 points at 500 M and 3 at
+    1500 M, ends at 1.5 to 2 points without pushes, and with pushes the training worlds are 8 points ahead: half
+    of them are pushed, so their failures count the pushes, and the evaluation worlds are clean. `gainpush_s0`
+    (90.8, 63.6 pushed) is where `rollout_s0` is (91.3, 62.7).
+  - On the library the result is now this: shares per segment beat the task's sampling by 2 to 5 points on the
+    unseen clips whatever feeds them, and the signal sets a trade between clean and pushed tracking. The
+    evaluation worlds are not a gain on both. One seed of `rollout`; `rollout_s1` is at 700 M.
+  - `amass/gainpush25_s0` (`--segment_pushed 0.25`) is first in the queue: a point between `gain` and
+    `gainpush` that would show whether the evaluation worlds reach past the training worlds on both.
