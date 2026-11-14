@@ -58,10 +58,11 @@ class Agent(torch.nn.Module):
         """Return the value of normalized observations, in reward units."""
         return self.critic(normalized).squeeze(-1) * self.returns.var.sqrt() + self.returns.mean
 
-    def forward(self, obs, actions, critic_obs=None):
+    def forward(self, obs, actions, critic_obs=None, mask=None):
         obs = self.obs(obs)
         mean, std = self.actor(obs), self.log_std.exp()
-        log_prob = (-0.5 * ((actions - mean) / std) ** 2 - self.log_std).sum(-1)
+        log_prob = -0.5 * ((actions - mean) / std) ** 2 - self.log_std
+        log_prob = (log_prob if mask is None else log_prob * mask).sum(-1)
         value = self.critic(obs if critic_obs is None else self.critic_obs(critic_obs)).squeeze(-1)
         return log_prob, value, mean, std
 
@@ -73,7 +74,9 @@ class PPO:
     ``imitation``, :meth:`act` also takes target actions and their weights, and the loss is ``rl_coef`` times the
     policy loss plus ``imitation_coef`` times the weighted squared distance of the policy's mean to the targets.
     Both coefficients are tensors, to change while training. With ``actor``, the policy is that network: learners
-    whose networks share layers train them in turn, each with its own optimizer state.
+    whose networks share layers train them in turn, each with its own optimizer state. With ``action_mask``, ones
+    and zeros per environment and action, the actions with a zero do not count: for environments that hold
+    different robots, which use different actions.
     """
 
     def __init__(
@@ -98,8 +101,12 @@ class PPO:
         critic_dim=None,
         imitation=False,
         actor=None,
+        action_mask=None,
     ):
         self.agent = Agent(obs_dim, action_dim, hidden, init_std, critic_dim, actor).to(device)
+        self.num_envs, self.mask = num_envs, action_mask
+        # The entropy bonus is for the actions that an environment uses.
+        self.used = 1.0 if action_mask is None else action_mask.amax(0)
         self.steps, self.epochs, self.minibatches, self.batch = steps, epochs, minibatches, steps * num_envs
         self.max_lr, self.kl, self.gamma, self.lam, self.clip = max_lr, kl, gamma, lam, clip
         self.value_coef, self.entropy = value_coef, entropy
@@ -166,7 +173,8 @@ class PPO:
             std = agent.log_std.exp()
             action = mean + std * torch.randn_like(mean)
             buffer["obs"][t], buffer["actions"][t], buffer["values"][t], buffer["means"][t] = obs, action, value, mean
-            buffer["log_probs"][t] = (-0.5 * ((action - mean) / std) ** 2 - agent.log_std).sum(-1)
+            log_prob = -0.5 * ((action - mean) / std) ** 2 - agent.log_std
+            buffer["log_probs"][t] = (log_prob if self.mask is None else log_prob * self.mask).sum(-1)
             if critic_obs is not None:
                 buffer["critic_obs"][t] = critic_obs
             if targets is not None:
@@ -227,13 +235,15 @@ class PPO:
                 inputs = [flat["obs"][indices], flat["actions"][indices]]
                 if "critic_obs" in flat:
                     inputs.append(flat["critic_obs"][indices])
-                log_prob, value, mean, std = torch.func.functional_call(agent, views, tuple(inputs))
+                # A sample is the step of an environment: the buffers hold the environments of a step in a row.
+                mask = None if self.mask is None else self.mask[indices % self.num_envs]
+                log_prob, value, mean, std = torch.func.functional_call(agent, views, tuple(inputs), {"mask": mask})
                 ratio = (log_prob - flat["log_probs"][indices]).exp()
                 advantage = flat["advantages"][indices]
                 clipped = ratio.clamp(1.0 - self.clip, 1.0 + self.clip) * advantage
                 loss = -self.rl_coef * torch.min(ratio * advantage, clipped).mean()
                 loss = loss + self.value_coef * (value - flat["returns"][indices]).square().mean()
-                loss = loss - self.entropy * views["log_std"].sum()
+                loss = loss - self.entropy * (views["log_std"] * self.used).sum()
                 if "targets" in flat:
                     distance = (mean - flat["targets"][indices]).square().sum(-1)
                     loss = loss + self.imitation_coef * (flat["target_weights"][indices] * distance).mean()
@@ -241,7 +251,7 @@ class PPO:
                 with torch.no_grad():
                     kl = flat["means"][indices] - mean
                     kl = (kl.square() + self.old_std.square()) / (2.0 * std.square()) + (std / self.old_std).log() - 0.5
-                    kl = kl.sum(-1).mean()
+                    kl = (kl if mask is None else kl * mask).sum(-1).mean()
                     gradient = gradient * (1.0 / (gradient.norm() + 1.0e-6)).clamp(max=1.0)
                     self.count += 1.0
                     self.first.mul_(0.9).add_(gradient, alpha=0.1)

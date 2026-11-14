@@ -137,6 +137,19 @@ policy of a robot learns from both of its tasks. ``Isaac-Velocity-Flat-G1-Style-
 the ``motions`` folders of ``isaaclab_tasks/mdp2/tracking/config/g1`` and
 ``isaaclab_tasks/mdp2/velocity_style/config/go2``.
 
+``Isaac-Velocity-Flat-Quadrupeds-MDP2`` holds a Unitree Go2, A1, or Go1 in each world, and
+``Isaac-Velocity-Flat-Humanoids-MDP2`` a Unitree G1 or H1, each robot with its velocity task. One policy, with no
+part of its own for a robot, drives the robots of such a family: it reads and drives the joints of the family, among
+which the joints of each robot have their places. The policy can then be measured on a robot that it did not train
+on, or trained further on it:
+
+.. code-block:: bash
+
+   uv run python scripts/reinforcement_learning/mdp2/train_velocity_family.py --family quadrupeds \
+       --robots go2,go1 --save policy.pt
+   uv run python scripts/reinforcement_learning/mdp2/train_velocity_family.py --family quadrupeds \
+       --robots a1 --load policy.pt --budget 0
+
 
 Backends and capture
 --------------------
