@@ -818,3 +818,42 @@ result); CoRL 2027 not announced (28 May in 2026).
     of mass of the torso by up to 2.5, 5 and 5 cm, all drawn when the simulation starts, and uniform noise on the
     angular velocity (0.2 rad/s), the projected gravity (0.05), the joint positions (0.01 rad) and velocities (0.5
     rad/s) of the policy. `hardware/local_rand_s0` trains the curated clips with `--local --randomize`.
+- 2026-11-14, 04:00. The batch `amass` (seed 0, 2000 M, 22,305 training segments) and the first work for the
+  robot:
+  - On the library the rule leads, at every equal number of samples from 300 M on (the log rows of training,
+    success on the training segments, the validation clips and the unseen clips):
+
+    | starts | 500 M | 1000 M | 2000 M |
+    |---|---|---|---|
+    | `gain` | 87.9, 89.9, 82.2 | 93.6, 95.4, 91.3 | 95.8, 96.5, 93.2 |
+    | `sampling` (failure counts, half of the starts) | 84.7, 87.2, 77.5 | 90.4, 91.2, 85.3 | 92.7, 93.7, 88.9 |
+    | `uniform` | 84.2, 87.1, 74.7 | 88.9, 90.9, 80.3 | 91.0, 91.8, 85.8 |
+
+    Final policies in the separate evaluation, clean and pushed (training clips, unseen clips): `gain` 95.2 and
+    93.9, 60.2 and 58.4; `sampling` 90.7 and 87.7, 64.9 and 62.5; `uniform` 87.5 and 86.2, 64.9 and 63.2. The
+    rule gains 6 points on the unseen clips and loses 4 under pushes, as it did on LAFAN1.
+  - Why, from the worlds of the last row: the segments under 95% competence are 4.0, 7.0 and 9.2% of the segments
+    at the end and hold 23, 12 and 4% of the training worlds (30, 12 and 4% at 1000 M). The failure counts hardly
+    concentrate on a library of this size. 328 segments stay under 30% in all three runs; `gain` tracks 751
+    segments that `sampling` does not and misses 79 that `sampling` tracks. This is not the reason expected
+    before the batch, which was that failure counts would waste worlds on segments that cannot be tracked.
+  - Charged for its 2048 evaluation worlds (27% more samples), `gain` at 800 M (unseen 89.1) is ahead of
+    `sampling` at 1000 M (85.3).
+  - Open: one seed, and a baseline that may be mistuned for this size. `amass/sampling90_s0` (failure counts on
+    90% of the starts) is at 76.7 and 69.6 at 300 M (training segments, unseen), between `sampling` (73.1, 64.2)
+    and `gain` (79.3, 72.0). Queued after it: `gain_s1`, `failure_s0` (the failure rule on the evaluation
+    worlds), `hybrid_s0`, `sampling_s1`, `uniform_s1`.
+  - The G1 of the task had no armature: `--armature` (259f8e397) gives the joints the rotor inertia of the real
+    motors. `hardware/g1_s0` trains the curated clips with `--local --randomize --armature`.
+  - `export_interfaces.py` and `sim2sim_interfaces.py` (f6d3216a2, 50948e0db): a `--local` policy as an ONNX file
+    with its observations, and a run of it in MuJoCo on another model of the G1 (capsule feet, no hands, the
+    armature of the real motors). The observations rebuilt from joints and root orientation match those of
+    training to 1e-6. The 500 M checkpoint of `segments/local_s0`, without randomization, tracks 80 to 95% of
+    twenty 10 s episodes of four unseen clips (walk, dance, run, jumps). It asks for up to 2.7 times the torque
+    limits, and with the torques held within the limits it tracks as many (70 to 95%). The robot ends 1.3 to 3.6
+    m from where the clip does after 10 s: the policy does not know where it is.
+  - `deploy_interfaces.py` (9f107d359) runs an export on the robot: move to a still frame of the clip on a hoist,
+    turn the clip onto the heading of the robot, run the policy, end on a button or a lean. `--mujoco` rehearses
+    the same stages. From rest, on whole clips, the 500 M checkpoint falls after 195 s of the walk, 46 s of the
+    dance, 89 s of the jumps and 11 s of the run. `unitree_g1.py`, the robot over `unitree_sdk2py`, has not run:
+    the package is not installed here.
