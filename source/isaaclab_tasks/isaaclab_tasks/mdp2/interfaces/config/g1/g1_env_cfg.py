@@ -6,7 +6,8 @@
 """Multi-interface motion tracking for the Unitree G1 on the clips of the LAFAN1 retargeting dataset.
 
 The clips are downloaded, see ``isaaclab_tasks/mdp2/tracking/config/g1/motions``. Of every kind of motion, the clips
-of one subject are held out for evaluation. The clips that fall and get up are left out.
+of one subject are held out for evaluation. The clips that fall and get up are left out of the tasks, and are the
+hard clips that a learner may add to the training clips.
 """
 
 import os
@@ -55,6 +56,16 @@ TEST_CLIPS = (
     "walk2_subject4",
     "walk3_subject5",
 )
+HARD_CLIPS = (
+    *(f"fallAndGetUp1_subject{k}" for k in (1, 4, 5)),
+    *(f"fallAndGetUp2_subject{k}" for k in (2, 3)),
+    "fallAndGetUp3_subject1",
+)
+"""The clips that a curated training set leaves out: the robot lies on the ground in most of their frames."""
+
+CLIP_SETS = {"curated": TRAIN_CLIPS, "all": (*TRAIN_CLIPS, *HARD_CLIPS)}
+"""The training clips that the scripts choose from: with and without the hard clips."""
+
 # The held-out clips that an allocator may read. The other held-out clips stay unseen by every choice of a run.
 VAL_CLIPS = TEST_CLIPS[::2]
 
@@ -106,12 +117,15 @@ def g1_interfaces_task(
     pushes: dict[str, float] | None = None,
     feet_weight: float = 0.0,
     action_rate_weight: float = 0.03,
+    adaptive: float = 0.5,
+    count_failures: bool = True,
 ) -> mdp2.TaskCfg:
     """Return the MDP that tracks the ``train`` clips through the interfaces, with the ``test`` clips for evaluation.
 
     Every interface exists again per kind in ``pushes``, for worlds whose robot is pushed at the scale of the kind.
     A ``feet_weight`` adds rewards of that weight for the positions and the velocities of the feet, and
-    ``action_rate_weight`` weighs the penalty on the change of the actions.
+    ``action_rate_weight`` weighs the penalty on the change of the actions. ``adaptive`` and ``count_failures`` say
+    where the training worlds start, see :func:`~isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg.interface_task`.
     """
     clips = (*train, *test)
     pushes = pushes or {}
@@ -129,6 +143,8 @@ def g1_interfaces_task(
         feet=BODY_GROUPS["feet"],
         feet_weight=feet_weight,
         action_rate_weight=action_rate_weight,
+        adaptive=adaptive,
+        count_failures=count_failures,
     )
     # The policy moves the 29 joints of the body; the fingers keep their default pose.
     action = replace(task.actions["joint_pos"], subset=robot.joints("(?!.*_hand_).*"))

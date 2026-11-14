@@ -11,7 +11,8 @@ Every interface and split (training clips, held-out clips) gets the same number 
 evenly over the clips of the split. Every world runs one episode without exploration noise. The script reports, per
 interface and split, the share of the episodes that track for their whole length, their mean length [steps] and the
 mean distance of the bodies to the clip [mm], and the share per clip. For the held-out clips it also reports the
-share on the clips that no allocator reads (``unseen``).
+share on the clips that no allocator reads (``unseen``), and with ``--clips all`` the share on the curated training
+clips (``curated``) and on the hard ones (``hard``).
 """
 
 import argparse
@@ -23,7 +24,14 @@ from isaaclab_experimental import mdp2
 from ppo import Agent
 
 import isaaclab_tasks  # noqa: F401
-from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import TEST_CLIPS, TRAIN_CLIPS, VAL_CLIPS, arm_names
+from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import (
+    CLIP_SETS,
+    TEST_CLIPS,
+    TRAIN_CLIPS,
+    VAL_CLIPS,
+    arm_names,
+    g1_interfaces_task,
+)
 from isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg import INTERFACE
 from isaaclab_tasks.utils import load_cfg_from_registry
 from isaaclab_tasks.utils.hydra import resolve_presets
@@ -31,6 +39,7 @@ from isaaclab_tasks.utils.hydra import resolve_presets
 parser = argparse.ArgumentParser()
 parser.add_argument("--model", required=True, help="Model or checkpoint of train_interfaces.py")
 parser.add_argument("--task", default="Isaac-Interfaces-G1-MDP2")
+parser.add_argument("--clips", default="curated", choices=list(CLIP_SETS), help="The training clips")
 parser.add_argument("--push", type=float, default=1.0, help="Scale of the pushes of the pushed worlds")
 parser.add_argument("--substeps", type=int, default=1, help="Physics steps per physics step of the task")
 parser.add_argument("--num_envs", type=int, default=8192)
@@ -40,13 +49,16 @@ parser.add_argument("--out", default=None, help="Path of a JSON file with the re
 args = parser.parse_args()
 
 TASK, DEVICE = args.task, "cuda:0"
-CLIPS = (*TRAIN_CLIPS, *TEST_CLIPS)
+train_clips = CLIP_SETS[args.clips]
+CLIPS = (*train_clips, *TEST_CLIPS)
 SPLITS = ("train", "test")
 
 cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
 cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, args.num_envs, args.seed
 cfg.sim.dt, cfg.decimation = cfg.sim.dt / args.substeps, cfg.decimation * args.substeps
 cfg.sim.render_interval = cfg.decimation
+if args.clips != "curated":
+    cfg.task = g1_interfaces_task(train=train_clips, pushes=cfg.pushes)
 NAMES = arm_names(cfg.pushes)
 env = gym.make(TASK, cfg=cfg).unwrapped
 arrays = env.state.arrays
@@ -61,8 +73,8 @@ episode_frames = round(10.0 / env.step_dt)
 group = torch.arange(N, device=DEVICE) // block
 clip = torch.zeros(N, dtype=torch.long, device=DEVICE)
 for index in range(len(NAMES) * len(SPLITS)):
-    first = 0 if index % len(SPLITS) == 0 else len(TRAIN_CLIPS)
-    clips = clip_range[first : len(TRAIN_CLIPS) if first == 0 else len(CLIPS)]
+    first = 0 if index % len(SPLITS) == 0 else len(train_clips)
+    clips = clip_range[first : len(train_clips) if first == 0 else len(CLIPS)]
     frames = torch.cat([torch.arange(a, b - episode_frames, device=DEVICE) for a, b in clips.tolist()])
     owner = torch.cat(
         [torch.full((b - episode_frames - a,), first + k, device=DEVICE) for k, (a, b) in enumerate(clips.tolist())]
@@ -103,6 +115,10 @@ for index in range(len(NAMES) * len(SPLITS)):
     if index % len(SPLITS) == 1:
         unseen = worlds & ~sum(clip == CLIPS.index(k) for k in VAL_CLIPS).bool()
         result[f"{NAMES[index // len(SPLITS)]}/unseen/success"] = success[unseen].mean().item()
+    elif len(train_clips) > len(TRAIN_CLIPS):
+        hard = worlds & (clip >= len(TRAIN_CLIPS))
+        result[f"{NAMES[index // len(SPLITS)]}/hard/success"] = success[hard].mean().item()
+        result[f"{NAMES[index // len(SPLITS)]}/curated/success"] = success[worlds & ~hard].mean().item()
     print(
         f"EVAL {name} success {result[f'{name}/success']:.3f} length {result[f'{name}/length']:.0f}"
         f" error {result[f'{name}/error_mm']:.0f} mm"

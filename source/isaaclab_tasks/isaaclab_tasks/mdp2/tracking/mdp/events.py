@@ -546,11 +546,13 @@ def _reset_to_clips(
     bin_frames,
     decay,
     train_clips,
+    count_failures,
 ):
     device, num_worlds = mask.device, mask.shape[0]
-    wp.launch(_forget_failures, dim=failures.shape[0], inputs=[failures, decay], device=device)
-    inputs = [mask, terminated, start, end, fixed_start, episode_steps, bin_frames, failures]
-    wp.launch(_credit_training_failures, dim=num_worlds, inputs=inputs, device=device)
+    if count_failures:
+        wp.launch(_forget_failures, dim=failures.shape[0], inputs=[failures, decay], device=device)
+        inputs = [mask, terminated, start, end, fixed_start, episode_steps, bin_frames, failures]
+        wp.launch(_credit_training_failures, dim=num_worlds, inputs=inputs, device=device)
     fields = [joint_pos, joint_vel, root_link_pose_w, root_com_vel_w, env_origins, soft_joint_pos_limits]
     clips = [clip_joint_pos, clip_joint_vel, clip_root_pose, clip_root_vel, clip_range, start, end]
     params = [fixed_start, failures, rng, noise, adaptive, bin_frames, train_clips]
@@ -571,5 +573,7 @@ reset_to_clips = mdp2.Term(
 
 A world whose ``fixed_start`` state is a frame starts every episode on that frame: an evaluation world, set by the
 learner. The other worlds start on a frame of the first ``train_clips`` clips, drawn uniformly, or with probability
-``adaptive`` where their episodes fail, as :data:`reset_to_failures` does.
+``adaptive`` where their episodes fail, as :data:`reset_to_failures` does. Without ``count_failures`` the event
+leaves the ``failures`` state alone: a learner writes a weight per bin there, and a share ``adaptive`` of the starts
+is drawn by these weights.
 """
