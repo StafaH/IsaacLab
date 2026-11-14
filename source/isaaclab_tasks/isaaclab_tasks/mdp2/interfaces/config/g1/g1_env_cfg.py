@@ -127,6 +127,7 @@ def g1_interfaces_task(
     action_rate_weight: float = 0.03,
     adaptive: float = 0.5,
     count_failures: bool = True,
+    learner_weights: bool = False,
     local: bool = False,
     randomize: bool = False,
 ) -> mdp2.TaskCfg:
@@ -134,10 +135,11 @@ def g1_interfaces_task(
 
     Every interface exists again per kind in ``pushes``, for worlds whose robot is pushed at the scale of the kind.
     A ``feet_weight`` adds rewards of that weight for the positions and the velocities of the feet, and
-    ``action_rate_weight`` weighs the penalty on the change of the actions. ``adaptive`` and ``count_failures`` say
-    where the training worlds start, and ``local`` leaves the position of the robot out of what the policy sees and
-    of the tracking error, see :func:`~isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg.interface_task`.
-    ``randomize`` gives every world its own robot and adds noise to what the policy measures.
+    ``action_rate_weight`` weighs the penalty on the change of the actions. ``adaptive``, ``count_failures`` and
+    ``learner_weights`` say where the training worlds start, and ``local`` leaves the position of the robot out of
+    what the policy sees and of the tracking error, see
+    :func:`~isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg.interface_task`. ``randomize`` gives every world its
+    own robot and adds noise to what the policy measures.
     """
     clips = (*train, *test)
     pushes = pushes or {}
@@ -157,6 +159,7 @@ def g1_interfaces_task(
         action_rate_weight=action_rate_weight,
         adaptive=adaptive,
         count_failures=count_failures,
+        learner_weights=learner_weights,
         local=local,
         randomize=randomize,
         torso=robot.bodies("torso_link"),

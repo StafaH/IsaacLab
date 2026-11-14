@@ -564,6 +564,7 @@ def _reset_to_clips(
     end,
     fixed_start,
     failures,
+    weights,
     block_sums,
     rng,
     *,
@@ -573,6 +574,7 @@ def _reset_to_clips(
     decay,
     train_clips,
     count_failures,
+    learner_weights=False,
 ):
     device, num_worlds = mask.device, mask.shape[0]
     if count_failures:
@@ -581,8 +583,9 @@ def _reset_to_clips(
         wp.launch(_credit_training_failures, dim=num_worlds, inputs=inputs, device=device)
     fields = [joint_pos, joint_vel, root_link_pose_w, root_com_vel_w, env_origins, soft_joint_pos_limits]
     clips = [clip_joint_pos, clip_joint_vel, clip_root_pose, clip_root_vel, clip_range, start, end]
-    wp.launch(_sum_blocks, dim=block_sums.shape[0], inputs=[failures, block_sums], device=device)
-    params = [fixed_start, failures, block_sums, rng, noise, adaptive, bin_frames, train_clips]
+    drawn = weights if learner_weights else failures
+    wp.launch(_sum_blocks, dim=block_sums.shape[0], inputs=[drawn, block_sums], device=device)
+    params = [fixed_start, drawn, block_sums, rng, noise, adaptive, bin_frames, train_clips]
     wp.launch(_start_on_clips, dim=num_worlds, inputs=[mask, *fields, *clips, *params], device=device)
 
 
@@ -591,6 +594,7 @@ reset_to_clips = mdp2.Term(
     state={
         **CLIP_STATE,
         "failures": mdp2.State(("bins",)),
+        "weights": mdp2.State(("bins",)),
         "block_sums": mdp2.State(("blocks",)),
         "fixed_start": mdp2.State(initial=-1.0, persistent=True),
     },
@@ -603,5 +607,6 @@ A world whose ``fixed_start`` state is a frame starts every episode on that fram
 learner. The other worlds start on a frame of the first ``train_clips`` clips, drawn uniformly, or with probability
 ``adaptive`` where their episodes fail, as :data:`reset_to_failures` does. Without ``count_failures`` the event
 leaves the ``failures`` state alone: a learner writes a weight per bin there, and a share ``adaptive`` of the starts
-is drawn by these weights.
+is drawn by these weights. With ``learner_weights`` the event counts the failures and draws by the ``weights`` state
+instead, for a learner that reads the one and writes the other.
 """

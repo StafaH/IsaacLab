@@ -20,7 +20,9 @@ held-out clips.
 Without ``--allocator`` the task chooses the starts: a share ``--adaptive`` of them where the episodes of the
 training worlds fail, the rest uniformly over the training clips. With ``--allocator``, a rule of
 :class:`~isaaclab_tasks.mdp2.interfaces.allocation.Allocator` turns the competences into the shares at every log
-row: ``gain``, ``failure``, ``progress``, ``headroom`` or ``uniform``. A row measures the segments whose evaluation
+row: ``gain``, ``failure``, ``progress``, ``headroom`` or ``uniform``. The starts of a segment are spread evenly
+over it, or with ``--within`` a share of them goes where the episodes of the training worlds fail in it: the rule
+says which segment, the failures say where in the segment. A row measures the segments whose evaluation
 episodes ended in it, which are not all of them when there are more segments than evaluation worlds.
 
 The script logs the success and the competence over the segments, of the curated clips and of the hard clips, the
@@ -61,6 +63,7 @@ parser.add_argument("--shares", default="full=1,full_pushed=1", help="Shares of 
 parser.add_argument("--segment_s", type=float, default=10.0, help="Length of a segment [s]")
 parser.add_argument("--allocator", default=None, choices=["gain", "failure", "progress", "headroom", "uniform"])
 parser.add_argument("--adaptive", type=float, default=0.5, help="Share of the starts where episodes fail")
+parser.add_argument("--within", type=float, default=0.0, help="Share of a segment's starts where episodes fail in it")
 parser.add_argument("--floor", type=float, default=0.2, help="Share that the segments keep in equal parts")
 parser.add_argument("--fast", type=float, default=0.3, help="Rate of the fast average of the competence")
 parser.add_argument("--slow", type=float, default=0.05, help="Rate of the slow average of the competence")
@@ -109,7 +112,8 @@ cfg.task = g1_interfaces_task(
     pushes=cfg.pushes,
     feet_weight=args.feet,
     adaptive=1.0 if args.allocator else args.adaptive,
-    count_failures=args.allocator is None,
+    count_failures=args.allocator is None or args.within > 0.0,
+    learner_weights=args.allocator is not None and args.within > 0.0,
     local=args.local,
     randomize=args.randomize,
 )
@@ -118,7 +122,8 @@ env = gym.make(TASK, cfg=cfg).unwrapped
 arrays = env.state.arrays
 clip_range = arrays[mdp2.term_state(RESET, "clip_range")].torch.long()
 fixed_start = arrays[mdp2.term_state(RESET, "fixed_start")].torch
-weights = arrays[mdp2.term_state(RESET, "failures")].torch
+failures = arrays[mdp2.term_state(RESET, "failures")].torch
+weights = arrays[mdp2.term_state(RESET, "weights")].torch if args.within > 0.0 else failures
 world_start = arrays[mdp2.term_state(RESET, "start")].torch
 body_pos_error = arrays[mdp2.quantities.body_pos_error].torch
 values = dict(item.split("=") for item in args.shares.split(","))
@@ -157,8 +162,16 @@ bins_per_segment = torch.zeros(S, device=DEVICE).index_add_(0, bin_segment, bin_
 
 
 def write_shares(shares):
-    """Write the share of every segment to the task, divided over the bins of the segment."""
-    weights.copy_(torch.where(bin_train, (shares / bins_per_segment)[bin_segment], 0.0))
+    """Write the share of every segment to the task, divided over the bins of the segment.
+
+    A share ``--within`` of it follows the failures that the task counts in the bins of the segment.
+    """
+    spread = (1.0 / bins_per_segment)[bin_segment]
+    if args.within > 0.0:
+        counts = torch.where(bin_train, failures, 0.0)
+        total = torch.zeros(S, device=DEVICE).index_add_(0, bin_segment, counts)[bin_segment]
+        spread = torch.where(total > 0.0, (1.0 - args.within) * spread + args.within * counts / total, spread)
+    weights.copy_(torch.where(bin_train, shares[bin_segment] * spread, 0.0))
 
 
 # The evaluation worlds of the segments run one segment and have the next one queued as their start frame.
@@ -189,7 +202,8 @@ if args.allocator:
         rate=args.rate,
         horizon=args.horizon,
     )
-    write_shares(torch.tensor(allocator.shares, dtype=torch.float32, device=DEVICE))
+    segment_shares = torch.tensor(allocator.shares, dtype=torch.float32, device=DEVICE)
+    write_shares(segment_shares)
 
 obs = env.reset()[0]
 queued = (SE + torch.arange(SE, device=DEVICE)) % S
@@ -225,6 +239,9 @@ history = []
 wp.synchronize()
 begin_time = time.perf_counter()
 for k in range(1, iterations + 1):
+    if allocator is not None and args.within > 0.0:
+        # The failures move with every step, so the starts inside the segments follow them at every iteration.
+        write_shares(segment_shares)
     for step in range(args.steps):
         with torch.no_grad():
             action = ppo.act(obs["policy"][:T], obs["critic"][:T])
@@ -276,7 +293,8 @@ for k in range(1, iterations + 1):
         counted = 0
         if allocator is not None:
             shares = allocator.update(competence.cpu().numpy(), measured=seen.cpu().numpy())
-            write_shares(torch.tensor(shares, dtype=torch.float32, device=DEVICE))
+            segment_shares = torch.tensor(shares, dtype=torch.float32, device=DEVICE)
+            write_shares(segment_shares)
         history.append(row)
         summary = " ".join(
             f"{name} {row[f'{name}/success']:.2f} ({row[f'{name}/competence']:.2f}, {row[f'{name}/worlds']:.2f})"

@@ -76,6 +76,7 @@ def interface_task(
     horizons: tuple[int, ...] = (1, 5, 15),
     adaptive: float = 0.5,
     count_failures: bool = True,
+    learner_weights: bool = False,
     episode_length_s: float = 10.0,
     pushes: dict[str, float] | None = None,
     push_velocity: tuple[float, float, float] = (1.0, 1.0, 0.3),
@@ -93,7 +94,8 @@ def interface_task(
     The first ``train_clips`` clips are for training; evaluation worlds start on frames that the learner fixes.
     Targets are given ``horizons`` steps ahead, and episodes last ``episode_length_s`` at most. A share ``adaptive``
     of the training worlds starts where episodes fail; without ``count_failures`` a learner sets where they start,
-    see :data:`~isaaclab_tasks.mdp2.tracking.mdp.reset_to_clips`.
+    and with ``learner_weights`` it does so from the failures that the task counts, see
+    :data:`~isaaclab_tasks.mdp2.tracking.mdp.reset_to_clips`.
 
     The worlds of the interfaces in ``pushes`` are pushed every ``push_interval_s``: their root gets a velocity of up
     to ``push_velocity`` [m/s] along x, y and z, times the value of the interface in ``pushes``.
@@ -144,6 +146,7 @@ def interface_task(
             "decay": 0.999,
             "train_clips": train_clips,
             "count_failures": count_failures,
+            "learner_weights": learner_weights,
         },
     )
 
