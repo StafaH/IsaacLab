@@ -965,3 +965,11 @@ result); CoRL 2027 not announced (28 May in 2026).
     evaluation worlds are not a gain on both. One seed of `rollout`; `rollout_s1` is at 700 M.
   - `amass/gainpush25_s0` (`--segment_pushed 0.25`) is first in the queue: a point between `gain` and
     `gainpush` that would show whether the evaluation worlds reach past the training worlds on both.
+- 2026-11-14, 15:50. The second seeds of the two failure rules of the segments, `amass/failure_s1` and
+  `amass/rollout_s1`:
+  - Unseen clips at 2000 M: 93.3% for `failure_s1` (92.8 on seed 0) and 91.4 for `rollout_s1` (90.9).
+  - Final policies on fresh starts, unseen clips: `failure_s1` 92.8 and 55.9 pushed (seed 0: 92.8 and 54.6),
+    `rollout_s1` 91.4 and 63.8 pushed (91.3 and 62.7). Training segments: 94.2 and 57.9 pushed, 92.9 and 65.4.
+  - The trade holds on both seeds: the evaluation worlds are 1.5 points ahead of the training worlds without
+    pushes and 8 behind with them. `gain` (93.9 and 92.6; 58.4 and 59.2 pushed) is about 2 ahead and 4.5 behind.
+  - Running: `amass/gainpush_s1`, `amass/gainpush25_s0`, `segments/gainpush_s0`, `segments/curated_s0`.
