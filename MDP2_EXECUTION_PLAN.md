@@ -904,3 +904,15 @@ result); CoRL 2027 not announced (28 May in 2026).
   clips, the get-up clips and the unseen clips, 41.0, 50.7 and 37.3 pushed. On the get-up clips it is ahead of
   the task's sampling (83.6 and 42.9 pushed) and of `gain` alone (77.9, 40.0); on the unseen clips it is behind
   the sampling (90.4, 46.5 pushed). One seed. `amass/hybrid_s0` is next in the queue.
+- 2026-11-14, 09:05. The first rows of the baseline for the signal and the end of `amass/sampling90_s0`:
+  - `amass/rollout_s0` (`--allocator failure --rollouts`) at 500 M: 78.0% of the unseen clips, against 81.5 and
+    83.2 for `failure` on the evaluation worlds (first run and rerun), 82.2 and 81.3 for the seeds of `gain`,
+    77.5 for `sampling`. The same rule on the same segments falls to the level of the task's sampling when the
+    training worlds feed it. One seed at a quarter of its samples: the two runs of `failure_s0` differ by 1.7
+    at that mark, so the gap of 4 to 5 points is above that spread and not yet a result.
+  - `amass/sampling90_s0` ended: 84.3% of the unseen clips at 2000 M, under `sampling` (88.9) and `uniform`
+    (85.8). Final policy on fresh starts: 88.3 and 83.6 on the training segments and the unseen clips, 35.6 and
+    34.7 pushed, against 64.9 and 62.5 pushed for `sampling`. The stronger setting costs half of the
+    robustness to pushes.
+  - `amass/gainpush_s0` (`--segment_pushed 0.5`) at 1500 M: 89.5% of the clean unseen clips, against 92.3 for
+    `gain`. Its success on the training segments counts the pushed ones and is left out of the tables.
