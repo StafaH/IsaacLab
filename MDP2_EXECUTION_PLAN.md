@@ -791,3 +791,30 @@ result); CoRL 2027 not announced (28 May in 2026).
     The order of the batch `robust` holds, with smaller gaps: every split loses pushed success on the fixed task.
     Lift-offs per second on `full` are 0.18 to 0.35 for the four policies, against 1.36 before the fix.
   - `video_interfaces.py --clips all` (d203a0290) shows the hard clips.
+- 2026-11-14, 01:00. The first three runs of the batch `segments` (seed 0, 2000 M, every clip of LAFAN1):
+  - Final policies, 8192 worlds on starts spread over every frame, `full` and `full_pushed` (curated clips, hard
+    clips, unseen clips):
+
+    | starts | curated | hard | unseen | curated, pushed | hard, pushed | unseen, pushed |
+    |---|---|---|---|---|---|---|
+    | `sampling` (failure counts, half of the starts) | 97.3 | 83.6 | 90.4 | 51.1 | 42.9 | 46.5 |
+    | `gain` | 97.9 | 77.9 | 86.5 | 41.3 | 40.0 | 39.6 |
+    | `uniform` | 94.8 | 8.6 | 86.9 | 49.9 | 0.7 | 48.4 |
+
+  - Where the worlds start decides whether the hard clips are learned at all. The rule does not beat the failure
+    counts of the task: they lead on the hard clips at every point of training (63.9 against 57.7% of the hard
+    segments at 1600 M) with half as many worlds there (23% against 45% at the end), and the rule's late move to
+    the hard clips costs it 10 points on the pushed curated clips. `runs/research/equal.py` prints the runs of a
+    batch at equal samples; an earlier note in the report compared them at unequal samples and was corrected.
+  - The failure counts act on bins of half a second and start a world just before the frame where episodes end.
+    The rule divides the starts of a segment evenly over its 10 s. `--within` (47bacea56) combines the two: the
+    rule gives the share of a segment, and that share of its starts follows the failures that the task counts in
+    its bins (`learner_weights` of the reset event: the event counts failures and draws by weights that the
+    learner writes at every iteration). `segments/hybrid_s0` and `amass/hybrid_s0` use `--allocator gain --within
+    0.5`.
+  - AMASS has what LAFAN1 lacks, segments that may never be tracked: of the 791 segments under 30% competence at
+    645 M of `amass/gain_s0`, most are yoga (53% of the segments of MOYO), stairs, sitting, crawling and dance.
+  - `--randomize` (28c7969cf) for the hardware: friction 0.3 to 1.6, masses and gains times 0.9 to 1.1, the center
+    of mass of the torso by up to 2.5, 5 and 5 cm, all drawn when the simulation starts, and uniform noise on the
+    angular velocity (0.2 rad/s), the projected gravity (0.05), the joint positions (0.01 rad) and velocities (0.5
+    rad/s) of the policy. `hardware/local_rand_s0` trains the curated clips with `--local --randomize`.
