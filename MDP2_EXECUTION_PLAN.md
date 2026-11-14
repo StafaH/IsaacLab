@@ -928,3 +928,15 @@ result); CoRL 2027 not announced (28 May in 2026).
     `segments/gainpush_s0` (LAFAN1) are in the queue, with `amass/rollout_s1`.
   - `amass/rollout_s0` at 750 M: 84% of the unseen clips, against 88.7 for `failure`, 88.9 for `gain` and 83.4
     for `sampling`. The segments that end under 0.3 in every finished run are now 1.1% of the library.
+- 2026-11-14, 13:05. Second seeds of the baselines on the library, `amass/hybrid_s0`, and `rollout_s0` to 1500 M:
+  - Unseen clips at 2000 M: `sampling_s1` 89.4 (seed 0: 88.9), `uniform_s1` 85.6 (85.8), against 93.2 and 94.0
+    for `gain`. Final policies on fresh starts, unseen clips, clean and pushed: `sampling_s1` 89.2 and 62.0,
+    `uniform_s1` 85.3 and 61.6. The lead of the evaluation worlds is 4 to 5 points over the task's sampling and
+    8 over uniform starts on two seeds of each.
+  - `amass/hybrid_s0` (`gain` for the segment, `--within 0.5`): 94.2% of the unseen clips at 2000 M; final
+    policy 95.6 and 93.8 on the training segments and the unseen clips, 62.6 and 59.2 pushed. Level with `gain`
+    alone, so the starts inside the segment that help the get-up clips of LAFAN1 cost nothing here. One seed.
+  - `amass/rollout_s0` on the unseen clips at 1000 and 1500 M: 87.4 and 88.8, against 90.6 and 92.1 for
+    `failure` on the evaluation worlds and 85.3 and 87.6 for `sampling`. It stays between the two, 3 points
+    under the evaluation worlds. At 1000 M it has 11% of the training worlds on the segments under 0.95, where
+    `failure` has 42%: the failure rates of the training worlds separate the segments less.
