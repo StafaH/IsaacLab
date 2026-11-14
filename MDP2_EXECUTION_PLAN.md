@@ -765,3 +765,29 @@ result); CoRL 2027 not announced (28 May in 2026).
     the root. `segments/local_s0` checks it on the curated clips. Still open for the hardware: the control rate of
     30 Hz, randomisation of friction, masses and gains, noise on the observations, and the hands (the asset has
     hands that the policy does not move; their mass is to be randomised).
+- 2026-11-14, early. A large library for the segments, and the batch `fixed`:
+  - AMASS, with the owner's agreement for research use. The clips come retargeted to the G1 with 29 joints from
+    the dataset `fleaven/Retargeted_AMASS_for_robotics` (17,717 files: root position, root quaternion and joints
+    per frame, at the frame rate in the name of the file). They carry the AMASS licence (non-commercial research,
+    no redistribution) and stay under the ignored `runs/data/`, like the LAFAN1 clips. Three scripts there prepare
+    them: `download_amass.py`, `convert_amass.py` (resample to 30 Hz, add the height of the standing pelvis, drop
+    clips under 3 s, split by clip into 96% training, 2% validation and 2% unseen) and `align_amass.py` (shift a
+    clip so that the lowest 5% of its body heights are at 4 cm; the median shift is 1 cm). The result is
+    `runs/data/amass30/` with `index.json`: 15,674 clips and 58.3 hours, of which 15,057 clips and 55.9 hours
+    train, in 22,305 segments of 10 s.
+  - `--library index.json` (3c7a216b9) makes `train_segments.py` and `evaluate_interfaces.py` read the clips and
+    their splits from such an index. The allocator counts only the segments that an evaluation world has
+    measured, so that a rule does not act on the 20,000 segments that no world has visited yet.
+  - The reset event scanned the weights of all 430,000 bins of the library for every world that resets, which
+    made a step 2.5 times slower. It now finds the block of 512 bins first and the bin inside it (364372189); the
+    starts follow the weights as before (weights 3:1 give 75.7% and 24.3% of the starts), and a run on the library
+    is as fast as a run on LAFAN1 with 13 GB on the GPU.
+  - The policy of the foot fix, trained on LAFAN1 alone, tracks 76% of the starts on 400 AMASS clips (`full`) and
+    33% with pushes.
+  - Batch `amass`, 2000 M each with 2048 evaluation worlds on the segments and 512 on the held-out clips: `gain`,
+    `sampling`, `uniform`, then `failure`. The evaluation worlds visit every segment once per 33 M samples.
+  - Batch `fixed`, seed 0, on the unseen clips (all eight arms; the three learnable pushed arms): uniform 57.2 and
+    49.6, failure rule 58.4 and 52.7, `gain` on validation clips 61.3 and 61.0, pushed arms only 61.6 and 63.6.
+    The order of the batch `robust` holds, with smaller gaps: every split loses pushed success on the fixed task.
+    Lift-offs per second on `full` are 0.18 to 0.35 for the four policies, against 1.36 before the fix.
+  - `video_interfaces.py --clips all` (d203a0290) shows the hard clips.
