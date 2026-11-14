@@ -916,3 +916,15 @@ result); CoRL 2027 not announced (28 May in 2026).
     robustness to pushes.
   - `amass/gainpush_s0` (`--segment_pushed 0.5`) at 1500 M: 89.5% of the clean unseen clips, against 92.3 for
     `gain`. Its success on the training segments counts the pushed ones and is left out of the tables.
+- 2026-11-14, 09:55. The end of the rerun of `amass/failure_s0` and of `amass/gainpush_s0`:
+  - `failure_s0` with the guard ran to 2000 M: 92.8% of the unseen clips, against 93.2 and 94.0 for the seeds of
+    `gain`. Final policy on fresh starts: 94.7 and 92.8 on the training segments and the unseen clips, 56.9 and
+    54.6 pushed, against 60.2 and 58.4 pushed for `gain_s0`. The two rules tie without pushes, and the failure
+    rule loses 4 more points with them. The tables now read this run and not the one that diverged.
+  - `gainpush_s0`, `gain` with half of the evaluation worlds of the segments pushed: 91.8 and 90.8 without
+    pushes, 65.6 and 63.6 with them. Under pushes it is level with `sampling` (62.5) and `uniform` (63.2) on the
+    unseen clips, and without them 3 points over `sampling` (87.7) and 3 under `gain` (93.9). The cost of the
+    rule under pushes is that of what its evaluation worlds measure. One seed: `amass/gainpush_s1` and
+    `segments/gainpush_s0` (LAFAN1) are in the queue, with `amass/rollout_s1`.
+  - `amass/rollout_s0` at 750 M: 84% of the unseen clips, against 88.7 for `failure`, 88.9 for `gain` and 83.4
+    for `sampling`. The segments that end under 0.3 in every finished run are now 1.1% of the library.
