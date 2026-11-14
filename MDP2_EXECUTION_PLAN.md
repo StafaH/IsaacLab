@@ -887,3 +887,15 @@ result); CoRL 2027 not announced (28 May in 2026).
     `sampling` 1%. `sampling90` concentrates the most and learns the least, and `gain` wastes the fewest worlds
     without a gain in success from it here.
   - The runs of the library still in the queue moved to the checkout with 4d88d649b. Added `amass/failure_s1`.
+- 2026-11-14, 07:20. The end of `segments/local_s0` and a baseline for the signal:
+  - `train_segments.py --rollouts` (e5a5479b9) gives the rule the episodes of the training worlds, by the segment
+    in which they start, in place of the evaluation worlds: with `--allocator failure` it is the mining of failed
+    motions of PHC and MaskedMimic at the level of segments. `amass/rollout_s0` runs it. If it ties with
+    `failure` and `gain`, the lead on the library is that of the segments as arms and not of the evaluation
+    worlds.
+  - `segments/local_s0` ended at 99% of the curated segments and 94% of the unseen clips. Its export
+    (`runs/research/hardware/export_all.sh`, `export2000/`) in MuJoCo, 20 episodes of 10 s on walk, dance, run
+    and jumps: 95, 100, 90 and 100% with the armature of training, 100, 90, 95 and 95% with that of the model,
+    95, 90, 100 and 100% with the torques within their limits; 31 to 47 mm of body error, 0.9 to 2.1 m from the
+    end of the clip. `deploy_interfaces.py --mujoco` from rest on the whole clips: the dance to its end (130 s),
+    a fall after 224 s of the walk, 32 s of the run and 90 s of the jumps.
