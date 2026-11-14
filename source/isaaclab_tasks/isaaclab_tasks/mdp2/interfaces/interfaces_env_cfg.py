@@ -41,6 +41,9 @@ def interface_task(
     pushes: dict[str, float] | None = None,
     push_velocity: tuple[float, float, float] = (1.0, 1.0, 0.3),
     push_interval_s: tuple[float, float] = (1.0, 3.0),
+    feet: mdp2.SubsetSelector | None = None,
+    feet_weight: float = 0.0,
+    action_rate_weight: float = 0.03,
 ) -> mdp2.TaskCfg:
     """Return the MDP in which the ``robot`` tracks the clips, told through one of ``interfaces`` per episode.
 
@@ -50,6 +53,11 @@ def interface_task(
 
     The worlds of the interfaces in ``pushes`` are pushed every ``push_interval_s``: their root gets a velocity of up
     to ``push_velocity`` [m/s] along x, y and z, times the value of the interface in ``pushes``.
+
+    With a ``feet_weight``, two rewards of that weight each ask the ``feet`` bodies for the clip's positions and
+    velocities. The tracking rewards average over every body, most of which are fingers, so without them a policy
+    may step where the clip stands still. ``action_rate_weight`` weighs the penalty on the change of the actions:
+    the default is small next to the tracking rewards, and lets the targets of the joints jump from step to step.
     """
     task = tracking_task(motion_files, step_dt, num_bodies, lengths=lengths)
     groups = [*body_groups, *joint_groups]
@@ -127,8 +135,27 @@ def interface_task(
             interval_range_s=push_interval_s,
             params={"velocity_range": (*((-speed, speed) for speed in push_velocity), *(((0.0, 0.0),) * 3))},
         )
+    quantities, rewards = dict(task.quantities), dict(task.rewards)
+    rewards["action_rate_l2"] = replace(rewards["action_rate_l2"], weight=-action_rate_weight)
+    if feet_weight > 0.0:
+        pose = {"body_link_pose_w": robot.body_link_pose_w, "body_ids": feet}
+        quantities["feet_pos_error"] = mdp2.Quantity(tracking.subset_pos_error, inputs={**pose, **clip_body_pos})
+        quantities["feet_vel_error"] = mdp2.Quantity(
+            tracking.subset_vel_error,
+            inputs={**pose, **{name: value for name, value in clip_body_pos.items() if name != "env_origins"}},
+            params={"step_dt": step_dt},
+        )
+        for name, scale in (("feet_pos", 100.0), ("feet_vel", 2.0)):
+            rewards[name] = mdp2.Reward(
+                tracking.exp_kernel,
+                inputs={"value": getattr(mdp2.quantities, f"{name}_error")},
+                params={"scale": scale},
+                weight=feet_weight,
+            )
     return replace(
         task,
+        quantities=quantities,
+        rewards=rewards,
         # Targets for the joints are offsets from the default pose: the policy is not given the clip's pose.
         actions={"joint_pos": mdp2.DirectAction(robot.joint_pos_target, scale=0.25, offset=robot.default_joint_pos)},
         commands={

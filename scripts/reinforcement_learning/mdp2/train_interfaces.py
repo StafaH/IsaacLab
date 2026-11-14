@@ -48,7 +48,14 @@ from ppo import PPO, Agent
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.mdp2.interfaces.allocation import ALP, TSCL, Allocator, RankedScore
-from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import PARENTS, TEST_CLIPS, TRAIN_CLIPS, VAL_CLIPS, arm_names
+from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import (
+    PARENTS,
+    TEST_CLIPS,
+    TRAIN_CLIPS,
+    VAL_CLIPS,
+    arm_names,
+    g1_interfaces_task,
+)
 from isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg import INTERFACE
 from isaaclab_tasks.utils import load_cfg_from_registry
 from isaaclab_tasks.utils.hydra import resolve_presets
@@ -56,6 +63,11 @@ from isaaclab_tasks.utils.hydra import resolve_presets
 parser = argparse.ArgumentParser()
 parser.add_argument("--task", default="Isaac-Interfaces-G1-MDP2")
 parser.add_argument("--push", type=float, default=1.0, help="Scale of the pushes of the pushed worlds")
+parser.add_argument("--feet", type=float, default=0.0, help="Weight of the rewards for the feet; none by default")
+parser.add_argument(
+    "--action_rate", type=float, default=0.03, help="Weight of the penalty on the change of the actions"
+)
+parser.add_argument("--substeps", type=int, default=1, help="Physics steps per physics step of the task")
 parser.add_argument("--num_envs", type=int, default=8192)
 parser.add_argument("--eval_envs", type=int, default=512)
 parser.add_argument("--seed", type=int, default=0)
@@ -108,6 +120,11 @@ def parse_shares(text):
 
 cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
 cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, args.num_envs, args.seed
+# The control rate stays: a finer physics step makes the contacts stiffer, at the cost of more steps.
+cfg.sim.dt, cfg.decimation = cfg.sim.dt / args.substeps, cfg.decimation * args.substeps
+cfg.sim.render_interval = cfg.decimation
+if args.feet > 0.0 or args.action_rate != 0.03:
+    cfg.task = g1_interfaces_task(pushes=cfg.pushes, feet_weight=args.feet, action_rate_weight=args.action_rate)
 NAMES = arm_names(cfg.pushes)
 env = gym.make(TASK, cfg=cfg).unwrapped
 arrays = env.state.arrays

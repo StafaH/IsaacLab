@@ -32,6 +32,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--model", required=True, help="Model or checkpoint of train_interfaces.py")
 parser.add_argument("--task", default="Isaac-Interfaces-G1-MDP2")
 parser.add_argument("--push", type=float, default=1.0, help="Scale of the pushes of the pushed worlds")
+parser.add_argument("--substeps", type=int, default=1, help="Physics steps per physics step of the task")
 parser.add_argument("--num_envs", type=int, default=8192)
 parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--hidden", type=int, nargs="+", default=[1024, 512, 256])
@@ -44,6 +45,8 @@ SPLITS = ("train", "test")
 
 cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
 cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, args.num_envs, args.seed
+cfg.sim.dt, cfg.decimation = cfg.sim.dt / args.substeps, cfg.decimation * args.substeps
+cfg.sim.render_interval = cfg.decimation
 NAMES = arm_names(cfg.pushes)
 env = gym.make(TASK, cfg=cfg).unwrapped
 arrays = env.state.arrays

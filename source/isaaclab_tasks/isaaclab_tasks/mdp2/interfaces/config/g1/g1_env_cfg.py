@@ -101,11 +101,17 @@ def frames(name: str) -> int:
 
 
 def g1_interfaces_task(
-    train: tuple[str, ...] = TRAIN_CLIPS, test: tuple[str, ...] = TEST_CLIPS, pushes: dict[str, float] | None = None
+    train: tuple[str, ...] = TRAIN_CLIPS,
+    test: tuple[str, ...] = TEST_CLIPS,
+    pushes: dict[str, float] | None = None,
+    feet_weight: float = 0.0,
+    action_rate_weight: float = 0.03,
 ) -> mdp2.TaskCfg:
     """Return the MDP that tracks the ``train`` clips through the interfaces, with the ``test`` clips for evaluation.
 
     Every interface exists again per kind in ``pushes``, for worlds whose robot is pushed at the scale of the kind.
+    A ``feet_weight`` adds rewards of that weight for the positions and the velocities of the feet, and
+    ``action_rate_weight`` weighs the penalty on the change of the actions.
     """
     clips = (*train, *test)
     pushes = pushes or {}
@@ -120,6 +126,9 @@ def g1_interfaces_task(
         {name: INTERFACES[names[index % len(INTERFACES)]] for index, name in enumerate(names)},
         train_clips=len(train),
         pushes={f"{name}_{kind}": scale for kind, scale in pushes.items() for name in INTERFACES} or None,
+        feet=BODY_GROUPS["feet"],
+        feet_weight=feet_weight,
+        action_rate_weight=action_rate_weight,
     )
     # The policy moves the 29 joints of the body; the fingers keep their default pose.
     action = replace(task.actions["joint_pos"], subset=robot.joints("(?!.*_hand_).*"))

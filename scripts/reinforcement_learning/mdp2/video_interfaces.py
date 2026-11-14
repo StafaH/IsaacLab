@@ -38,6 +38,7 @@ parser.add_argument("--clip", default=TEST_CLIPS[0])
 parser.add_argument("--frame", type=int, default=0, help="Frame of the clip on which the worlds start")
 parser.add_argument("--interfaces", nargs="+", default=None, help="Interfaces to show; all of the task by default")
 parser.add_argument("--push", type=float, default=1.0, help="Scale of the pushes of the pushed worlds")
+parser.add_argument("--substeps", type=int, default=1, help="Physics steps per physics step of the task")
 parser.add_argument("--seconds", type=float, default=10.0)
 parser.add_argument("--renderer", default="ovrtx", choices=["ovrtx", "newton"])
 parser.add_argument("--light", type=float, nargs=2, default=[250.0, 900.0], help="Intensity of the sky and the sun")
@@ -55,6 +56,8 @@ names = arm_names(cfg.pushes)
 shown = args.interfaces or names
 # The worlds are far apart, so that a tile shows one robot.
 cfg.sim.device, cfg.scene.num_envs, cfg.scene.env_spacing = DEVICE, len(shown), 40.0
+cfg.sim.dt, cfg.decimation = cfg.sim.dt / args.substeps, cfg.decimation * args.substeps
+cfg.sim.render_interval = cfg.decimation
 renderer_cfg = None
 if args.renderer == "ovrtx":
     from isaaclab_ov.renderers import OVRTXRendererCfg

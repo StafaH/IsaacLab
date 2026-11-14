@@ -7,6 +7,15 @@
 
 from .events import reference_frame, reset_to_clips, reset_to_csv_motion, reset_to_failures, reset_to_motion
 from .observations import body_pos_b, reference_body_pos_b, root_height
-from .quantities import body_pos_error, episode_steps, joint_pos_error, joint_vel_error, reference_joint_pos, root_vel_error
+from .quantities import (
+    body_pos_error,
+    episode_steps,
+    joint_pos_error,
+    joint_vel_error,
+    reference_joint_pos,
+    root_vel_error,
+    subset_pos_error,
+    subset_vel_error,
+)
 from .rewards import exp_kernel
 from .terminations import is_above, is_not_finite, motion_ended
