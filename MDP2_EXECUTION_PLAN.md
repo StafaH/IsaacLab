@@ -871,3 +871,19 @@ result); CoRL 2027 not announced (28 May in 2026).
   - `video_interfaces.py --clip <file>` (fe9317e79) shows a clip of the library. Of the 22,305 segments, 16 have a
     competence over 0.99 with `gain` and under 0.2 with the other two; `runs/research/videos/amass.sh` renders one
     for the three policies.
+- 2026-11-14, 06:35. The baselines of the batch `amass` that were missing:
+  - `amass/failure_s0`, the failure rule on the evaluation worlds, ties with `gain` as far as it ran: 81.5, 91.2
+    and 92.4 on the unseen clips at 500, 1000 and 1500 M against 82.2, 91.3 and 92.3. It ended at 1650 M with a
+    reward that is not a number (it started before 4d88d649b) and runs again from zero; the log of the first run
+    is in `runs/research/amass/crashed/` and stands in for the rerun in the report until the rerun is as long.
+  - `amass/sampling90_s0`, failure counts for 90% of the starts, is below 50% of the starts: 74.5 and 80.4 on the
+    unseen clips at 500 and 1000 M against 77.5 and 85.3, level with `uniform` (74.7, 80.3).
+  - `amass/gain_s1` ended at 96.1, 96.7 and 94.0 on the training segments, the validation clips and the unseen
+    clips (seed 0: 95.8, 96.5, 93.2); its final policy tracks 95.0 and 92.6 clean, 61 and 59 pushed.
+  - So the lead on the library is that of the signal, the competence per segment of the evaluation worlds, and
+    not of the rule `gain`. Where the training worlds are at 1000 M (`runs/research/amass_where.py`): on the
+    segments under 0.95, `gain` 30%, `failure` 41%, `sampling` 12%, `sampling90` 50%, `uniform` 4%; on the 1.3%
+    of the segments that end under 0.3 in every finished run, `gain` 2%, `failure` 13%, `sampling90` 9%,
+    `sampling` 1%. `sampling90` concentrates the most and learns the least, and `gain` wastes the fewest worlds
+    without a gain in success from it here.
+  - The runs of the library still in the queue moved to the checkout with 4d88d649b. Added `amass/failure_s1`.
