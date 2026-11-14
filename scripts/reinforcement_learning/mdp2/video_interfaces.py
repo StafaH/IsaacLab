@@ -37,7 +37,7 @@ parser.add_argument("--model", required=True, help="Model or checkpoint of train
 parser.add_argument("--task", default="Isaac-Interfaces-G1-MDP2")
 parser.add_argument("--clips", default="curated", choices=list(CLIP_SETS), help="The training clips")
 parser.add_argument("--local", action="store_true", help="Track without the position of the robot")
-parser.add_argument("--clip", default=TEST_CLIPS[0])
+parser.add_argument("--clip", default=TEST_CLIPS[0], help="Clip of the task, or the path of the file of a clip")
 parser.add_argument("--frame", type=int, default=0, help="Frame of the clip on which the worlds start")
 parser.add_argument("--interfaces", nargs="+", default=None, help="Interfaces to show; all of the task by default")
 parser.add_argument("--push", type=float, default=1.0, help="Scale of the pushes of the pushed worlds")
@@ -52,11 +52,13 @@ parser.add_argument("--out", required=True, help="Path of the MP4")
 args = parser.parse_args()
 
 TASK, DEVICE = args.task, "cuda:0"
-CLIPS = (*CLIP_SETS[args.clips], *TEST_CLIPS)
+# A clip outside the sets of the task, such as a file of a motion library, is given by its path.
+train_clips = CLIP_SETS[args.clips] if args.clip in (*CLIP_SETS[args.clips], *TEST_CLIPS) else (args.clip,)
+CLIPS = (*train_clips, *TEST_CLIPS)
 
 cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
-if args.clips != "curated" or args.local:
-    cfg.task = g1_interfaces_task(train=CLIP_SETS[args.clips], test=TEST_CLIPS, pushes=cfg.pushes, local=args.local)
+if args.clips != "curated" or args.local or train_clips != CLIP_SETS[args.clips]:
+    cfg.task = g1_interfaces_task(train=train_clips, test=TEST_CLIPS, pushes=cfg.pushes, local=args.local)
 names = arm_names(cfg.pushes)
 shown = args.interfaces or names
 # The worlds are far apart, so that a tile shows one robot.
