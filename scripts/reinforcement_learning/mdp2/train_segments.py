@@ -51,6 +51,7 @@ from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import (
     g1_interfaces_task,
 )
 from isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg import INTERFACE
+from isaaclab_tasks.mdp2.tracking.config.g1.g1_env_cfg import ARMATURE
 from isaaclab_tasks.utils import load_cfg_from_registry
 from isaaclab_tasks.utils.hydra import resolve_presets
 
@@ -73,6 +74,7 @@ parser.add_argument("--feet", type=float, default=6.0, help="Weight of the rewar
 parser.add_argument("--substeps", type=int, default=2, help="Physics steps per physics step of the task")
 parser.add_argument("--local", action="store_true", help="Track without the position of the robot")
 parser.add_argument("--randomize", action="store_true", help="Give every world its own robot and noisy measurements")
+parser.add_argument("--armature", action="store_true", help="Give the joints the inertia of the real robot's motors")
 parser.add_argument("--num_envs", type=int, default=9728)
 parser.add_argument("--segment_envs", type=int, default=1536)
 parser.add_argument("--test_envs", type=int, default=512)
@@ -97,6 +99,8 @@ cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selec
 cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, args.num_envs, args.seed
 cfg.sim.dt, cfg.decimation = cfg.sim.dt / args.substeps, cfg.decimation * args.substeps
 cfg.sim.render_interval = cfg.decimation
+if args.armature:
+    cfg.scene.robot.actuators["body"].armature = ARMATURE
 train_clips, test_clips, val_clips = CLIP_SETS[args.clips], TEST_CLIPS, VAL_CLIPS
 if args.library:
     with open(args.library) as file:

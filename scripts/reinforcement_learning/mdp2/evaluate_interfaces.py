@@ -33,6 +33,7 @@ from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import (
     g1_interfaces_task,
 )
 from isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg import INTERFACE
+from isaaclab_tasks.mdp2.tracking.config.g1.g1_env_cfg import ARMATURE
 from isaaclab_tasks.utils import load_cfg_from_registry
 from isaaclab_tasks.utils.hydra import resolve_presets
 
@@ -44,6 +45,7 @@ parser.add_argument("--library", default=None, help="Index file of a library of 
 parser.add_argument("--local", action="store_true", help="Track without the position of the robot")
 parser.add_argument("--push", type=float, default=1.0, help="Scale of the pushes of the pushed worlds")
 parser.add_argument("--substeps", type=int, default=1, help="Physics steps per physics step of the task")
+parser.add_argument("--armature", action="store_true", help="Give the joints the inertia of the real robot's motors")
 parser.add_argument("--num_envs", type=int, default=8192)
 parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--hidden", type=int, nargs="+", default=[1024, 512, 256])
@@ -66,6 +68,8 @@ cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selec
 cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, args.num_envs, args.seed
 cfg.sim.dt, cfg.decimation = cfg.sim.dt / args.substeps, cfg.decimation * args.substeps
 cfg.sim.render_interval = cfg.decimation
+if args.armature:
+    cfg.scene.robot.actuators["body"].armature = ARMATURE
 if args.clips != "curated" or args.local or args.library:
     cfg.task = g1_interfaces_task(train=train_clips, test=test_clips, pushes=cfg.pushes, local=args.local)
 NAMES = arm_names(cfg.pushes)

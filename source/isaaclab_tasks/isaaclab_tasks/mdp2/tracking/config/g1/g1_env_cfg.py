@@ -37,6 +37,23 @@ WINDOWS = {
     "fight": ("fight1_subject2", 300, 300),
 }
 """File, first frame, and number of frames of each clip, at 30 fps."""
+ARMATURE = {
+    ".*_hip_pitch_joint": 0.01017752004,
+    ".*_hip_yaw_joint": 0.01017752004,
+    "waist_yaw_joint": 0.01017752004,
+    ".*_hip_roll_joint": 0.025101925,
+    ".*_knee_joint": 0.025101925,
+    ".*_ankle_.*": 0.00721945,
+    "waist_roll_joint": 0.00721945,
+    "waist_pitch_joint": 0.00721945,
+    ".*_shoulder_.*": 0.003609725,
+    ".*_elbow_joint": 0.003609725,
+    ".*_wrist_roll_joint": 0.003609725,
+    ".*_wrist_pitch_joint": 0.00425,
+    ".*_wrist_yaw_joint": 0.00425,
+}
+"""The inertia of the rotors of the real robot's motors, as its joints feel it [kg m^2]. The asset has none, so a
+task for the real robot sets it as the ``armature`` of the scene's actuators."""
 
 robot = mdp2.Entity("robot")
 
