@@ -24,7 +24,9 @@ training worlds fail, the rest uniformly over the training clips. With ``--alloc
 row: ``gain``, ``failure``, ``progress``, ``headroom`` or ``uniform``. The starts of a segment are spread evenly
 over it, or with ``--within`` a share of them goes where the episodes of the training worlds fail in it: the rule
 says which segment, the failures say where in the segment. A row measures the segments whose evaluation
-episodes ended in it, which are not all of them when there are more segments than evaluation worlds.
+episodes ended in it, which are not all of them when there are more segments than evaluation worlds. With
+``--rollouts`` the rule reads the training worlds instead: the competence of a segment is the share of their frames
+that the episodes started in it track, with exploration noise and from wherever in the segment they start.
 
 The script logs the success and the competence over the segments, of the curated clips and of the hard clips, the
 success on the held-out clips, the share of the training worlds on the hard clips, and at every
@@ -66,6 +68,7 @@ parser.add_argument("--segment_s", type=float, default=10.0, help="Length of a s
 parser.add_argument("--allocator", default=None, choices=["gain", "failure", "progress", "headroom", "uniform"])
 parser.add_argument("--adaptive", type=float, default=0.5, help="Share of the starts where episodes fail")
 parser.add_argument("--within", type=float, default=0.0, help="Share of a segment's starts where episodes fail in it")
+parser.add_argument("--rollouts", action="store_true", help="Give the rule the episodes of the training worlds")
 parser.add_argument("--floor", type=float, default=0.2, help="Share that the segments keep in equal parts")
 parser.add_argument("--fast", type=float, default=0.3, help="Rate of the fast average of the competence")
 parser.add_argument("--slow", type=float, default=0.05, help="Rate of the slow average of the competence")
@@ -149,6 +152,7 @@ for index, (begin, end) in enumerate(clip_range[: len(train_clips)].tolist()):
         target.append(min(episode_frames, end - 2 - first[-1]))
 first, clip = torch.tensor(first, device=DEVICE), torch.tensor(clip, device=DEVICE)
 target = torch.tensor(target, dtype=torch.float32, device=DEVICE)
+last = clip_range[clip, 1] - 2
 S = len(first)
 hard = (clip >= len(TRAIN_CLIPS)) & (args.library is None)
 train_frames = clip_range[len(train_clips) - 1, 1].item()
@@ -240,6 +244,9 @@ alive = torch.zeros(N, device=DEVICE)
 # the frames that they tracked, and how many tracked to the end. Then the last known values of both.
 measured = torch.zeros(3, S, device=DEVICE)
 competence, success = torch.zeros(S, device=DEVICE), torch.zeros(S, device=DEVICE)
+# The same of the episodes of the training worlds, by the segment in which they started, for ``--rollouts``.
+rolled, rollout = torch.zeros(2, S, device=DEVICE), torch.zeros(S, device=DEVICE)
+started = world_start[:T].clone()
 # Of the evaluation worlds on the held-out clips: episodes, episodes tracked to the end, summed distance and steps.
 episodes, completed = torch.zeros(TE, device=DEVICE), torch.zeros(TE, device=DEVICE)
 distance, counted = torch.zeros(TE, device=DEVICE), 0
@@ -266,6 +273,12 @@ for k in range(1, iterations + 1):
         ended = done[segment_worlds]
         tracked = (alive[segment_worlds] / target[current]).clamp(max=1.0) * ended
         measured.index_add_(1, current, torch.stack([ended.float(), tracked, truncated[segment_worlds].float()]))
+        if args.rollouts:
+            segment = segment_of(started)
+            frames = (last[segment] - started).float().clamp(min=1.0, max=episode_frames)
+            ended_train = done[:T].float()
+            rolled.index_add_(1, segment, torch.stack([ended_train, (alive[:T] / frames).clamp(max=1.0) * ended_train]))
+            started = world_start[:T].clone()
         current = torch.where(ended, queued, current)
         queued = torch.where(ended, (cursor + ended.cumsum(0) - 1) % S, queued)
         cursor = (cursor + ended.sum()) % S
@@ -303,8 +316,14 @@ for k in range(1, iterations + 1):
         for value in (episodes, completed, distance):
             value.zero_()
         counted = 0
+        if args.rollouts:
+            seen = rolled[0] > 0.0
+            rollout = torch.where(seen, rolled[1] / rolled[0].clamp(min=1.0), rollout)
+            rolled.zero_()
+            row["rollouts/competence"], row["rollouts/measured"] = rollout.mean().item(), seen.float().mean().item()
         if allocator is not None:
-            shares = allocator.update(competence.cpu().numpy(), measured=seen.cpu().numpy())
+            signal = rollout if args.rollouts else competence
+            shares = allocator.update(signal.cpu().numpy(), measured=seen.cpu().numpy())
             segment_shares = torch.tensor(shares, dtype=torch.float32, device=DEVICE)
             write_shares(segment_shares)
         history.append(row)
