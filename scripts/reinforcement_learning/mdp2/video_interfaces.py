@@ -10,7 +10,8 @@
 
 Every world starts on the same frame of the clip and is told its targets through another interface, so that the
 tiles show what the policy makes of the same motion with less and less information. A world that loses the clip
-starts on that frame again. ``--renderer newton`` draws the tiles with the Newton Warp renderer instead of RTX.
+starts on that frame again. ``--clips all`` adds the hard clips, for a policy of ``train_segments.py``.
+``--renderer newton`` draws the tiles with the Newton Warp renderer instead of RTX.
 """
 
 import argparse
@@ -26,7 +27,7 @@ from isaaclab.app import launch_simulation
 from isaaclab.assets import AssetBaseCfg
 
 import isaaclab_tasks  # noqa: F401
-from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import TEST_CLIPS, TRAIN_CLIPS, arm_names
+from isaaclab_tasks.mdp2.interfaces.config.g1.g1_env_cfg import CLIP_SETS, TEST_CLIPS, arm_names, g1_interfaces_task
 from isaaclab_tasks.mdp2.interfaces.interfaces_env_cfg import INTERFACE
 from isaaclab_tasks.utils import load_cfg_from_registry
 from isaaclab_tasks.utils.hydra import resolve_presets
@@ -34,6 +35,8 @@ from isaaclab_tasks.utils.hydra import resolve_presets
 parser = argparse.ArgumentParser()
 parser.add_argument("--model", required=True, help="Model or checkpoint of train_interfaces.py")
 parser.add_argument("--task", default="Isaac-Interfaces-G1-MDP2")
+parser.add_argument("--clips", default="curated", choices=list(CLIP_SETS), help="The training clips")
+parser.add_argument("--local", action="store_true", help="Track without the position of the robot")
 parser.add_argument("--clip", default=TEST_CLIPS[0])
 parser.add_argument("--frame", type=int, default=0, help="Frame of the clip on which the worlds start")
 parser.add_argument("--interfaces", nargs="+", default=None, help="Interfaces to show; all of the task by default")
@@ -49,9 +52,11 @@ parser.add_argument("--out", required=True, help="Path of the MP4")
 args = parser.parse_args()
 
 TASK, DEVICE = args.task, "cuda:0"
-CLIPS = (*TRAIN_CLIPS, *TEST_CLIPS)
+CLIPS = (*CLIP_SETS[args.clips], *TEST_CLIPS)
 
 cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
+if args.clips != "curated" or args.local:
+    cfg.task = g1_interfaces_task(train=CLIP_SETS[args.clips], test=TEST_CLIPS, pushes=cfg.pushes, local=args.local)
 names = arm_names(cfg.pushes)
 shown = args.interfaces or names
 # The worlds are far apart, so that a tile shows one robot.
