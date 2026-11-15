@@ -997,3 +997,13 @@ result); CoRL 2027 not announced (28 May in 2026).
     57.6, 0.7 and 53.1 pushed. `segments/gainpush_s0` (94.5, 1.4, 88.0; 53.7, 0.0, 50.1) ends where a run
     without the get-up clips ends.
   - Running: `segments/failure_s0`, `segments/curated_gain_s0`, `segments/gain_s1`, `segments/sampling_s1`.
+- 2026-11-14, 21:45. The end of `segments/failure_s0`, the failure rule on the evaluation worlds on LAFAN1, and
+  of `segments/curated_gain_s0`, the gain rule on the curated clips alone:
+  - `failure_s0` on fresh starts: 98.1% of the curated clips, 90.7 of the get-up clips, 81.6 of the unseen
+    clips; 34.2, 38.6 and 34.7 pushed. It learns the get-up clips as the combined scheme does (92.1) and before
+    `gain_s0` (77.9), and it is the lowest row on the unseen clips and under pushes.
+  - `curated_gain_s0`: 96.8, 2.9 and 88.9; 52.8, 0.0 and 46.7 pushed. `curated_s0`: 95.4, 1.4 and 87.8; 57.6, 0.7
+    and 53.1 pushed. Without the get-up clips the gain rule is 1 point over the task's sampling without pushes
+    and 5 to 6 under it with them.
+  - Running: `segments/sampling_s1`, `segments/uniform_s1`, `segments/curated_s1`; `segments/gain_s1` has ended
+    and is not evaluated yet. Then the second seeds of `fixed/`.
