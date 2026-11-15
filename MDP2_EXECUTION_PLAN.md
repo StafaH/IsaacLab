@@ -981,3 +981,7 @@ result); CoRL 2027 not announced (28 May in 2026).
   - The pushes come back, the best row of the table, and the get-up clips are not learned: the pushed copies
     of the other segments keep improving slowly, and the rule ends with 5% of the worlds on the get-up clips,
     against 45% with clean evaluation worlds. On a small library the pushed evaluation worlds are not a fix.
+- 2026-11-14, 17:20. The second seed of the gain rule with pushed evaluation worlds on the library,
+  `amass/gainpush_s1`: 89.9% of the unseen clips and 63.0 pushed on fresh starts (seed 0: 90.8 and 63.6), 91.4
+  and 65.7 on the training segments. With `rollout` at 91.3 and 91.4, 62.7 and 63.8 pushed, the two are level
+  under pushes and the training worlds about 1 point ahead without. `amass/gainpush25_s0` is at 1050 M.
