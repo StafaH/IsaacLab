@@ -1007,3 +1007,7 @@ result); CoRL 2027 not announced (28 May in 2026).
     and 5 to 6 under it with them.
   - Running: `segments/sampling_s1`, `segments/uniform_s1`, `segments/curated_s1`; `segments/gain_s1` has ended
     and is not evaluated yet. Then the second seeds of `fixed/`.
+- 2026-11-14, 21:50. All runs stopped at the owner's request; the investigation is on hold.
+  - Interrupted, with their checkpoints of every 500 M: `segments/uniform_s1` (about 1300 M), `segments/curated_s1`,
+    `fixed/gain_val_s1`, `fixed/uniform_s1`. Left in the queue: `fixed/failure_s1`, `fixed/pushed_s1`.
+  - Ended and not evaluated: `segments/gain_s1`, `segments/sampling_s1`.
