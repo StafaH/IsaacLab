@@ -985,3 +985,15 @@ result); CoRL 2027 not announced (28 May in 2026).
   `amass/gainpush_s1`: 89.9% of the unseen clips and 63.0 pushed on fresh starts (seed 0: 90.8 and 63.6), 91.4
   and 65.7 on the training segments. With `rollout` at 91.3 and 91.4, 62.7 and 63.8 pushed, the two are level
   under pushes and the training worlds about 1 point ahead without. `amass/gainpush25_s0` is at 1050 M.
+- 2026-11-14, 18:55. The end of `amass/gainpush25_s0`, the gain rule with a quarter of the evaluation worlds
+  pushed (`--segment_pushed 0.25`), and of `segments/curated_s0`, the task's sampling on the curated clips alone:
+  - `gainpush25_s0` on fresh starts: 90.5% of the unseen clips and 66.0 pushed, 93.0 and 66.3 on the training
+    segments. Half pushed: 90.8 and 89.9, 63.6 and 63.0 pushed. Clean: 93.9 and 92.6, 58.4 and 59.2 pushed.
+    `rollout`: 91.3 and 91.4, 62.7 and 63.8 pushed.
+  - A quarter pushed does not keep the clean tracking of the clean evaluation worlds: it is where half pushed
+    is without pushes and 2 to 3 points over it and over `rollout` with them, the best pushed row. The
+    evaluation worlds do not pass the training worlds on both. One seed.
+  - `curated_s0` on fresh starts: 95.4% of the curated clips, 1.4 of the get-up clips, 87.8 of the unseen clips;
+    57.6, 0.7 and 53.1 pushed. `segments/gainpush_s0` (94.5, 1.4, 88.0; 53.7, 0.0, 50.1) ends where a run
+    without the get-up clips ends.
+  - Running: `segments/failure_s0`, `segments/curated_gain_s0`, `segments/gain_s1`, `segments/sampling_s1`.
