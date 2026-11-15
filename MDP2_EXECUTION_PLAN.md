@@ -973,3 +973,11 @@ result); CoRL 2027 not announced (28 May in 2026).
   - The trade holds on both seeds: the evaluation worlds are 1.5 points ahead of the training worlds without
     pushes and 8 behind with them. `gain` (93.9 and 92.6; 58.4 and 59.2 pushed) is about 2 ahead and 4.5 behind.
   - Running: `amass/gainpush_s1`, `amass/gainpush25_s0`, `segments/gainpush_s0`, `segments/curated_s0`.
+- 2026-11-14, 16:50. The end of `segments/gainpush_s0`, the gain rule on LAFAN1 with half of the evaluation
+  worlds pushed (`--clips all --allocator gain --segment_pushed 0.5`):
+  - Final policy on fresh starts: 94.5% of the curated clips, 1.4 of the get-up clips, 88.0 of the unseen clips;
+    53.7, 0.0 and 50.1 pushed. `gain_s0`: 97.9, 77.9, 86.5; 41.3, 40.0, 39.6. `sampling_s0`: 97.3, 83.6, 90.4;
+    51.1, 42.9, 46.5.
+  - The pushes come back, the best row of the table, and the get-up clips are not learned: the pushed copies
+    of the other segments keep improving slowly, and the rule ends with 5% of the worlds on the get-up clips,
+    against 45% with clean evaluation worlds. On a small library the pushed evaluation worlds are not a fix.
