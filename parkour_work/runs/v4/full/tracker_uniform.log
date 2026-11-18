@@ -1,0 +1,20 @@
+Serving remote assets from the local cache under '/tmp'. Each copy is checked against the server before use; delete the directory to force a full re-download.
+./.venv/lib/python3.12/site-packages/newton/_src/usd/utils.py:2125: NewtonWarning: Opacity data contains 2772 values; using the first value as the shape opacity.
+  opacity = _coerce_opacity(display_opacity.Get(), warn_on_multiple=True)
+./source/isaaclab_newton/isaaclab_newton/cloner/newton_clone_utils.py:140: FutureWarning: Newton shape color replacement is enabled; this workaround will be deprecated in a future release.
+  replace_newton_builder_shape_colors(builder, stage)
+[INFO] Generating terrains based on curriculum took Last: 0.107443 s
+Finalize builder took: Last: 4.831703 s, Mean: 4.831703 s, Std: 0.000000 s, N: 1
+Initialize solver took: Last: 7.522987 s, Mean: 7.522987 s, Std: 0.000000 s, N: 1
+SETUP obs 693 critic 725 training worlds 8192 evaluation worlds 1680 clips 29x5 tasks 105 learners 1
+Graph capture took: Last: 0.676090 s, Mean: 0.676090 s, Std: 0.000000 s, N: 1
+LOG 500 41M 536s share 1.00 track steps 66 lost 0.97 goal steps 0 success 0.00 eval by rung 0.00 0.00 0.00 0.04 0.00 std 0.27
+LOG 1000 82M 1064s share 1.00 track steps 131 lost 0.82 goal steps 0 success 0.00 eval by rung 0.04 0.04 0.07 0.20 0.00 std 0.22
+LOG 1500 123M 1585s share 1.00 track steps 152 lost 0.74 goal steps 0 success 0.00 eval by rung 0.10 0.09 0.13 0.29 0.01 std 0.19
+LOG 2000 164M 2104s share 1.00 track steps 160 lost 0.69 goal steps 0 success 0.00 eval by rung 0.15 0.13 0.15 0.32 0.01 std 0.17
+LOG 2500 205M 2624s share 1.00 track steps 166 lost 0.66 goal steps 0 success 0.00 eval by rung 0.16 0.14 0.16 0.37 0.01 std 0.16
+LOG 3000 246M 3140s share 1.00 track steps 173 lost 0.61 goal steps 0 success 0.00 eval by rung 0.21 0.18 0.19 0.42 0.02 std 0.15
+LOG 3500 287M 4078s share 1.00 track steps 177 lost 0.59 goal steps 0 success 0.00 eval by rung 0.21 0.19 0.20 0.46 0.02 std 0.15
+LOG 4000 328M 5116s share 1.00 track steps 177 lost 0.59 goal steps 0 success 0.00 eval by rung 0.21 0.19 0.19 0.44 0.02 std 0.14
+LOG 4500 369M 6134s share 1.00 track steps 182 lost 0.56 goal steps 0 success 0.00 eval by rung 0.26 0.23 0.21 0.45 0.03 std 0.14
+LOG 5000 410M 7172s share 1.00 track steps 175 lost 0.59 goal steps 0 success 0.00 eval by rung 0.21 0.20 0.18 0.45 0.02 std 0.14

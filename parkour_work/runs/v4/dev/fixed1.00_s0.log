@@ -1,0 +1,35 @@
+Serving remote assets from the local cache under '/tmp'. Each copy is checked against the server before use; delete the directory to force a full re-download.
+./.venv/lib/python3.12/site-packages/newton/_src/usd/utils.py:2125: NewtonWarning: Opacity data contains 132 values; using the first value as the shape opacity.
+  opacity = _coerce_opacity(display_opacity.Get(), warn_on_multiple=True)
+<scratch> FutureWarning: Newton shape color replacement is enabled; this workaround will be deprecated in a future release.
+  replace_newton_builder_shape_colors(builder, stage)
+[INFO] Generating terrains based on curriculum took Last: 0.004839 s
+Finalize builder took: Last: 5.257668 s, Mean: 5.257668 s, Std: 0.000000 s, N: 1
+Initialize solver took: Last: 4.592523 s, Mean: 4.592523 s, Std: 0.000000 s, N: 1
+SETUP obs 541 critic 725 training worlds 4096 evaluation worlds 320 clips 1x5 tasks 5 learners 1
+Graph capture took: Last: 0.580191 s, Mean: 0.580191 s, Std: 0.000000 s, N: 1
+LOG 100 4M 97s share 1.00 track steps 54 lost 0.96 goal steps 0 success 0.00 eval by rung 0.00 0.00 0.01 0.17 0.00 std 0.30
+LOG 200 8M 190s share 1.00 track steps 103 lost 0.77 goal steps 0 success 0.00 eval by rung 0.12 0.21 0.31 0.65 0.01 std 0.30
+LOG 300 12M 283s share 1.00 track steps 122 lost 0.65 goal steps 0 success 0.00 eval by rung 0.38 0.57 0.71 0.79 0.04 std 0.30
+LOG 400 16M 376s share 1.00 track steps 134 lost 0.59 goal steps 0 success 0.00 eval by rung 0.53 0.78 0.70 0.86 0.07 std 0.30
+LOG 500 20M 469s share 1.00 track steps 143 lost 0.53 goal steps 0 success 0.00 eval by rung 0.71 0.89 0.75 0.93 0.10 std 0.29
+LOG 600 25M 561s share 1.00 track steps 147 lost 0.50 goal steps 0 success 0.00 eval by rung 0.74 0.84 0.82 0.94 0.14 std 0.29
+LOG 700 29M 654s share 1.00 track steps 158 lost 0.44 goal steps 0 success 0.00 eval by rung 0.75 0.94 0.83 0.97 0.13 std 0.28
+LOG 800 33M 746s share 1.00 track steps 162 lost 0.41 goal steps 0 success 0.00 eval by rung 0.79 0.93 0.89 0.95 0.16 std 0.28
+LOG 900 37M 839s share 1.00 track steps 169 lost 0.37 goal steps 0 success 0.00 eval by rung 0.89 0.93 0.91 0.97 0.16 std 0.27
+LOG 1000 41M 931s share 1.00 track steps 172 lost 0.35 goal steps 0 success 0.00 eval by rung 0.88 0.96 0.84 0.99 0.21 std 0.27
+LOG 1100 45M 1023s share 1.00 track steps 177 lost 0.32 goal steps 0 success 0.00 eval by rung 0.86 0.99 0.84 0.97 0.18 std 0.26
+LOG 1200 49M 1114s share 1.00 track steps 181 lost 0.30 goal steps 0 success 0.00 eval by rung 0.93 0.99 0.92 0.98 0.22 std 0.26
+LOG 1300 53M 1207s share 1.00 track steps 184 lost 0.28 goal steps 0 success 0.00 eval by rung 0.91 0.96 0.96 0.99 0.19 std 0.25
+LOG 1400 57M 1299s share 1.00 track steps 185 lost 0.27 goal steps 0 success 0.00 eval by rung 0.95 0.99 0.91 0.97 0.20 std 0.24
+LOG 1500 61M 1391s share 1.00 track steps 187 lost 0.25 goal steps 0 success 0.00 eval by rung 0.95 0.99 0.87 0.98 0.20 std 0.24
+LOG 1600 66M 1484s share 1.00 track steps 191 lost 0.23 goal steps 0 success 0.00 eval by rung 0.94 0.97 0.96 1.00 0.19 std 0.24
+LOG 1700 70M 1576s share 1.00 track steps 190 lost 0.24 goal steps 0 success 0.00 eval by rung 0.91 1.00 0.94 0.99 0.20 std 0.23
+LOG 1800 74M 1670s share 1.00 track steps 191 lost 0.22 goal steps 0 success 0.00 eval by rung 0.91 0.99 0.95 0.99 0.18 std 0.23
+LOG 1900 78M 1763s share 1.00 track steps 195 lost 0.20 goal steps 0 success 0.00 eval by rung 0.92 0.99 0.91 0.98 0.23 std 0.22
+LOG 2000 82M 1856s share 1.00 track steps 196 lost 0.19 goal steps 0 success 0.00 eval by rung 0.95 0.98 0.94 1.00 0.22 std 0.22
+LOG 2100 86M 1950s share 1.00 track steps 199 lost 0.17 goal steps 0 success 0.00 eval by rung 0.97 0.99 0.89 0.99 0.19 std 0.21
+LOG 2200 90M 2043s share 1.00 track steps 200 lost 0.17 goal steps 0 success 0.00 eval by rung 0.97 0.99 0.91 1.00 0.19 std 0.21
+LOG 2300 94M 2137s share 1.00 track steps 199 lost 0.17 goal steps 0 success 0.00 eval by rung 0.97 0.99 0.92 0.99 0.22 std 0.21
+LOG 2400 98M 2218s share 1.00 track steps 196 lost 0.18 goal steps 0 success 0.00 eval by rung 0.85 0.99 0.91 1.00 0.19 std 0.20
+TRAIN 2218.1 s, graphs 1

@@ -1,0 +1,11 @@
+Serving remote assets from the local cache under '/tmp'. Each copy is checked against the server before use; delete the directory to force a full re-download.
+./.venv/lib/python3.12/site-packages/newton/_src/usd/utils.py:2125: NewtonWarning: Opacity data contains 52 values; using the first value as the shape opacity.
+  opacity = _coerce_opacity(display_opacity.Get(), warn_on_multiple=True)
+./source/isaaclab_newton/isaaclab_newton/cloner/newton_clone_utils.py:140: FutureWarning: Newton shape color replacement is enabled; this workaround will be deprecated in a future release.
+  replace_newton_builder_shape_colors(builder, stage)
+[INFO] Generating terrains based on curriculum took Last: 0.001367 s
+Finalize builder took: Last: 1.321922 s, Mean: 1.321922 s, Std: 0.000000 s, N: 1
+Initialize solver took: Last: 1.034112 s, Mean: 1.034112 s, Std: 0.000000 s, N: 1
+SETUP obs 541 critic 725 training worlds 2 evaluation worlds 32 clips 1x1 tasks 1 learners 1
+TRAIN 0.0 s, graphs 0
+Graph capture took: Last: 0.472722 s, Mean: 0.472722 s, Std: 0.000000 s, N: 1

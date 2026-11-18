@@ -1,0 +1,19 @@
+Serving remote assets from the local cache under '/tmp'. Each copy is checked against the server before use; delete the directory to force a full re-download.
+./.venv/lib/python3.12/site-packages/newton/_src/usd/utils.py:2125: NewtonWarning: Opacity data contains 292 values; using the first value as the shape opacity.
+  opacity = _coerce_opacity(display_opacity.Get(), warn_on_multiple=True)
+./source/isaaclab_newton/isaaclab_newton/cloner/newton_clone_utils.py:140: FutureWarning: Newton shape color replacement is enabled; this workaround will be deprecated in a future release.
+  replace_newton_builder_shape_colors(builder, stage)
+[INFO] Generating terrains based on curriculum took Last: 0.012144 s
+Finalize builder took: Last: 1.930628 s, Mean: 1.930628 s, Std: 0.000000 s, N: 1
+Initialize solver took: Last: 2.278790 s, Mean: 2.278790 s, Std: 0.000000 s, N: 1
+SETUP obs 693 critic 725 training worlds 1200 evaluation worlds 360 clips 3x5 tasks 15 learners 1
+Graph capture took: Last: 0.526261 s, Mean: 0.526261 s, Std: 0.000000 s, N: 1
+LOG 500 4M 135s share 1.00 track steps 45 lost 1.00 goal steps 0 success 0.00 eval by rung 0.00 0.00 0.00 0.00 0.00 std 0.28
+LOG 1000 7M 269s share 1.00 track steps 62 lost 1.00 goal steps 0 success 0.00 eval by rung 0.00 0.00 0.00 0.00 0.00 std 0.26
+LOG 1500 11M 402s share 1.00 track steps 71 lost 1.00 goal steps 0 success 0.00 eval by rung 0.00 0.00 0.00 0.00 0.00 std 0.24
+LOG 2000 14M 535s share 1.00 track steps 80 lost 0.99 goal steps 0 success 0.00 eval by rung 0.00 0.00 0.00 0.00 0.00 std 0.23
+LOG 2500 18M 668s share 1.00 track steps 85 lost 0.99 goal steps 0 success 0.00 eval by rung 0.00 0.00 0.00 0.00 0.00 std 0.21
+LOG 3000 22M 801s share 1.00 track steps 94 lost 0.98 goal steps 0 success 0.00 eval by rung 0.00 0.00 0.00 0.01 0.00 std 0.20
+LOG 3500 25M 933s share 1.00 track steps 101 lost 0.97 goal steps 0 success 0.00 eval by rung 0.00 0.00 0.00 0.02 0.00 std 0.19
+LOG 4000 29M 1065s share 1.00 track steps 105 lost 0.96 goal steps 0 success 0.00 eval by rung 0.01 0.00 0.00 0.04 0.00 std 0.18
+TRAIN 1064.8 s, graphs 1

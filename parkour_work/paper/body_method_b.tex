@@ -1,0 +1,50 @@
+\section{Problem and Benchmark}
+\label{sec:benchmark}
+
+\textbf{Robot and simulation.} The robot is the 29-DoF Unitree G1 (34\,kg). The policy sets joint position targets at 30\,Hz for PD controllers; physics runs at 120\,Hz in MuJoCo Warp through Isaac Lab~\cite{isaaclab}. Climbing loads the thighs, forearms, and upper arms, so we use the asset's collision geometry for every link; with the reduced geometry that is common for locomotion, thighs and forearms pass through the box and our tracker does not climb.
+
+\textbf{Clips and terrain.} The terrain clips of OmniRetarget~\cite{omniretarget} show a person, retargeted to the G1, climbing onto and over boxes, each clip at five scales of the box height (0.8 to 1.2). We place the boxes of every clip and scale on a tile of one terrain mesh, so a world is a robot on a tile (Fig.~\ref{fig:system}).
+
+\textbf{Tasks.} In \clipsall{} of the 29 clips the robot stands upright on a box at some point. A \emph{task} is such a clip at one scale: start on the first frame, standing on the ground, and stand on the box where the clip does. This gives \tasksall{} tasks with boxes from 0.38 to 1.14\,m.
+
+\textbf{Success.} An episode lasts as long as the clip takes to reach the goal frame plus two seconds. It \emph{succeeds} if, at its last step, the pelvis is within 0.3\,m of the goal pose in the ground plane and 0.15\,m in height, and is upright. Success therefore requires standing still on the box for the remaining time, not touching it.
+
+\textbf{Evaluation.} We report success from two kinds of starts: the first frame of the clip (\emph{clip start}), and that frame moved by up to 0.5\,m along each ground axis and turned by up to 0.5\,rad (\emph{displaced start}). A tracker can be expected to solve the first and not the second.
+
+\textbf{Observations and actions.} The policy observes the pelvis height and velocity, projected gravity, joint positions and velocities, the positions of the bodies relative to the pelvis, a $2.0\times1.2$\,m height scan around the pelvis, the goal pose relative to the pelvis, and its last action: 541 numbers. It does not observe a clip, a phase, or time. Actions are offsets of 0.5\,rad scale from a standing pose. These observations include quantities a robot must estimate; like most trackers, this is a state-based policy in simulation.
+
+\section{Method}
+\label{sec:method}
+
+\subsection{One task definition, three kinds of worlds}
+
+All worlds share one policy, one observation space, and one terrain. What a world does is set per episode by a few numbers that the learner writes for it: the tile, the frame to start on, the goal frame, the weights of its rewards, and when it ends. A world can therefore change kind at any reset, and the share of each kind is a number the learner may change at any time, per task. The step of all worlds, including the rewards and resets, is recorded once as a GPU graph and replayed.
+
+\textbf{Reference worlds} start on a frame of the task's clip, drawn uniformly up to the goal frame. They receive the tracking reward of~\cite{deepmimic}-style trackers (joint positions and velocities, body positions, root velocity) and end when the bodies are 0.3\,m from the clip on average. In addition, a tracker gives the joint targets it would command in the current state, and the policy's loss adds the squared distance of its mean action to them (Sec.~\ref{sec:tracker}).
+
+\textbf{Goal worlds} receive 20 at the last step of an episode that succeeds, 0.5 per second of survival, and a small penalty for tilt; they end when the pelvis is below 0.3\,m. Half start on a frame of the clip, as above; the other half start on the first frame, displaced as in the evaluation. The first half gives the Boolean a signal before the policy can do the whole task, the second trains what the evaluation asks for.
+
+\textbf{Evaluation worlds} act without exploration noise and give no data to the learner. For every task they start from a ladder of rungs: the clip start, three frames a quarter, a half and three quarters of the way to the goal, and displaced starts. We write $L_\tau$ for the success of task $\tau$ averaged over the four on-clip rungs and $D_\tau$ for its success from displaced starts.
+
+\subsection{A tracker teaches the reference worlds}
+\label{sec:tracker}
+
+A policy that cannot see the clip must recover from its own state which part of the motion comes next. It can learn this from the tracking reward: with reference worlds only, it climbs in two of three runs (Sec.~\ref{sec:cause}). But goal worlds added from the first iteration destroy that learning, as~\cite{wang2026generalizing} report: with an even split and the tracking reward, our policy learns nothing. Hybrid methods answer with a schedule that withholds the goal worlds. We give the reference worlds a stronger signal instead.
+
+We first train a tracker with reference worlds only. It observes the tracked frame, and its action is a correction to the joint positions of that frame, the form of the successors of~\cite{deepmimic}; a policy without a clip cannot share this action space. We then use the tracker as a teacher. In a reference world the teacher is evaluated on the policy's state, as in DAgger~\cite{dagger}, and its joint targets, expressed in the policy's action space, are a regression target for the mean action. The policy still acts and still receives the tracking reward. The teacher costs one extra network evaluation per step and no simulation. With it, an even split works from the first iteration, and the share of reference worlds becomes a question of how fast, which the next section answers, rather than of whether.
+
+\subsection{Credit the cause}
+\label{sec:rule}
+
+Which kind of world should a task get? Section~\ref{sec:cause} measures what each kind causes: reference worlds give success from the frames of the clip and little away from it; goal worlds give success away from the clip, but only once the policy can do the motion; goal worlds without it give nothing. The rule states this as an allocation. Let $T_\tau$ be the success of the teacher on task $\tau$. Reference worlds are wanted where the teacher can show the motion and the policy cannot yet do it, and goal worlds where the policy can do the motion but not away from the clip:
+\begin{align}
+w^{\text{ref}}_\tau &= T_\tau\,(1 - L_\tau), &
+w^{\text{goal}}_\tau &= (L_\tau + \epsilon)\,(1 - D_\tau).
+\end{align}
+The share of reference worlds is $p = \sum_\tau w^{\text{ref}}_\tau / \sum_\tau (w^{\text{ref}}_\tau + w^{\text{goal}}_\tau)$, never below 0.05, and the worlds of a kind are spread over the tasks in proportion to $w$ plus a small floor. $L$ and $D$ are the success rates of the evaluation worlds since the last update, smoothed over updates; we update every 100 iterations. The rule has no schedule and no target: it starts with references, because nothing else can be taught, and moves to goals as the evaluation shows the motion arriving. Without the two gates ($T_\tau$ and $L_\tau+\epsilon$) it reduces to splitting the worlds by the two failure rates, which we also report. We use $\epsilon = 0.1$, and $T_\tau = 1$ in the development experiments, where the teacher solves every task.
+
+\textbf{Measuring instead of modelling.} The rule encodes causes that we measured once. The direct alternative measures them continuously: two learners, each with half of the worlds, train with shares $p+\delta$ and $p-\delta$; every 100 iterations the one whose evaluation worlds succeed more often gives the other its policy, and $p$ moves towards its share. This is an intervention with a control, and we use it to check the direction the rule takes. It costs twice the samples: at our batch size, a learner with half the worlds needs as many samples as one with all of them.
+
+\subsection{Learner}
+
+We use PPO~\cite{ppo} with GAE~\cite{gae}, rollouts of 6 steps of 4{,}096 training worlds, four epochs of four minibatches, an adaptive learning rate, and an asymmetric critic~\cite{pinto2018asymmetric} that also sees the kind of episode, its remaining time, and the tracked frame. The discount is 0.95 in reference worlds and 0.995 in goal worlds. Short rollouts with a high learning-rate ceiling learned markedly faster per sample in our first tests than the settings common for locomotion~\cite{rudin2022minutes}. Advantages are normalised over all worlds, so a kind of world whose rewards have not started yet stays quiet.

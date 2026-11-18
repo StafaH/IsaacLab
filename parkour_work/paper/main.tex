@@ -1,0 +1,45 @@
+\documentclass[conference]{IEEEtran}
+\usepackage{times}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath,amssymb}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=black,citecolor=black,urlcolor=black]{hyperref}
+\input{numbers}
+
+\newcommand{\ours}{\textsc{Credit}}
+
+\begin{document}
+
+\title{Credit the Cause: Evaluation-Driven Allocation of\\Simulated Worlds for Humanoid Box Climbing}
+
+\author{\IEEEauthorblockN{Anonymous Authors}}
+
+% The first figure sits under the title, across both columns.
+\makeatletter
+\let\titleonly\@maketitle
+\renewcommand{\@maketitle}{\titleonly
+  \begin{center}
+  \def\@captype{figure}\setcounter{figure}{0}
+  \includegraphics[width=\textwidth]{figs/teaser.png}
+  \caption{One policy climbs three of its \tasksall{} tasks from starts that the clips do not contain: a 0.95\,m box, two boxes of 0.35 and 0.70\,m, and a 0.72\,m box (six frames over each episode, left to right). The policy observes the robot, a height scan, and the goal pose. It never observes a clip, and its only task reward is one Boolean at the end of the episode.}
+  \label{fig:teaser}
+  \end{center}}
+\makeatother
+
+\maketitle
+
+\begin{abstract}
+\input{abstract}
+\end{abstract}
+
+\IEEEpeerreviewmaketitle
+
+\input{body}
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

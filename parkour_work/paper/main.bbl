@@ -1,0 +1,222 @@
+\begin{thebibliography}{30}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Aphale and Singh(2026)]{scout}
+Siddharth Aphale and Ayushman Singh.
+\newblock {SCOUT}: Per-context reset curricula for sparse-reward reinforcement
+  learning.
+\newblock \emph{arXiv preprint arXiv:2607.26417}, 2026.
+
+\bibitem[Bauza et~al.(2024)Bauza, Chen, Dalibard, Gileadi, Hafner, Martins,
+  Moore, Pevceviciute, Laurens, Rao, et~al.]{demostart}
+Maria Bauza, Jose~Enrique Chen, Valentin Dalibard, Nimrod Gileadi, Roland
+  Hafner, Murilo~F. Martins, Joss Moore, Rugile Pevceviciute, Antoine Laurens,
+  Dushyant Rao, et~al.
+\newblock {DemoStart}: Demonstration-led auto-curriculum applied to sim-to-real
+  with multi-fingered robots.
+\newblock \emph{arXiv preprint arXiv:2409.06613}, 2024.
+
+\bibitem[Cheng et~al.(2024)Cheng, Shi, Agarwal, and Pathak]{cheng2024extreme}
+Xuxin Cheng, Kexin Shi, Ananye Agarwal, and Deepak Pathak.
+\newblock Extreme parkour with legged robots.
+\newblock In \emph{IEEE International Conference on Robotics and Automation},
+  2024.
+
+\bibitem[Ecoffet et~al.(2021)Ecoffet, Huizinga, Lehman, Stanley, and
+  Clune]{goexplore}
+Adrien Ecoffet, Joost Huizinga, Joel Lehman, Kenneth~O. Stanley, and Jeff
+  Clune.
+\newblock First return, then explore.
+\newblock \emph{Nature}, 590:\penalty0 580--586, 2021.
+
+\bibitem[Escontrela et~al.(2022)Escontrela, Peng, Yu, Zhang, Iscen, Goldberg,
+  and Abbeel]{amphardware}
+Alejandro Escontrela, Xue~Bin Peng, Wenhao Yu, Tingnan Zhang, Atil Iscen, Ken
+  Goldberg, and Pieter Abbeel.
+\newblock Adversarial motion priors make good substitutes for complex reward
+  functions.
+\newblock In \emph{IEEE/RSJ International Conference on Intelligent Robots and
+  Systems}, 2022.
+
+\bibitem[Florensa et~al.(2017)Florensa, Held, Wulfmeier, Zhang, and
+  Abbeel]{florensa2017reverse}
+Carlos Florensa, David Held, Markus Wulfmeier, Michael Zhang, and Pieter
+  Abbeel.
+\newblock Reverse curriculum generation for reinforcement learning.
+\newblock In \emph{Conference on Robot Learning}, 2017.
+
+\bibitem[Graves et~al.(2017)Graves, Bellemare, Menick, Munos, and
+  Kavukcuoglu]{graves2017automated}
+Alex Graves, Marc~G. Bellemare, Jacob Menick, R{\'e}mi Munos, and Koray
+  Kavukcuoglu.
+\newblock Automated curriculum learning for neural networks.
+\newblock In \emph{International Conference on Machine Learning}, 2017.
+
+\bibitem[He et~al.(2024)He, Xiao, Lin, Luo, Xu, Jiang, Kautz, Liu, Shi, Wang,
+  Fan, and Zhu]{hover}
+Tairan He, Wenli Xiao, Toru Lin, Zhengyi Luo, Zhenjia Xu, Zhenyu Jiang, Jan
+  Kautz, Changliu Liu, Guanya Shi, Xiaolong Wang, Linxi Fan, and Yuke Zhu.
+\newblock {HOVER}: Versatile neural whole-body controller for humanoid robots.
+\newblock \emph{arXiv preprint arXiv:2410.21229}, 2024.
+
+\bibitem[Hoeller et~al.(2024)Hoeller, Rudin, Sako, and
+  Hutter]{hoeller2024anymal}
+David Hoeller, Nikita Rudin, Dhionis Sako, and Marco Hutter.
+\newblock {ANYmal} parkour: Learning agile navigation for quadrupedal robots.
+\newblock \emph{Science Robotics}, 9\penalty0 (88), 2024.
+
+\bibitem[Jaderberg et~al.(2017)Jaderberg, Dalibard, Osindero, Czarnecki,
+  Donahue, Razavi, Vinyals, Green, Dunning, Simonyan, Fernando, and
+  Kavukcuoglu]{pbt}
+Max Jaderberg, Valentin Dalibard, Simon Osindero, Wojciech~M. Czarnecki, Jeff
+  Donahue, Ali Razavi, Oriol Vinyals, Tim Green, Iain Dunning, Karen Simonyan,
+  Chrisantha Fernando, and Koray Kavukcuoglu.
+\newblock Population based training of neural networks.
+\newblock \emph{arXiv preprint arXiv:1711.09846}, 2017.
+
+\bibitem[Li et~al.(2026)Li, Li, and Hutter]{lpacrl}
+Ziming Li, Chenhao Li, and Marco Hutter.
+\newblock Scaling rough terrain locomotion with automatic curriculum
+  reinforcement learning.
+\newblock \emph{arXiv preprint arXiv:2601.17428}, 2026.
+
+\bibitem[Liao et~al.(2025)Liao, Truong, Huang, Gao, Tevet, Sreenath, and
+  Liu]{beyondmimic}
+Qiayuan Liao, Takara~E. Truong, Xiaoyu Huang, Yuman Gao, Guy Tevet, Koushil
+  Sreenath, and C.~Karen Liu.
+\newblock {BeyondMimic}: From motion tracking to versatile humanoid control via
+  guided diffusion.
+\newblock \emph{arXiv preprint arXiv:2508.08241}, 2025.
+
+\bibitem[Mittal et~al.(2025)Mittal, Roth, Tigue, Richard, Zhang, Du,
+  Serrano-Mu{\~n}oz, Yao, Zurbr{\"u}gg, Rudin, et~al.]{isaaclab}
+Mayank Mittal, Pascal Roth, James Tigue, Antoine Richard, Octi Zhang, Peter Du,
+  Antonio Serrano-Mu{\~n}oz, Xinjie Yao, Ren{\'e} Zurbr{\"u}gg, Nikita Rudin,
+  et~al.
+\newblock {Isaac Lab}: A {GPU}-accelerated simulation framework for multi-modal
+  robot learning.
+\newblock \emph{arXiv preprint arXiv:2511.04831}, 2025.
+
+\bibitem[Peng et~al.(2018)Peng, Abbeel, Levine, and van~de Panne]{deepmimic}
+Xue~Bin Peng, Pieter Abbeel, Sergey Levine, and Michiel van~de Panne.
+\newblock {DeepMimic}: Example-guided deep reinforcement learning of
+  physics-based character skills.
+\newblock \emph{ACM Transactions on Graphics}, 37\penalty0 (4), 2018.
+
+\bibitem[Peng et~al.(2021)Peng, Ma, Abbeel, Levine, and Kanazawa]{amp}
+Xue~Bin Peng, Ze~Ma, Pieter Abbeel, Sergey Levine, and Angjoo Kanazawa.
+\newblock {AMP}: Adversarial motion priors for stylized physics-based character
+  control.
+\newblock \emph{ACM Transactions on Graphics}, 40\penalty0 (4), 2021.
+
+\bibitem[Pinto et~al.(2018)Pinto, Andrychowicz, Welinder, Zaremba, and
+  Abbeel]{pinto2018asymmetric}
+Lerrel Pinto, Marcin Andrychowicz, Peter Welinder, Wojciech Zaremba, and Pieter
+  Abbeel.
+\newblock Asymmetric actor critic for image-based robot learning.
+\newblock In \emph{Robotics: Science and Systems}, 2018.
+
+\bibitem[Ross et~al.(2011)Ross, Gordon, and Bagnell]{dagger}
+St{\'e}phane Ross, Geoffrey Gordon, and Drew Bagnell.
+\newblock A reduction of imitation learning and structured prediction to
+  no-regret online learning.
+\newblock In \emph{International Conference on Artificial Intelligence and
+  Statistics}, 2011.
+
+\bibitem[Rudin et~al.(2022)Rudin, Hoeller, Reist, and Hutter]{rudin2022minutes}
+Nikita Rudin, David Hoeller, Philipp Reist, and Marco Hutter.
+\newblock Learning to walk in minutes using massively parallel deep
+  reinforcement learning.
+\newblock In \emph{Conference on Robot Learning}, 2022.
+
+\bibitem[Schulman et~al.(2016)Schulman, Moritz, Levine, Jordan, and
+  Abbeel]{gae}
+John Schulman, Philipp Moritz, Sergey Levine, Michael Jordan, and Pieter
+  Abbeel.
+\newblock High-dimensional continuous control using generalized advantage
+  estimation.
+\newblock In \emph{International Conference on Learning Representations}, 2016.
+
+\bibitem[Schulman et~al.(2017)Schulman, Wolski, Dhariwal, Radford, and
+  Klimov]{ppo}
+John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov.
+\newblock Proximal policy optimization algorithms.
+\newblock \emph{arXiv preprint arXiv:1707.06347}, 2017.
+
+\bibitem[Sleiman et~al.(2026)Sleiman, Li, Adu-Bredu, Deits, Kumar, Bergamin,
+  et~al.]{zest}
+Jean~Pierre Sleiman, He~Li, Alphonsus Adu-Bredu, Robin Deits, Arun Kumar, Kevin
+  Bergamin, et~al.
+\newblock {ZEST}: Zero-shot embodied skill transfer for athletic robot control.
+\newblock \emph{arXiv preprint arXiv:2602.00401}, 2026.
+
+\bibitem[Tessler et~al.(2024)Tessler, Guo, Nabati, Chechik, and
+  Peng]{maskedmimic}
+Chen Tessler, Yunrong Guo, Ofir Nabati, Gal Chechik, and Xue~Bin Peng.
+\newblock {MaskedMimic}: Unified physics-based character control through masked
+  motion inpainting.
+\newblock \emph{ACM Transactions on Graphics}, 2024.
+
+\bibitem[Wang et~al.(2025)Wang, Jiang, Zhang, Tessler, Rempe, Hodgins, and
+  Peng]{hil}
+Jiashun Wang, Yifeng Jiang, Haotian Zhang, Chen Tessler, Davis Rempe, Jessica
+  Hodgins, and Xue~Bin Peng.
+\newblock {HIL}: Hybrid imitation learning for dynamic athletic control.
+\newblock \emph{arXiv preprint arXiv:2505.12619}, 2025.
+
+\bibitem[Wang et~al.(2026)Wang, Mungai, Li, Sleiman, Hodgins, and
+  Farshidian]{wang2026generalizing}
+Jiashun Wang, M.~Eva Mungai, He~Li, Jean~Pierre Sleiman, Jessica Hodgins, and
+  Farbod Farshidian.
+\newblock Generalizing from references using a multi-task reference and
+  goal-driven {RL} framework.
+\newblock In \emph{Robotics: Science and Systems}, 2026.
+\newblock arXiv:2602.20375.
+
+\bibitem[Wen et~al.(2025)Wen, Li, He, and Hutter]{consmimic}
+Kehan Wen, Chenhao Li, Junzhe He, and Marco Hutter.
+\newblock Constrained style learning from imperfect demonstrations under task
+  optimality.
+\newblock \emph{arXiv preprint arXiv:2507.09371}, 2025.
+
+\bibitem[Yang et~al.(2025)Yang, Huang, Wu, Kanazawa, Abbeel, Sferrazza, Liu,
+  Duan, and Shi]{omniretarget}
+Lujie Yang, Xiaoyu Huang, Zhen Wu, Angjoo Kanazawa, Pieter Abbeel, Carmelo
+  Sferrazza, C.~Karen Liu, Rocky Duan, and Guanya Shi.
+\newblock {OmniRetarget}: Interaction-preserving data generation for humanoid
+  whole-body loco-manipulation and scene interaction.
+\newblock \emph{arXiv preprint arXiv:2509.26633}, 2025.
+
+\bibitem[Yin et~al.(2026)Yin, Westenbroek, Zhang, Tran, Dagnino, Shilamkar,
+  et~al.]{omnireset}
+Patrick Yin, Tyler Westenbroek, Z.~Zhang, J.~Tran, Ignacio Dagnino,
+  E.~Shilamkar, et~al.
+\newblock Emergent dexterity via diverse resets and large-scale reinforcement
+  learning.
+\newblock \emph{arXiv preprint arXiv:2603.15789}, 2026.
+
+\bibitem[Zhang et~al.(2026)Zhang, Guaman~Castro, Yin, Dagnino, Gupta, Scalise,
+  and Boots]{sgs}
+Octi Zhang, Mateo Guaman~Castro, Patrick Yin, Ignacio Dagnino, Abhishek Gupta,
+  Rosario Scalise, and Byron Boots.
+\newblock A balanced data diet: Addressing the exploration bottleneck in
+  mega-scale {RL} for robot control.
+\newblock \emph{arXiv preprint arXiv:2610.12465}, 2026.
+
+\bibitem[Zhuang et~al.(2023)Zhuang, Fu, Wang, Atkeson, Schwertfeger, Finn, and
+  Zhao]{zhuang2023robot}
+Ziwen Zhuang, Zipeng Fu, Jianren Wang, Christopher Atkeson, S{\"o}ren
+  Schwertfeger, Chelsea Finn, and Hang Zhao.
+\newblock Robot parkour learning.
+\newblock In \emph{Conference on Robot Learning}, 2023.
+
+\bibitem[Zhuang et~al.(2024)Zhuang, Yao, and Zhao]{zhuang2024humanoid}
+Ziwen Zhuang, Shenzhe Yao, and Hang Zhao.
+\newblock Humanoid parkour learning.
+\newblock In \emph{Conference on Robot Learning}, 2024.
+
+\end{thebibliography}

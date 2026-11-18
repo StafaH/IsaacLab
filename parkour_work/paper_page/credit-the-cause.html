@@ -1,0 +1,277 @@
+<title>Credit the Cause</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=STIX+Two+Text:wght@500;600&display=swap">
+<style>
+  /* Layout: a reading desk. A narrow column introduces the paper, then its eight sheets lie on a cool grey desk with an index to jump between them. */
+  :root {
+    --desk: #e8ecf0;
+    --sheet: #ffffff;
+    --ink: #16202b;
+    --ink-soft: #536170;
+    --rule: #c6cfd8;
+    --accent: #0b5f8f;
+    --sheet-shadow: 0 1px 2px rgba(22, 32, 43, 0.10), 0 8px 24px rgba(22, 32, 43, 0.08);
+    --sheet-dim: 1;
+    --display: "STIX Two Text", "Times New Roman", Times, serif;
+    --text: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --desk: #11161b;
+      --sheet: #1a2129;
+      --ink: #e6ebf0;
+      --ink-soft: #9aa8b5;
+      --rule: #2f3a45;
+      --accent: #6bb8e8;
+      --sheet-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.35);
+      --sheet-dim: 0.9;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --desk: #11161b;
+    --sheet: #1a2129;
+    --ink: #e6ebf0;
+    --ink-soft: #9aa8b5;
+    --rule: #2f3a45;
+    --accent: #6bb8e8;
+    --sheet-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.35);
+    --sheet-dim: 0.9;
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--desk);
+    color: var(--ink);
+    font-family: var(--text);
+    font-size: 1rem;
+    line-height: 1.6;
+  }
+  .wrap {
+    max-width: 60rem;
+    margin: 0 auto;
+    padding-block: 3rem 4rem;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: flex;
+    flex-direction: column;
+    gap: 3.5rem;
+  }
+  a { color: var(--accent); text-underline-offset: 0.15em; }
+  a:focus-visible, video:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  p, h1, h2, dl, dd, figure { margin: 0; }
+
+  .intro { display: flex; flex-direction: column; gap: 1.1rem; max-width: 42rem; }
+  .eyebrow {
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  h1 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: clamp(2.2rem, 6vw, 3.4rem);
+    line-height: 1.05;
+    text-wrap: balance;
+  }
+  .subtitle {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: clamp(1.15rem, 2.6vw, 1.45rem);
+    line-height: 1.3;
+    color: var(--ink-soft);
+    text-wrap: balance;
+  }
+  .lede { max-width: 65ch; }
+  .note {
+    max-width: 65ch;
+    font-size: 0.92rem;
+    color: var(--ink-soft);
+    border-top: 1px solid var(--rule);
+    padding-top: 1rem;
+  }
+  .note strong { color: var(--ink); font-weight: 600; }
+
+  .figures {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 1.5rem 2rem;
+    border-top: 1px solid var(--rule);
+    padding-top: 1.25rem;
+  }
+  .figures div { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+  .figures dt {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 1.9rem;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  .figures dd { font-size: 0.86rem; line-height: 1.45; color: var(--ink-soft); }
+
+  section { display: flex; flex-direction: column; gap: 1.25rem; }
+  h2 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 1.5rem;
+    line-height: 1.2;
+  }
+  .section-lede { max-width: 65ch; color: var(--ink-soft); font-size: 0.95rem; }
+
+  .videos {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1.5rem;
+  }
+  .videos figure { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
+  .videos video {
+    width: 100%;
+    max-width: 100%;
+    aspect-ratio: 1 / 1;
+    display: block;
+    background: var(--sheet);
+    border: 1px solid var(--rule);
+  }
+  figcaption { font-size: 0.86rem; line-height: 1.45; color: var(--ink-soft); }
+  figcaption strong { color: var(--ink); font-weight: 600; }
+
+  .index {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: 0.35rem 1.5rem;
+    list-style: none;
+    margin: 0;
+    padding: 1rem 0 0;
+    border-top: 1px solid var(--rule);
+    font-size: 0.9rem;
+  }
+  .index li { display: flex; gap: 0.6rem; min-width: 0; }
+  .index .n { color: var(--ink-soft); font-variant-numeric: tabular-nums; flex: none; width: 1.2rem; }
+
+  .sheets { display: flex; flex-direction: column; gap: 2rem; }
+  .sheet { display: flex; flex-direction: column; gap: 0.5rem; scroll-margin-top: 1rem; }
+  .sheet img {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    background: #ffffff;
+    border: 1px solid var(--rule);
+    box-shadow: var(--sheet-shadow);
+    filter: brightness(var(--sheet-dim));
+  }
+  .sheet figcaption { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+
+  footer {
+    font-size: 0.86rem;
+    color: var(--ink-soft);
+    border-top: 1px solid var(--rule);
+    padding-top: 1rem;
+    max-width: 65ch;
+  }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; overflow-wrap: anywhere; }
+</style>
+
+<div class="wrap">
+  <header class="intro">
+    <p class="eyebrow">Paper draft · 14 November 2026 · 8 pages</p>
+    <h1>Credit the Cause</h1>
+    <p class="subtitle">Evaluation-driven allocation of simulated worlds for humanoid box climbing</p>
+    <p class="lede">A Unitree G1 learns to climb boxes of 0.38 to 1.14 m from public motion clips. Some simulated worlds imitate a tracker, others give one Boolean reward for standing on the box, and a rule that reads evaluation worlds inside the same simulation decides how many of each to run. The policy never observes a clip.</p>
+
+    <dl class="figures">
+      <div>
+        <dt>22 M</dt>
+        <dd>samples until success from displaced starts holds at 0.8, in each of three seeds. The best hand-set share needs 37 M.</dd>
+      </div>
+      <div>
+        <dt>0.89 / 0.86</dt>
+        <dd>success from clip starts and from displaced starts over 105 tasks, mean of two seeds. The tracker that teaches the policy reaches 0.52 / 0.17.</dd>
+      </div>
+      <div>
+        <dt>39 to 41</dt>
+        <dd>tasks the policy solves and its teacher does not, over two seeds. None the other way.</dd>
+      </div>
+      <div>
+        <dt>80 s</dt>
+        <dd>of training on one GPU until the one-clip policy holds 0.8 from displaced starts.</dd>
+      </div>
+    </dl>
+
+    <p class="note"><strong>Read these with care.</strong> Every result is from simulation, without domain randomisation, with a policy that observes state a robot would have to estimate. The 105-task policy has two seeds and a third is training; its tracker, the even mix and the held-out runs are one seed each. The numbers, what failed and the open decisions are in the <a href="https://claude.ai/artifact/5zPscwHRhTpC43a9euG1Es">results report</a>.</p>
+  </header>
+
+  <section id="videos">
+    <h2>The policy in simulation</h2>
+    <p class="section-lede">Each tile is one simulated world. Episodes start away from the clip unless the caption says otherwise.</p>
+    <div class="videos">
+      <figure>
+        <video controls muted loop playsinline preload="metadata" poster="media/full_demo.jpg" src="media/full_demo.mp4"></video>
+        <figcaption><strong>One policy, six clips.</strong> The 105-task policy on six of its clips at their original box heights.</figcaption>
+      </figure>
+      <figure>
+        <video controls muted loop playsinline preload="metadata" poster="media/hard_demo.jpg" src="media/hard_demo.mp4"></video>
+        <figcaption><strong>Harder clips.</strong> The same policy on six of the harder clips, among them climbs its tracker never completes.</figcaption>
+      </figure>
+      <figure>
+        <video controls muted loop playsinline preload="metadata" poster="media/student26.jpg" src="media/student26.mp4"></video>
+        <figcaption><strong>One clip, sixteen worlds.</strong> The one-clip policy on a 0.84 m box, from the clip start and from displaced starts.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="paper">
+    <h2>The paper</h2>
+    <ol class="index">
+      <li><span class="n">1</span><a href="#page-1">Abstract and introduction</a></li>
+      <li><span class="n">2</span><a href="#page-2">Related work, problem and benchmark</a></li>
+      <li><span class="n">3</span><a href="#page-3">Method: three kinds of worlds, the rule</a></li>
+      <li><span class="n">4</span><a href="#page-4">What each kind of world causes</a></li>
+      <li><span class="n">5</span><a href="#page-5">The share, and ways to set it</a></li>
+      <li><span class="n">6</span><a href="#page-6">All 105 tasks, held-out tasks, training time</a></li>
+      <li><span class="n">7</span><a href="#page-7">What did not work, limitations, conclusion</a></li>
+      <li><span class="n">8</span><a href="#page-8">References</a></li>
+    </ol>
+
+    <div class="sheets">
+      <figure class="sheet" id="page-1">
+        <img src="pages/p-1.png" width="1275" height="1650" alt="Page 1 of the paper: title, a strip of frames of the robot climbing three boxes, abstract and introduction.">
+        <figcaption><span>Page 1 of 8</span><span>Abstract and introduction</span></figcaption>
+      </figure>
+      <figure class="sheet" id="page-2">
+        <img src="pages/p-2.png" width="1275" height="1650" loading="lazy" alt="Page 2 of the paper: related work, and the problem and benchmark.">
+        <figcaption><span>Page 2 of 8</span><span>Related work, problem and benchmark</span></figcaption>
+      </figure>
+      <figure class="sheet" id="page-3">
+        <img src="pages/p-3.png" width="1275" height="1650" loading="lazy" alt="Page 3 of the paper: a diagram of reference, goal and evaluation worlds sharing one simulation, and the method.">
+        <figcaption><span>Page 3 of 8</span><span>Method</span></figcaption>
+      </figure>
+      <figure class="sheet" id="page-4">
+        <img src="pages/p-4.png" width="1275" height="1650" loading="lazy" alt="Page 4 of the paper: the learner, the experimental setup, and Table I on what each kind of world causes.">
+        <figcaption><span>Page 4 of 8</span><span>What each kind of world causes</span></figcaption>
+      </figure>
+      <figure class="sheet" id="page-5">
+        <img src="pages/p-5.png" width="1275" height="1650" loading="lazy" alt="Page 5 of the paper: the sweep of fixed shares in Fig. 3 and the comparison of schedules in Table II.">
+        <figcaption><span>Page 5 of 8</span><span>The share, and ways to set it</span></figcaption>
+      </figure>
+      <figure class="sheet" id="page-6">
+        <img src="pages/p-6.png" width="1275" height="1650" loading="lazy" alt="Page 6 of the paper: training curves in Figs. 4 to 6, held-out tasks in Table III, and training time.">
+        <figcaption><span>Page 6 of 8</span><span>All 105 tasks, held-out tasks, training time</span></figcaption>
+      </figure>
+      <figure class="sheet" id="page-7">
+        <img src="pages/p-7.png" width="1275" height="1650" loading="lazy" alt="Page 7 of the paper: success on every task in Fig. 7, what did not work, limitations and conclusion.">
+        <figcaption><span>Page 7 of 8</span><span>What did not work, limitations, conclusion</span></figcaption>
+      </figure>
+      <figure class="sheet" id="page-8">
+        <img src="pages/p-8.png" width="1275" height="1650" loading="lazy" alt="Page 8 of the paper: references.">
+        <figcaption><span>Page 8 of 8</span><span>References</span></figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <footer>
+    <p>The LaTeX source, the PDF and the scripts that draw every figure from the run logs are in the repository under <code>runs/parkour/paper/</code>, which git ignores. References 13 and 27 still need checking against their sources.</p>
+  </footer>
+</div>

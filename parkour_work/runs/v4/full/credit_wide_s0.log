@@ -1,0 +1,18 @@
+Serving remote assets from the local cache under '/tmp'. Each copy is checked against the server before use; delete the directory to force a full re-download.
+./.venv/lib/python3.12/site-packages/newton/_src/usd/utils.py:2125: NewtonWarning: Opacity data contains 2772 values; using the first value as the shape opacity.
+  opacity = _coerce_opacity(display_opacity.Get(), warn_on_multiple=True)
+./source/isaaclab_newton/isaaclab_newton/cloner/newton_clone_utils.py:140: FutureWarning: Newton shape color replacement is enabled; this workaround will be deprecated in a future release.
+  replace_newton_builder_shape_colors(builder, stage)
+./source/isaaclab_newton/isaaclab_newton/physics/newton_solver.py:141: NewtonWarning: CollisionPipeline automatically selected 4,606,320 rigid contact slots, requiring approximately 421.7 MiB for the base rigid-contact buffers (96 bytes per slot). Estimate inputs -- world count: 18,064; colliding shapes: 921,264 primitives, 1 meshes/heightfields, and 0 planes; precomputed contact pairs: 921,264; contact weighting: 5 per primitive pair and 40 per mesh-involved pair; pair-estimate average: 5; selected estimate: precomputed pairs. Optional pipeline and solver features may allocate additional memory. Pass rigid_contact_max explicitly to CollisionPipeline to choose the capacity and silence this warning.
+  return CollisionPipeline(self.native.model, **kwargs)
+[INFO] Generating terrains based on curriculum took Last: 0.119132 s
+Finalize builder took: Last: 6.774821 s, Mean: 6.774821 s, Std: 0.000000 s, N: 1
+Initialize solver took: Last: 13.298620 s, Mean: 13.298620 s, Std: 0.000000 s, N: 1
+SETUP obs 541 critic 725 training worlds 16384 evaluation worlds 1680 clips 29x5 tasks 105 learners 1
+Graph capture took: Last: 0.838483 s, Mean: 0.838483 s, Std: 0.000000 s, N: 1
+LOG 500 82M 1013s share 0.72 track steps 79 lost 0.95 goal steps 229 success 0.03 eval by rung 0.00 0.00 0.01 0.04 0.00 std 0.31
+LOG 1000 164M 2067s share 0.55 track steps 121 lost 0.83 goal steps 312 success 0.08 eval by rung 0.02 0.03 0.08 0.24 0.01 std 0.34
+LOG 1500 246M 3118s share 0.45 track steps 133 lost 0.78 goal steps 356 success 0.12 eval by rung 0.07 0.08 0.17 0.39 0.02 std 0.31
+LOG 2000 328M 4167s share 0.35 track steps 151 lost 0.70 goal steps 362 success 0.18 eval by rung 0.15 0.16 0.24 0.48 0.04 std 0.29
+LOG 2500 410M 5204s share 0.29 track steps 167 lost 0.62 goal steps 365 success 0.27 eval by rung 0.26 0.25 0.31 0.54 0.14 std 0.26
+LOG 3000 492M 6240s share 0.25 track steps 177 lost 0.58 goal steps 373 success 0.31 eval by rung 0.32 0.31 0.37 0.58 0.22 std 0.25

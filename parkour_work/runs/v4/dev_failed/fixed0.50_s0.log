@@ -1,0 +1,14 @@
+Serving remote assets from the local cache under '/tmp'. Each copy is checked against the server before use; delete the directory to force a full re-download.
+./.venv/lib/python3.12/site-packages/newton/_src/usd/utils.py:2125: NewtonWarning: Opacity data contains 132 values; using the first value as the shape opacity.
+  opacity = _coerce_opacity(display_opacity.Get(), warn_on_multiple=True)
+<scratch> FutureWarning: Newton shape color replacement is enabled; this workaround will be deprecated in a future release.
+  replace_newton_builder_shape_colors(builder, stage)
+[INFO] Generating terrains based on curriculum took Last: 0.004999 s
+Finalize builder took: Last: 3.209942 s, Mean: 3.209942 s, Std: 0.000000 s, N: 1
+Initialize solver took: Last: 4.746642 s, Mean: 4.746642 s, Std: 0.000000 s, N: 1
+SETUP obs 541 critic 725 training worlds 4096 evaluation worlds 320 clips 1x5 tasks 5 learners 1
+Graph capture took: Last: 0.618609 s, Mean: 0.618609 s, Std: 0.000000 s, N: 1
+LOG 100 4M 103s share 0.50 track steps 47 lost 0.99 goal steps 99 success 0.01 eval by rung 0.00 0.00 0.00 0.04 0.00 std 0.31
+LOG 200 8M 207s share 0.50 track steps 69 lost 0.94 goal steps 178 success 0.03 eval by rung 0.00 0.00 0.00 0.37 0.00 std 0.32
+LOG 300 12M 312s share 0.50 track steps 76 lost 0.89 goal steps 248 success 0.05 eval by rung 0.00 0.00 0.00 0.70 0.00 std 0.33
+LOG 400 16M 418s share 0.50 track steps 82 lost 0.84 goal steps 265 success 0.08 eval by rung 0.00 0.00 0.00 0.85 0.00 std 0.33

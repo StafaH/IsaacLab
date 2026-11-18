@@ -1,0 +1,35 @@
+Serving remote assets from the local cache under '/tmp'. Each copy is checked against the server before use; delete the directory to force a full re-download.
+./.venv/lib/python3.12/site-packages/newton/_src/usd/utils.py:2125: NewtonWarning: Opacity data contains 132 values; using the first value as the shape opacity.
+  opacity = _coerce_opacity(display_opacity.Get(), warn_on_multiple=True)
+<scratch> FutureWarning: Newton shape color replacement is enabled; this workaround will be deprecated in a future release.
+  replace_newton_builder_shape_colors(builder, stage)
+[INFO] Generating terrains based on curriculum took Last: 0.004684 s
+Finalize builder took: Last: 3.125943 s, Mean: 3.125943 s, Std: 0.000000 s, N: 1
+Initialize solver took: Last: 4.847339 s, Mean: 4.847339 s, Std: 0.000000 s, N: 1
+SETUP obs 541 critic 725 training worlds 4096 evaluation worlds 320 clips 1x5 tasks 5 learners 1
+Graph capture took: Last: 0.616345 s, Mean: 0.616345 s, Std: 0.000000 s, N: 1
+LOG 100 4M 105s share 0.25 track steps 42 lost 0.99 goal steps 97 success 0.00 eval by rung 0.00 0.00 0.00 0.00 0.00 std 0.31
+LOG 200 8M 215s share 0.25 track steps 60 lost 0.97 goal steps 224 success 0.01 eval by rung 0.00 0.00 0.00 0.02 0.00 std 0.32
+LOG 300 12M 325s share 0.25 track steps 67 lost 0.95 goal steps 267 success 0.02 eval by rung 0.00 0.00 0.02 0.04 0.00 std 0.32
+LOG 400 16M 433s share 0.25 track steps 76 lost 0.90 goal steps 273 success 0.04 eval by rung 0.00 0.01 0.04 0.26 0.00 std 0.33
+LOG 500 20M 543s share 0.25 track steps 83 lost 0.85 goal steps 272 success 0.06 eval by rung 0.00 0.03 0.13 0.32 0.00 std 0.33
+LOG 600 25M 652s share 0.25 track steps 89 lost 0.82 goal steps 273 success 0.09 eval by rung 0.00 0.13 0.24 0.56 0.00 std 0.32
+LOG 700 29M 761s share 0.25 track steps 92 lost 0.80 goal steps 276 success 0.09 eval by rung 0.03 0.09 0.35 0.64 0.00 std 0.32
+LOG 800 33M 868s share 0.25 track steps 97 lost 0.78 goal steps 275 success 0.10 eval by rung 0.03 0.20 0.34 0.68 0.01 std 0.32
+LOG 900 37M 971s share 0.25 track steps 107 lost 0.72 goal steps 274 success 0.14 eval by rung 0.20 0.27 0.57 0.85 0.03 std 0.32
+LOG 1000 41M 1073s share 0.25 track steps 114 lost 0.68 goal steps 279 success 0.16 eval by rung 0.35 0.40 0.61 0.82 0.08 std 0.32
+LOG 1100 45M 1175s share 0.25 track steps 121 lost 0.64 goal steps 278 success 0.18 eval by rung 0.47 0.52 0.64 0.90 0.06 std 0.31
+LOG 1200 49M 1276s share 0.25 track steps 127 lost 0.61 goal steps 280 success 0.20 eval by rung 0.53 0.70 0.64 0.89 0.10 std 0.31
+LOG 1300 53M 1377s share 0.25 track steps 134 lost 0.59 goal steps 278 success 0.24 eval by rung 0.62 0.73 0.71 0.95 0.19 std 0.30
+LOG 1400 57M 1479s share 0.25 track steps 145 lost 0.52 goal steps 277 success 0.29 eval by rung 0.77 0.88 0.83 0.98 0.32 std 0.30
+LOG 1500 61M 1581s share 0.25 track steps 153 lost 0.46 goal steps 280 success 0.34 eval by rung 0.89 0.89 0.76 0.97 0.36 std 0.29
+LOG 1600 66M 1681s share 0.25 track steps 161 lost 0.41 goal steps 276 success 0.41 eval by rung 0.87 0.89 0.84 0.99 0.49 std 0.29
+LOG 1700 70M 1779s share 0.25 track steps 167 lost 0.38 goal steps 276 success 0.46 eval by rung 0.93 0.94 0.83 0.99 0.55 std 0.29
+LOG 1800 74M 1879s share 0.25 track steps 165 lost 0.40 goal steps 280 success 0.47 eval by rung 0.95 0.94 0.81 0.98 0.57 std 0.29
+LOG 1900 78M 1979s share 0.25 track steps 170 lost 0.35 goal steps 281 success 0.53 eval by rung 0.96 0.95 0.82 0.97 0.64 std 0.28
+LOG 2000 82M 2076s share 0.25 track steps 177 lost 0.31 goal steps 280 success 0.58 eval by rung 0.91 0.93 0.81 1.00 0.68 std 0.28
+LOG 2100 86M 2174s share 0.25 track steps 177 lost 0.32 goal steps 281 success 0.59 eval by rung 0.99 0.96 0.89 1.00 0.73 std 0.27
+LOG 2200 90M 2270s share 0.25 track steps 183 lost 0.28 goal steps 282 success 0.61 eval by rung 0.97 0.99 0.91 0.99 0.71 std 0.27
+LOG 2300 94M 2364s share 0.25 track steps 182 lost 0.27 goal steps 282 success 0.63 eval by rung 0.99 1.00 0.78 0.98 0.76 std 0.27
+LOG 2400 98M 2442s share 0.25 track steps 186 lost 0.25 goal steps 281 success 0.66 eval by rung 0.97 0.97 0.81 0.99 0.73 std 0.26
+TRAIN 2442.5 s, graphs 1

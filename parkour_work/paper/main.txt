@@ -1,0 +1,542 @@
+   Credit the Cause: Evaluation-Driven Allocation of
+    Simulated Worlds for Humanoid Box Climbing
+                                                                 Anonymous Authors
+
+
+
+
+Fig. 1. One policy climbs three of its 105 tasks from starts that the clips do not contain: a 0.95 m box, two boxes of 0.35 and 0.70 m, and a 0.72 m box (six
+frames over each episode, left to right). The policy observes the robot, a height scan, and the goal pose. It never observes a clip, and its only task reward is
+one Boolean at the end of the episode.
+
+
+   Abstract—A tracker makes a humanoid climb a box by following                  only where to end up, so they adapt to where they start, but a
+a clip, but it needs the clip to act and fails when the robot starts             reward that says only “you stand on the box” gives no signal
+elsewhere. A goal-driven policy adapts to its start, but a reward                until the robot stands on the box, and the shaped rewards that
+that only says whether the robot stands on the box teaches nothing.
+Hybrid methods train both objectives in parallel worlds of one                   replace it are engineered per behaviour.
+simulation and set the split between them by hand. We ask instead                    Hybrid methods train both objectives at once, in parallel
+what the worlds of each kind cause, measure it in evaluation                     worlds of one simulation that share a policy [23, 24]. Their
+worlds inside the training simulation, and allocate worlds by it.                results agree on two points. The mixture matters enormously:
+On a Unitree G1 climbing boxes of 0.38 to 1.14 m from public                     with a sparse goal reward, removing the reference worlds takes
+clips, worlds with the Boolean alone learn nothing; worlds that
+imitate a tracker give a policy that never sees a clip the motion,               success on box jumps and climbs from 1.00 to 0.00 [24], and
+but not its use away from the clip; both together give both. The                 adding goal worlds before the policy can follow the references
+share of each kind is a strong, one-sided lever with a moving                    does the same. And the mixture is set by hand: a fixed number
+optimum. A rule that reads only the evaluation worlds sets it                    of samples of tracking followed by an even split [23], or a
+with no schedule and no cost: on one clip at five box heights the                schedule driven by how well the policy tracks [24]. Neither
+policy reaches 0.8 success from displaced starts after 22 million
+samples in each of three seeds, 1.7 times fewer than the best                    measures what the reference worlds do for the goal task, which
+fixed share found by a sweep and 2.0 and 2.4 times fewer than                    is the reason they are there.
+two published hand schedules. One policy trained this way on                         This paper asks what the worlds of each kind cause, measures
+105 tasks succeeds in 0.90 of episodes from the starts of the clips              it inside the training simulation, and allocates worlds by it. We
+and 0.86 from displaced starts, where the tracker that teaches it                call the principle credit the cause: a kind of world receives
+reaches 0.52 and 0.17, and it solves 41 tasks that its teacher does
+not. All results are in simulation.                                              worlds for the failures of the evaluation that it has been
+                                                                                 measured to remove, in the tasks where it is able to remove
+                      I. I NTRODUCTION                                           them. The system has three kinds of worlds (Fig. 2). Reference
+   A humanoid that climbs onto a waist-high box uses its                         worlds start on a frame of a clip and imitate a tracker. Goal
+hands, knees, and shins, in an order that is hard to find by trial               worlds start on a frame of a clip or away from it and receive
+and error and easy to see in a person doing it. Two families                     one Boolean at the end of the episode: whether the robot
+of methods turn that observation into a controller, and each                     stands at the goal. Evaluation worlds run the policy without
+gives up something. Trackers follow a retargeted clip frame                      exploration noise on every task from a fixed ladder of starts
+by frame [12, 14, 21, 26]. They reproduce the motion, but                        and give nothing to the learner. Their Booleans are the only
+they need the clip at deployment and fail when the robot does                    signal the allocation reads.
+not start where the clip does. Goal-driven policies are told                         We study the Unitree G1 climbing onto and over boxes of
+0.38 to 1.14 m, with the clips and boxes of a public dataset [26].       Curricula and samplers. Success Guided Sampling [28]
+The policy we train never sees a clip: it observes the robot,         samples a fixed set of task configurations by their own success
+a height scan of the terrain, and the pose of the goal. Our           rate, with a Boolean terminal reward and resets that reach
+contributions are:                                                    near the goal [27]; it reports that the resets, not the sampling
+   • A measurement of what each kind of world causes. Goal            rule, decide whether hard tasks are learned. Learning-progress
+     worlds alone learn nothing in the budget we tested, not          curricula score a task by the change of its own return [7, 11].
+     even to stand. A tracker reaches the goal from the first         Starts on demonstration states turn a sparse reward into a
+     frame of its clip and almost never from starts half a metre      curriculum [1, 2, 4, 6]. These methods choose among tasks
+     away. Reference worlds alone give a clip-free policy the         or starts of one objective by statistics of the training episodes.
+     motion but not the adaptation. Goal worlds added to them         We allocate between kinds of supervision, and read held-out
+     give both (Sec. V-A).                                            evaluation episodes instead. Population-based training [10]
+   • Evidence that the share of worlds of each kind is a              selects among learners by measured performance; our two trial
+     strong and one-sided lever: with a tenth of the worlds on        learners are its smallest instance, applied to the share of worlds.
+     references nothing is learned, with all of them the policy          Humanoid and legged parkour. Perceptive parkour policies
+     stays tied to the clip, and the best share moves during          are trained with shaped rewards and terrain curricula [3, 9, 29,
+     training (Sec. V-B).                                             30]. Our goal reward is one Boolean, and what the shaped
+   • An allocation rule that reads only the evaluation worlds         terms would provide comes from the clips.
+     and costs nothing. It needs no schedule, and reaches
+                                                                                    III. P ROBLEM AND B ENCHMARK
+     our success levels in 1.7 times fewer samples than the
+     best fixed share found by a sweep and 2.0 to 2.4 times               Robot and simulation. The robot is the 29-DoF Unitree G1
+     fewer than two published hand schedules (Sec. V-C). Two          (34 kg). The policy sets joint position targets at 30 Hz for PD
+     learners that try neighbouring shares in parallel measure        controllers; physics runs at 120 Hz in MuJoCo Warp through
+     the same direction directly, at twice the samples.               Isaac Lab [13]. Climbing loads the thighs, forearms, and upper
+   • One policy for 105 box-climbing tasks from public data.          arms, so we use the asset’s collision geometry for every link;
+     It solves 103 of them from the starts of the clips and 104       with the reduced geometry that is common for locomotion, the
+     from displaced starts, against 62 and one for the tracker        limbs pass through the box and no method climbs.
+     that teaches it, and 41 tasks that the tracker does not solve        Clips and terrain. The terrain clips of OmniRetarget [26]
+     at all (Sec. V-E).                                               show a person, retargeted to the G1, climbing onto and over
+All results are in simulation; we state what we did not test in       boxes, each clip at five scales of the box height (0.8 to 1.2).
+Sec. VII.                                                             We place the boxes of every clip and scale on a tile of one
+                                                                      terrain mesh, so a world is a robot on a tile (Fig. 2).
+                     II. R ELATED W ORK                                   Tasks. In 21 of the 29 clips the robot stands upright on a
+   Tracking and its data. DeepMimic [14] established reward-          box at some point. A task is such a clip at one scale: start
+driven tracking of a reference with starts on its frames. Recent      on the first frame, standing on the ground, and stand on the
+trackers scale it to hardware and to contact-rich skills [12, 21].    box where the clip does. This gives 105 tasks with boxes from
+OmniRetarget [26] generates clips of a G1 on terrain that             0.38 to 1.14 m.
+preserve the contacts of the human, and releases those we use.            Success. An episode lasts as long as the clip takes to reach
+A tracker needs its reference to act. Distillation removes it         the goal frame plus two seconds. It succeeds if, at its last step,
+at deployment by training a student on the tracker’s actions          the pelvis is within 0.3 m of the goal pose in the ground plane
+under a sparser interface [8, 22], the DAgger scheme [17]; the        and 0.15 m in height, and is upright. Success therefore requires
+student is then trained only on what the tracker visits.              standing still on the box for the remaining time, not touching
+   Imitation with goals. Adversarial priors add a style reward        it.
+to a task reward [5, 15]; on a parkour course, starting them              Evaluation. We report success from two kinds of starts: the
+from scratch completes 0.11 of the courses against 0.85 after         first frame of the clip (clip start), and that frame moved by up
+a tracking stage [23]. HIL [23] runs tracking worlds and goal         to 0.5 m along each ground axis and turned by up to 0.5 rad
+worlds in parallel with one observation space, after four billion     (displaced start). A tracker can be expected to solve the first
+samples of tracking alone. Wang et al. [24] train a G1 on box         and not the second.
+jumps and climbs with imitation worlds and goal worlds whose              Observations and actions. The policy observes the pelvis
+reward is sparse, one policy per behaviour; a scalar that follows     height and velocity, projected gravity, joint positions and
+tracking success lowers the share of imitation worlds from 1.0        velocities, the positions of the bodies relative to the pelvis,
+to 0.5 and removes an assistive force. ConsMimic [25] adapts          a 2.0 × 1.2 m height scan around the pelvis, the goal pose
+the weight of a style reward to keep the task return near its best,   relative to the pelvis, and its last action: 541 numbers. It does
+and notes that it cannot tell which parts of the demonstrations       not observe a clip, a phase, or time. Actions are offsets of
+help. We keep the parallel worlds of these methods, supervise         0.5 rad scale from a standing pose. These observations include
+the reference worlds with a tracker instead of a tracking reward      quantities a robot must estimate; like most trackers, this is a
+alone, and set the split from what evaluation worlds measure.         state-based policy in simulation.
+           One simulation: a tile per clip and box height
+            Reference worlds                                                              Policy                              Tracker
+            start on a frame of a clip                                      samples       sees the robot, a targets sees the clip;
+            imitate a tracker's joint targets                                             height scan, and the      trained first, on
+                                                                                          goal; never a clip        reference worlds
+            Goal worlds
+            start on a clip frame, or displaced                              samples
+            one Boolean at the end: stands at the goal                         shares      Credit the cause
+                                                                                        reference worlds where the tracker
+            Evaluation worlds                                             success per
+                                                                                        succeeds and the policy fails on the clip;
+            every task, from a ladder of starts                                         goal worlds where the policy succeeds
+            no noise; no data to the learner                             task and start on the clip and fails away from it
+
+
+Fig. 2. Three kinds of worlds share one simulation and one policy. Reference worlds and goal worlds train it; evaluation worlds measure it on every task, and
+their success rates set how many worlds of each kind every task gets.
+
+
+
+                           IV. M ETHOD                                          from the tracking reward: with reference worlds only, it climbs
+A. One task definition, three kinds of worlds                                   (Sec. V-A). But goal worlds added from the first iteration
+                                                                                destroy that learning, as [24] report: with an even split and the
+    All worlds share one policy, one observation space, and one
+                                                                                tracking reward, our policy learns nothing. Hybrid methods
+terrain. What a world does is set per episode by a few numbers
+                                                                                answer with a schedule that withholds the goal worlds. We
+that the learner writes for it: the tile, the frame to start on, the
+                                                                                give the reference worlds a stronger signal instead.
+goal frame, the weights of its rewards, and when it ends. A
+                                                                                   We first train a tracker with reference worlds only. It observes
+world can therefore change kind at any reset, and the share of
+                                                                                the tracked frame, and its action is a correction to the joint
+each kind is a number the learner may change at any time, per
+                                                                                positions of that frame, the form of the successors of [14];
+task. The step of all worlds, including the rewards and resets,
+                                                                                a policy without a clip cannot share this action space. We
+is recorded once as a GPU graph and replayed.
+                                                                                then use the tracker as a teacher. In a reference world the
+    Reference worlds start on a frame of the task’s clip, drawn
+                                                                                teacher is evaluated on the policy’s state, as in DAgger [17],
+uniformly up to the goal frame. They receive the tracking
+                                                                                and its joint targets, expressed in the policy’s action space, are
+reward of [14]-style trackers (joint positions and velocities,
+                                                                                a regression target for the mean action. The policy still acts
+body positions, root velocity) and end when the bodies are
+                                                                                and still receives the tracking reward. The teacher costs one
+0.3 m from the clip on average. In addition, a tracker gives the
+                                                                                extra network evaluation per step and no simulation. With it,
+joint targets it would command in the current state, and the
+                                                                                an even split works from the first iteration, and the share of
+policy’s loss adds the squared distance of its mean action to
+                                                                                reference worlds becomes a question of how fast, which the
+them (Sec. IV-B).
+    Goal worlds receive 20 at the last step of an episode that                  next section answers, rather than of whether.
+succeeds, 0.5 per second of survival, and a small penalty for                   C. Credit the cause
+tilt; they end when the pelvis is below 0.3 m. Half start on a                     Which kind of world should a task get? Section V-A
+frame of the clip, as above; the other half start on the first                  measures what each kind causes: reference worlds give success
+frame, displaced as in the evaluation. The first half gives the                 from the frames of the clip and little away from it; goal worlds
+Boolean a signal before the policy can do the whole task, the                   give success away from the clip, but only once the policy can
+second trains what the evaluation asks for.                                     do the motion; goal worlds without it give nothing. The rule
+    Evaluation worlds act without exploration noise and give
+                                                                                states this as an allocation. Let Tτ be the success of the teacher
+no data to the learner. For every task they start from a ladder
+                                                                                on task τ . Reference worlds are wanted where the teacher can
+of rungs: the clip start, three frames a quarter, a half and three
+                                                                                show the motion and the policy cannot yet do it, and goal
+quarters of the way to the goal, and displaced starts. We write
+                                                                                worlds where the policy can do the motion but not away from
+Lτ for the success of task τ averaged over the four on-clip
+                                                                                the clip:
+rungs and Dτ for its success from displaced starts.
+B. A tracker teaches the reference worlds                                            wτref = Tτ (1 − Lτ ),wτgoal = (Lτ + ϵ) (1 − Dτ ).    (1)
+                                                                                                                       P ref P          ref
+   A policy that cannot see the clip must recover from its own                  The share of reference worlds is p =      τ wτ /    τ (wτ +
+                                                                                 goal
+state which part of the motion comes next. It can learn this                    wτ ), never below 0.05, and the worlds of a kind are spread
+over the tasks in proportion to w plus a small floor. L and D                                     TABLE I
+are the success rates of the evaluation worlds since the last          W HAT EACH KIND OF WORLD CAUSES : SUCCESS ON THE DEVELOPMENT
+                                                                           TASKS AFTER 59 MILLION SAMPLES ( MEAN OF THREE SEEDS ).
+update, smoothed over updates; we update every 100 iterations.
+The rule has no schedule and no target: it starts with references,     Worlds that train the policy           Clip start      Displaced start
+because nothing else can be taught, and moves to goals as the
+                                                                       Goal worlds only                    0.00 (0.00–0.00)   0.00 (0.00–0.00)
+evaluation shows the motion arriving. Without the two gates            Tracker (observes the clip)              0.84               0.05
+(Tτ and Lτ + ϵ) it reduces to splitting the worlds by the two
+                                                                       Reference worlds, tracking reward   0.59 (0.00–0.93)   0.29 (0.00–0.45)
+failure rates, which we also report.                                   Reference worlds, teacher           0.92 (0.91–0.93)   0.25 (0.24–0.26)
+   Measuring instead of modelling. The rule encodes causes             Both, tracking reward               0.00 (0.00–0.00)   0.00 (0.00–0.00)
+that we measured once. The direct alternative measures them            Both, teacher                       0.98 (0.96–0.99)   0.92 (0.92–0.93)
+continuously: two learners, each with half of the worlds, train
+with shares p + δ and p − δ; every 100 iterations the one whose
+                                                                      starts; it follows the clip where the clip is, not where the robot
+evaluation worlds succeed more often gives the other its policy,
+                                                                      is.
+and p moves towards its share. This is an intervention with a
+                                                                          Reference worlds give the motion to a policy that cannot see
+control, and we use it to check the direction the rule takes. It
+                                                                      the clip. Trained on reference worlds only, the policy reaches
+costs twice the samples: at our batch size, a learner with half
+                                                                      0.92 from the clip start. It has learned which motion belongs
+the worlds needs as many samples as one with all of them.
+                                                                      to which state. From displaced starts it reaches 0.25: more
+D. Learner                                                            than the tracker, because its goal is relative to the robot, and
+                                                                      far from solved.
+   We use PPO [20] with GAE [19], rollouts of 6 steps of
+                                                                          Goal worlds turn the motion into the task. With goal worlds
+4,096 training worlds, four epochs of four minibatches, an
+                                                                      for half of the worlds, success from displaced starts rises to
+adaptive learning rate, and an asymmetric critic [16] that also
+                                                                      0.92 while the clip start stays at 0.98.
+sees the kind of episode, its remaining time, and the tracked
+                                                                          The teacher is what lets the two kinds mix from the start.
+frame. The discount is 0.95 in reference worlds and 0.995 in
+                                                                      With the tracking reward alone, the form of the reference
+goal worlds. Short rollouts with a high learning-rate ceiling
+                                                                      worlds of [23, 24], reference worlds by themselves teach the
+learned several times faster per sample here than the settings
+                                                                      motion in two of three seeds (0.84 and 0.93 from the clip
+common for locomotion [18]. Advantages are normalised over
+                                                                      start; the third learns nothing), and an even split with goal
+all worlds; normalising them per kind of world made goal
+                                                                      worlds learns nothing in any seed: the failure that [24] report
+worlds without any success as loud as reference worlds, and
+                                                                      for mixing without a schedule. With the teacher the even split
+training diverged.
+                                                                      reaches 0.98 and 0.92 in every seed (Sec. IV-B).
+                       V. E XPERIMENTS                                    So the causes are separable and ordered: reference worlds
+                                                                      cause success on the clip, goal worlds cause success away
+   Setup. Development experiments use one clip, a climb onto
+                                                                      from it, and the second needs the first. This is the structure
+a 0.84 m box, at its five box heights (0.67 to 1.01 m): five
+                                                                      the rule of Sec. IV-C assumes.
+tasks. They train 4,096 worlds for 59 million samples with 320
+evaluation worlds on the side, three seeds per setting. Samples       B. The share is a strong and one-sided lever
+count the steps of training worlds; evaluation worlds add 8%             Fig. 3 sweeps a fixed share of reference worlds. With a
+of simulation that we do not count. The tracker that teaches the      share of 0.10 the policy learns nothing in the budget: the goal
+reference worlds is trained once, for 74 million samples, and         worlds, which cannot yet be rewarded, outnumber the worlds
+shared by all settings. “Success holds from n samples” means          that teach. With 0.25 and 0.50 it reaches both success levels.
+that the evaluation success, logged every 2.5 million samples,        With 0.75 it is slow away from the clip, and with 1.00 it stays
+stays at or above the level from n on. All-clip experiments use       tied to the clip. A hand-set share therefore has a cliff on one
+8,192 training worlds and 1,680 evaluation worlds. Everything         side and a slope on the other, and a practitioner finds the safe
+runs on one RTX PRO 6000 GPU.                                         region by a sweep of full training runs.
+A. What each kind of world causes                                     C. Allocation by the evaluation against hand schedules
+   Table I isolates the kinds of worlds on the development               Table II and Fig. 4 compare ways to set the share. All use
+tasks.                                                                the same reference worlds, teacher, and goal worlds.
+   Goal worlds alone learn nothing. With the Boolean, the                Hand schedules. “Two stages” trains reference worlds alone
+survival term, and starts on clip frames up to the one before the     for two thirds of the budget and then an even split, the
+goal, success is 0.00 from every rung in every seed, including        proportions of [23]. “Tracking progress” lowers the share from
+starts where the robot already stands on the box. A humanoid          1.0 to 0.5 in steps while fewer than 30% of the reference
+does not stay upright by chance for the second that separates         episodes lose their clip, in the manner of [24]. Both reach the
+it from the first reward.                                             clip-start level early, because they start with references only,
+   A tracker solves the clip start and nothing else. It succeeds in   and the displaced level late, because they hold goal worlds
+0.84 of episodes from the first frame and 0.05 from displaced         back by a clock or by a statistic of the wrong task.
+                                                                                                                                                     TABLE III
+                                            From the start of the clip             From displaced starts
+Success at the end of training
+                                                                                                                        TASKS HELD OUT OF TRAINING : NO WORLD OF EITHER KIND IS PLACED ON
+                                                                                                                                    THEM . S UCCESS AVERAGED OVER THE TASKS .
+                                 1.00
+                                                                                                                                                             Tasks trained on   Tasks held out
+                                 0.75                                                                                      Held out of training      Tasks   clip displaced     clip displaced
+                                                                                                                           Two of five box heights    42     0.37     0.31      0.40    0.33
+                                 0.50                                                                                      Five of 21 clips           25     0.02     0.01      0.00    0.00
+
+                                 0.25
+                                                                                                                        0.56 at 1.0; the tracker is at 0.23 already at 0.25 and at 0.01
+                                 0.00                                                                                   at 1.0. Fig. 1 shows one such episode.
+                                        0        0.10   0.25     0.50   0.75   1.00
+                                               Fixed share of reference worlds                                          E. All clips, one policy
+                                                                                                                           We train one tracker and then one policy on all 105 tasks,
+            Fig. 3. Success at the end of training for fixed shares of reference worlds.
+            Bars are means of three seeds, dots the seeds.
+                                                                                                                        with 8,192 training worlds. The credit rule now also spreads
+                                                                                                                        the worlds of each kind over the tasks.
+                                         TABLE II                                                                          The tracker. After 590 million samples the tracker succeeds
+           WAYS TO SET THE SHARE OF REFERENCE WORLDS ON THE DEVELOPMENT                                                 from the clip start in 0.52 of episodes averaged over the tasks,
+              TASKS . M EAN OF THREE SEEDS , WITH THE RANGE OF THE SEEDS ;                                              and in 0.17 from displaced starts. It solves 62 of the 105 tasks
+                        “ NEVER ”: NOT WITHIN 59 MILLION SAMPLES .
+                                                                                                                        at 0.5 or better. The tasks it does not solve are mostly the tallest
+                                                Samples (M) until success holds           Success at 59 M               boxes and three clips whose climbs it never completes; a second
+            Share of reference worlds             clip ≥0.9     displaced ≥0.8          clip          displaced
+                                                                                                                        stage of training that concentrated worlds on partly solved tasks
+            Goal worlds only                        never            never        0.00 (0.00–0.00) 0.00 (0.00–0.00)
+                                                                                                                        gained 0.01 per 25 million samples, and we stopped it.
+            Reference worlds taught by a tracker
+            Fixed share 0.10                never                   never         0.00 (0.00–0.00)   0.00 (0.00–0.00)      The policy. Fig. 6 shows the policy trained with the credit
+            Fixed share 0.25             35 (32–39)               38 (34–42)      0.98 (0.97–0.98)   0.95 (0.95–0.96)   rule and this tracker as its teacher. After 590 million samples
+            Fixed share 0.50             26 (25–27)               37 (37–37)      0.98 (0.96–0.99)   0.92 (0.92–0.93)
+            Fixed share 0.75             34 (29–39)                57 [1/3]       0.97 (0.97–0.98)   0.78 (0.73–0.81)   it succeeds in 0.90 of episodes from the clip start and 0.86
+            Fixed share 1.00             50 (47–57)                 never         0.92 (0.91–0.93)   0.25 (0.24–0.26)
+            Two stages [23]              44 (42–47)               53 (52–57)      0.98 (0.97–0.98)   0.85 (0.84–0.87)   from displaced starts, averaged over the tasks, and solves 103
+            Tracking progress [24]       31 (29–32)               43 (42–47)      0.98 (0.97–0.99)   0.91 (0.90–0.91)   and 104 of the 105 tasks at 0.5 or better. The tracker is at 0.52
+            Two trial learners           51 (47–54)               45 (42–49)      0.95 (0.95–0.96)   0.88 (0.86–0.89)
+            Credit rule without gates    25 (22–27)               27 (27–27)      0.98 (0.97–0.99)   0.95 (0.94–0.96)   and 0.17, and at 62 tasks and one. The policy passes the final
+            Credit rule (ours)           22 (17–27)               22 (22–22)      0.98 (0.96–0.99)   0.95 (0.94–0.97)
+                                                                                                                        clip-start success of its teacher after 221 million samples of
+            Reference worlds with the tracking reward only
+            Fixed share 0.50                never                    never        0.00 (0.00–0.00) 0.00 (0.00–0.00)     its own, and the share of reference worlds falls from 0.84 to
+            Fixed share 1.00           54 (52–57) [2/3]              never        0.59 (0.00–0.93) 0.29 (0.00–0.45)     about 0.35 on the way. With an even share and tasks drawn
+                                                                                                                        evenly, the usual setting, the same budget ends at 0.72 and
+                                                                                                                        0.65 with 81 and 69 tasks solved, and the policy needs 344
+             The credit rule reads the evaluation worlds every 100                                                      million samples to reach a mean of 0.5 from the clip start,
+          iterations. It holds 0.8 from displaced starts from 22 million                                                against 221 million with the rule.
+          samples in each of the three seeds. The best fixed share needs                                                   Past the teacher. Fig. 7 shows where. The policy solves 41
+          37 million, the tracking-progress schedule 43, and two stages                                                 tasks from the clip start that its teacher does not, and none
+          53: 1.7, 2.0, and 2.4 times as many. It reaches the clip-start                                                the other way. Among them are all heights of four clips on
+          level as early as any setting, and ends at 0.98 from the clip                                                 which the tracker never completes the climb (0.00 to 0.02 for
+          start and 0.95 from displaced starts. Its share starts at 0.9,                                                the tracker, 0.87 to 0.99 for the policy) and most of the tallest
+          because nothing but the motion can be taught yet, falls to 0.2                                                boxes (0.33 against 0.86 at the largest scale). It fails one task,
+          as the evaluation shows the motion arriving, and then follows                                                 the 1.14 m box, and is at 0.43 on one more. The rule’s gate
+          what still fails. Without the gates the rule starts at one half                                               gives these tasks few reference worlds, because the teacher
+          and needs 27 million samples.                                                                                 cannot show them; what solves them is the Boolean in goal
+             Trial learners. The two learners that try shares 0.15 above                                                worlds, on a policy that has learned to climb elsewhere. A
+          and below the current one choose the reference-heavy share                                                    tracker cannot do this: it has no goal to be rewarded for.
+          for the first 12 to 27 million samples and then walk the share
+          down to about 0.2 (Fig. 4, right). This is the direction the rule                                             F. Tasks that no world trained
+          takes, measured by intervention rather than assumed. Its cost                                                   Does the policy climb boxes it never trained on? We repeat
+          is as predicted: each learner has half of the worlds, and the                                                 the run with tasks held out: no reference world and no goal
+          pair needs twice the samples of the rule.                                                                     world is ever placed on them, and the evaluation worlds still
+                                                                                                                        measure them (Table III). TODO.
+            D. Away from the clip
+            Fig. 5 moves the start further than training did. The policy                                                G. Training time
+          was trained with displacements up to 0.5 m and 0.5 rad. It                                                       With the GPU to itself, the tracker of the development clip
+          succeeds in 0.92 of episodes at that range, 0.76 at 0.75, and                                                 trains its 74 million samples in 4.1 minutes, and the policy
+                                                  Credit rule (ours)           Ours without gates           Fixed 0.50       Progress schedule       Two stages
+                                           From the start of the clip                                From displaced starts                    Share of reference worlds
+                             1.0                                                    1.0                                             1.0
+
+                             0.8                                                    0.8                                             0.8
+Success
+
+
+
+
+                             0.6                                                    0.6                                             0.6
+
+                             0.4                                                    0.4                                             0.4
+
+                             0.2                                                    0.2                                             0.2
+
+                             0.0                                                    0.0                                             0.0
+                                   0            20         40                  60         0            20         40           60         0       20         40           60
+                                               Samples (millions)                                     Samples (millions)                         Samples (millions)
+
+Fig. 4. Success from the clip start and from displaced starts during training, and the share of reference worlds that each method uses. Lines are means of three
+seeds, bands their range.
+
+
+
+                             1.0                                                                             they had the GPU to themselves; the reported runs shared it
+                                                                                                             with other runs for part of their time. For scale, [23] report
+                             0.8                                                                             six billion samples for their parkour controller, on a different
+                                                                                                             character and task.
+Success
+
+
+
+
+                             0.6                                         Policy without the clip (ours)
+                                                                         Tracker                                              VI. W HAT D ID N OT W ORK
+                             0.4
+                                                                                                                We list what failed, because several of these are natural
+                             0.2                                                                             first choices. (i) A reward of the Boolean and a per-step
+                                                trained range
+                                                                                                             penalty for tilt, with termination on a fall, taught the policy
+                             0.0
+                                                                                                             to fall at once: every step survived cost reward. A survival
+                                       0.0      0.2      0.4      0.6       0.8      1.0
+                                                                                                             term fixed the incentive, and goal worlds alone still learned
+                                         Largest displacement of the start (m and rad)
+                                                                                                             nothing. (ii) Normalising advantages per kind of world diverged
+                                                                                                             (Sec. IV). (iii) Starting worlds on the stretch of the clip where
+Fig. 5. Success from starts displaced by up to the amount on the horizontal
+axis, along both ground axes and in heading, over about a thousand episodes                                  the evaluation ladder shows episodes being lost, a reverse
+per point.                                                                                                   curriculum read from the ladder, was worse than uniform starts
+                                                                                                             for the tracker: it learned the last stretch first and never the
+                                        Credit rule (ours)             Tracker (observes the clip)
+                                                                                                             ones before (0.00 against 0.69 from the clip start at 25 million
+                                        Fixed 0.50, even tasks                                               samples). (iv) Trial learners cost twice the samples at this
+Success, mean of 105 tasks
+
+
+
+
+                                   From the start of the clip             From displaced starts              batch size, as did any scheme that splits the worlds between
+                             1.0                                                                             learners. (v) With the reduced collision geometry of the robot,
+                                                                                                             no method climbs.
+
+                             0.5                                                                                                    VII. L IMITATIONS
+                                                                              All results are in simulation, with a state-based policy that
+                                                                           observes quantities a robot must estimate, without domain
+     0.0                                                                   randomisation; we have not run the policy on hardware. The
+           0       200        400    6000         200      400        600 method needs a tracker that can do the motion: on tasks where
+                Samples (millions)            Samples (millions)           ours fails, the policy has nothing to learn from, and the rule
+                                                                           gives those tasks few worlds instead of solving them. The rule
+Fig. 6. All 105 tasks, one policy. The policy does not observe a clip; the
+tracker that teaches it does.                                              encodes two causal relations that we measured on these tasks;
+                                                                           a task family in which goal worlds teach without references, or
+                                                                           references mislead, needs them measured again, which the trial
+then holds 0.8 from displaced starts 80 seconds into its own learners do at twice the cost. Success is defined by the pose of
+training, at 22 million samples; its full 59 million samples the pelvis, so the policy is not asked to move like the clip, and
+take 3.5 minutes. Simulation and learner together run at about we did not measure how closely it does. The displaced starts
+290 thousand samples per second with 4,096 training worlds. are within a metre of the clip start and always in front of the
+On all clips, the tracker and the policy each take about 40 box. We report three seeds for the development experiments
+minutes for their 590 million samples at the rate they ran while and one for the experiments on all clips.
+              Tracker, clip start: 0.52           Policy, clip start: 0.90          Tracker, displaced: 0.17           Policy, displaced: 0.86
+       00
+       01
+                                                                                                                                                           1.0
+       02
+       03
+       04
+       05                                                                                                                                                  0.8
+       06
+       07
+       10
+       11                                                                                                                                                  0.6
+
+
+
+
+                                                                                                                                                                 Success
+Clip
+
+
+
+
+       12
+       13
+       14
+                                                                                                                                                           0.4
+       20
+       21
+       22
+       23                                                                                                                                                  0.2
+       24
+       25
+       26
+       28                                                                                                                                                  0.0
+
+             0.8    0.9   1.0    1.1   1.2      0.8   0.9    1.0    1.1   1.2      0.8   0.9    1.0   1.1    1.2     0.8    0.9    1.0   1.1    1.2
+               Scale of the box height            Scale of the box height            Scale of the box height            Scale of the box height
+
+
+       Fig. 7. Success on every task at the end of training: a row per clip, a column per scale of the box height, and the mean over the tasks in each title.
+
+
+
+                            VIII. C ONCLUSION                                           complex reward functions. In IEEE/RSJ International
+                                                                                        Conference on Intelligent Robots and Systems, 2022.
+   Clips can give a goal-driven policy what a Boolean reward                        [6] Carlos Florensa, David Held, Markus Wulfmeier, Michael
+cannot, but only through worlds that are there for a reason.                            Zhang, and Pieter Abbeel. Reverse curriculum generation
+We measured the reasons: reference worlds cause the motion,                             for reinforcement learning. In Conference on Robot
+goal worlds cause its use away from the clip, and the second                            Learning, 2017.
+waits for the first. Stated as a rule that reads evaluation worlds,                 [7] Alex Graves, Marc G. Bellemare, Jacob Menick, Rémi
+they replace the hand schedules of hybrid imitation and reach                           Munos, and Koray Kavukcuoglu. Automated curriculum
+the same success in about half the samples, with no setting to                          learning for neural networks. In International Conference
+tune. The same measurement shows where the method stops:                                on Machine Learning, 2017.
+where no tracker can show the motion. Running the policy on                         [8] Tairan He, Wenli Xiao, Toru Lin, Zhengyi Luo, Zhenjia
+the robot, and letting the evaluation worlds decide which clips                         Xu, Zhenyu Jiang, Jan Kautz, Changliu Liu, Guanya Shi,
+to collect next, are the steps we see after this one.                                   Xiaolong Wang, Linxi Fan, and Yuke Zhu. HOVER:
+                                                                                        Versatile neural whole-body controller for humanoid
+                                 R EFERENCES                                            robots. arXiv preprint arXiv:2410.21229, 2024.
+ [1] Siddharth Aphale and Ayushman Singh. SCOUT: Per-                               [9] David Hoeller, Nikita Rudin, Dhionis Sako, and Marco
+     context reset curricula for sparse-reward reinforcement                            Hutter. ANYmal parkour: Learning agile navigation for
+     learning. arXiv preprint arXiv:2607.26417, 2026.                                   quadrupedal robots. Science Robotics, 9(88), 2024.
+ [2] Maria Bauza, Jose Enrique Chen, Valentin Dalibard,                            [10] Max Jaderberg, Valentin Dalibard, Simon Osindero, Wo-
+     Nimrod Gileadi, Roland Hafner, Murilo F. Martins, Joss                             jciech M. Czarnecki, Jeff Donahue, Ali Razavi, Oriol
+     Moore, Rugile Pevceviciute, Antoine Laurens, Dushyant                              Vinyals, Tim Green, Iain Dunning, Karen Simonyan,
+     Rao, et al. DemoStart: Demonstration-led auto-curriculum                           Chrisantha Fernando, and Koray Kavukcuoglu. Popu-
+     applied to sim-to-real with multi-fingered robots. arXiv                           lation based training of neural networks. arXiv preprint
+     preprint arXiv:2409.06613, 2024.                                                   arXiv:1711.09846, 2017.
+ [3] Xuxin Cheng, Kexin Shi, Ananye Agarwal, and Deepak                            [11] Ziming Li, Chenhao Li, and Marco Hutter. Scaling
+     Pathak. Extreme parkour with legged robots. In IEEE                                rough terrain locomotion with automatic curriculum
+     International Conference on Robotics and Automation,                               reinforcement learning. arXiv preprint arXiv:2601.17428,
+     2024.                                                                              2026.
+ [4] Adrien Ecoffet, Joost Huizinga, Joel Lehman, Kenneth O.                       [12] Qiayuan Liao, Takara E. Truong, Xiaoyu Huang, Yu-
+     Stanley, and Jeff Clune. First return, then explore. Nature,                       man Gao, Guy Tevet, Koushil Sreenath, and C. Karen
+     590:580–586, 2021.                                                                 Liu. BeyondMimic: From motion tracking to versatile
+ [5] Alejandro Escontrela, Xue Bin Peng, Wenhao Yu, Tingnan                             humanoid control via guided diffusion. arXiv preprint
+     Zhang, Atil Iscen, Ken Goldberg, and Pieter Abbeel.                                arXiv:2508.08241, 2025.
+     Adversarial motion priors make good substitutes for                           [13] Mayank Mittal, Pascal Roth, James Tigue, Antoine
+     Richard, Octi Zhang, Peter Du, Antonio Serrano-Muñoz,             Duan, and Guanya Shi. OmniRetarget: Interaction-
+     Xinjie Yao, René Zurbrügg, Nikita Rudin, et al. Isaac            preserving data generation for humanoid whole-body
+     Lab: A GPU-accelerated simulation framework for multi-             loco-manipulation and scene interaction. arXiv preprint
+     modal robot learning. arXiv preprint arXiv:2511.04831,             arXiv:2509.26633, 2025.
+     2025.                                                         [27] Patrick Yin, Tyler Westenbroek, Z. Zhang, J. Tran, Ignacio
+[14] Xue Bin Peng, Pieter Abbeel, Sergey Levine, and Michiel            Dagnino, E. Shilamkar, et al. Emergent dexterity via
+     van de Panne. DeepMimic: Example-guided deep rein-                 diverse resets and large-scale reinforcement learning.
+     forcement learning of physics-based character skills. ACM          arXiv preprint arXiv:2603.15789, 2026.
+     Transactions on Graphics, 37(4), 2018.                        [28] Octi Zhang, Mateo Guaman Castro, Patrick Yin, Ignacio
+[15] Xue Bin Peng, Ze Ma, Pieter Abbeel, Sergey Levine,                 Dagnino, Abhishek Gupta, Rosario Scalise, and Byron
+     and Angjoo Kanazawa. AMP: Adversarial motion                       Boots. A balanced data diet: Addressing the exploration
+     priors for stylized physics-based character control. ACM           bottleneck in mega-scale RL for robot control. arXiv
+     Transactions on Graphics, 40(4), 2021.                             preprint arXiv:2610.12465, 2026.
+[16] Lerrel Pinto, Marcin Andrychowicz, Peter Welinder,            [29] Ziwen Zhuang, Zipeng Fu, Jianren Wang, Christopher
+     Wojciech Zaremba, and Pieter Abbeel. Asymmetric actor              Atkeson, Sören Schwertfeger, Chelsea Finn, and Hang
+     critic for image-based robot learning. In Robotics: Science        Zhao. Robot parkour learning. In Conference on Robot
+     and Systems, 2018.                                                 Learning, 2023.
+[17] Stéphane Ross, Geoffrey Gordon, and Drew Bagnell. A          [30] Ziwen Zhuang, Shenzhe Yao, and Hang Zhao. Humanoid
+     reduction of imitation learning and structured prediction          parkour learning. In Conference on Robot Learning, 2024.
+     to no-regret online learning. In International Conference
+     on Artificial Intelligence and Statistics, 2011.
+[18] Nikita Rudin, David Hoeller, Philipp Reist, and Marco
+     Hutter. Learning to walk in minutes using massively
+     parallel deep reinforcement learning. In Conference on
+     Robot Learning, 2022.
+[19] John Schulman, Philipp Moritz, Sergey Levine, Michael
+     Jordan, and Pieter Abbeel. High-dimensional continuous
+     control using generalized advantage estimation. In
+     International Conference on Learning Representations,
+     2016.
+[20] John Schulman, Filip Wolski, Prafulla Dhariwal, Alec
+     Radford, and Oleg Klimov. Proximal policy optimization
+     algorithms. arXiv preprint arXiv:1707.06347, 2017.
+[21] Jean Pierre Sleiman, He Li, Alphonsus Adu-Bredu, Robin
+     Deits, Arun Kumar, Kevin Bergamin, et al. ZEST: Zero-
+     shot embodied skill transfer for athletic robot control.
+     arXiv preprint arXiv:2602.00401, 2026.
+[22] Chen Tessler, Yunrong Guo, Ofir Nabati, Gal Chechik,
+     and Xue Bin Peng. MaskedMimic: Unified physics-based
+     character control through masked motion inpainting. ACM
+     Transactions on Graphics, 2024.
+[23] Jiashun Wang, Yifeng Jiang, Haotian Zhang, Chen Tessler,
+     Davis Rempe, Jessica Hodgins, and Xue Bin Peng. HIL:
+     Hybrid imitation learning for dynamic athletic control.
+     arXiv preprint arXiv:2505.12619, 2025.
+[24] Jiashun Wang, M. Eva Mungai, He Li, Jean Pierre
+     Sleiman, Jessica Hodgins, and Farbod Farshidian. Gener-
+     alizing from references using a multi-task reference and
+     goal-driven RL framework. In Robotics: Science and
+     Systems, 2026. arXiv:2602.20375.
+[25] Kehan Wen, Chenhao Li, Junzhe He, and Marco Hutter.
+     Constrained style learning from imperfect demonstrations
+     under task optimality. arXiv preprint arXiv:2507.09371,
+     2025.
+[26] Lujie Yang, Xiaoyu Huang, Zhen Wu, Angjoo Kanazawa,
+     Pieter Abbeel, Carmelo Sferrazza, C. Karen Liu, Rocky
+

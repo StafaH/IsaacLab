@@ -1,0 +1,32 @@
+\newcommand{\tasksall}{105}
+\newcommand{\clipsall}{21}
+\newcommand{\causeGoal}{0.00}
+\newcommand{\causeTrackerClip}{0.84}
+\newcommand{\causeTrackerAway}{0.05}
+\newcommand{\causeRefClip}{0.92}
+\newcommand{\causeRefAway}{0.25}
+\newcommand{\causeHybridClip}{0.98}
+\newcommand{\causeHybridAway}{0.92}
+\newcommand{\causeNoTeacher}{With the tracking reward alone, the form of the reference worlds of~\cite{hil,wang2026generalizing}, reference worlds by themselves teach the motion in two of three seeds (0.84 and 0.93 from the clip start; the third learns nothing), and an even split with goal worlds learns nothing in any seed: the failure that~\cite{wang2026generalizing} report for mixing without a schedule. With the teacher the even split reaches 0.98 and 0.92 in every seed (Sec.~\ref{sec:tracker}).}
+\newcommand{\scheduleSentence}{It holds 0.8 from displaced starts from 22 million samples in each of the three seeds. The best fixed share needs 37 million, the tracking-progress schedule 43, and two stages 53: 1.7, 2.0, and 2.4 times as many. It reaches the clip-start level as early as any setting, and ends at 0.98 from the clip start and 0.95 from displaced starts. Its share starts at 0.9, because nothing but the motion can be taught yet, falls to 0.2 as the evaluation shows the motion arriving, and then follows what still fails. Without the gates the rule starts at one half and needs 27 million samples.}
+\newcommand{\trialSamples}{12 to 27}
+\newcommand{\trialCost}{twice}
+\newcommand{\displacedHalf}{0.92}
+\newcommand{\displacedThreeQuarters}{0.76}
+\newcommand{\displacedOne}{0.56}
+\newcommand{\displacedTrackerQuarter}{0.23}
+\newcommand{\displacedTrackerOne}{0.01}
+\newcommand{\lossStarts}{0.69}
+\newcommand{\fullTrackerSamples}{590}
+\newcommand{\fullTrackerClip}{0.52}
+\newcommand{\fullTrackerAway}{0.17}
+\newcommand{\fullTrackerSolved}{62}
+\newcommand{\fullSentence}{After 590 million samples it succeeds in 0.89 of episodes from the clip start and 0.86 from displaced starts, averaged over the tasks and the two seeds (ranges 0.88 to 0.90 and 0.86 in each), and solves 101 to 103 and 102 to 104 of the \tasksall{} tasks at 0.5 or better. The tracker is at 0.52 and 0.17, and at 62 tasks and one. The policy passes the final clip-start success of its teacher after 221 to 246 million samples of its own, and the share of reference worlds falls from 0.84 to about 0.35 on the way. \fullBaseline{}}
+\newcommand{\fullTasksSentence}{The policy solves 39 to 41 tasks from the clip start that its teacher does not, and none the other way in any seed. Among them, in the first seed, are all heights of four clips on which the tracker never completes the climb (0.00 to 0.02 for the tracker, 0.87 to 0.99 for the policy) and most of the tallest boxes (0.33 against 0.86 at the largest scale). Every seed fails the 1.14\,m box.}
+\newcommand{\timeSentence}{With the GPU to itself, the tracker of the development clip trains its 74 million samples in 4.1 minutes, and the policy then holds 0.8 from displaced starts 80 seconds into its own training, at 22 million samples; its full 59 million samples take 3.5 minutes. Simulation and learner together run at about 290 thousand samples per second with 4{,}096 training worlds. On all clips, the tracker and the policy each take about 40 minutes for their 590 million samples at the rate they ran while they had the GPU to themselves; the reported runs shared it with other runs for part of their time.}
+\newcommand{\abstractSchedules}{on one clip at five box heights the policy reaches 0.8 success from displaced starts after 22 million samples in each of three seeds, 1.7 times fewer than the best fixed share found by a sweep and 2.0 and 2.4 times fewer than two published hand schedules.}
+\newcommand{\abstractAll}{One policy trained this way on 105 tasks succeeds in 0.89 of episodes from the starts of the clips and 0.86 from displaced starts (mean of two seeds), where the tracker that teaches it reaches 0.52 and 0.17, and it solves 39 to 41 tasks that its teacher does not.}
+\newcommand{\fullBaseline}{With an even share and tasks drawn evenly, the usual setting, the same budget ends at 0.72 and 0.65 with 81 and 69 tasks solved in its one seed, and the policy needs 344 million samples to reach a mean of 0.5 from the clip start, against 221 to 246 million with the rule.}
+\newcommand{\heldoutSentence}{With the box heights at scales 0.9 and 1.1 held out of every clip, the policy succeeds on them in 0.90 of episodes from the clip start and 0.81 from displaced starts, as on the heights it trained on (0.87 and 0.80): it interpolates over box height. With five of the \clipsall{} clips held out, it succeeds in 0.48 and 0.46 on climbs it has no reference for, against 0.83 and 0.80 on the clips it trained on. That mean hides a split: two of the five clips are solved at every height, one at none, and two in part.}
+\newcommand{\noTeacherSentence}{With the tracking reward alone, the climb is learned in four of the seven runs that begin with reference worlds only (reference worlds alone, two stages, tracking progress) and in none of the eight that have goal worlds from the first iteration. The credit rule is among the latter: it starts with a tenth of its worlds on goals, and without the teacher it learns nothing in three seeds. With the teacher, all 27 runs with a share of at least 0.25 learn. The teacher is therefore what the rule relies on. It turns a first stage that succeeds about half of the time into one that always does, and it lets goal worlds be present from the start.}
+\newcommand{\seedsAll}{two}

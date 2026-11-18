@@ -1,0 +1,28 @@
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+ & \multicolumn{2}{c}{Samples (M) until success holds} & \multicolumn{2}{c}{Success at 59\,M} \\
+Share of reference worlds & clip $\geq$0.9 & displaced $\geq$0.8 & clip & displaced \\
+\midrule
+Goal worlds only & never & never & 0.00 \,{\scriptsize(0.00--0.00)} & 0.00 \,{\scriptsize(0.00--0.00)} \\
+\midrule
+\multicolumn{5}{@{}l}{\emph{Reference worlds taught by a tracker}} \\
+Fixed share 0.10 & never & never & 0.00 \,{\scriptsize(0.00--0.00)} & 0.00 \,{\scriptsize(0.00--0.00)} \\
+Fixed share 0.25 & 35 \,{\scriptsize(32--39)} & 38 \,{\scriptsize(34--42)} & 0.98 \,{\scriptsize(0.97--0.98)} & 0.95 \,{\scriptsize(0.95--0.96)} \\
+Fixed share 0.50 & 26 \,{\scriptsize(25--27)} & 37 \,{\scriptsize(37--37)} & 0.98 \,{\scriptsize(0.96--0.99)} & 0.92 \,{\scriptsize(0.92--0.93)} \\
+Fixed share 0.75 & 34 \,{\scriptsize(29--39)} & 57 \,{\scriptsize[1/3]} & 0.97 \,{\scriptsize(0.97--0.98)} & 0.78 \,{\scriptsize(0.73--0.81)} \\
+Fixed share 1.00 & 50 \,{\scriptsize(47--57)} & never & 0.92 \,{\scriptsize(0.91--0.93)} & 0.25 \,{\scriptsize(0.24--0.26)} \\
+Two stages~\cite{hil} & 44 \,{\scriptsize(42--47)} & 53 \,{\scriptsize(52--57)} & 0.98 \,{\scriptsize(0.97--0.98)} & 0.85 \,{\scriptsize(0.84--0.87)} \\
+Tracking progress~\cite{wang2026generalizing} & 31 \,{\scriptsize(29--32)} & 43 \,{\scriptsize(42--47)} & 0.98 \,{\scriptsize(0.97--0.99)} & 0.91 \,{\scriptsize(0.90--0.91)} \\
+Two trial learners & 51 \,{\scriptsize(47--54)} & 45 \,{\scriptsize(42--49)} & 0.95 \,{\scriptsize(0.95--0.96)} & 0.88 \,{\scriptsize(0.86--0.89)} \\
+Credit rule without gates & 25 \,{\scriptsize(22--27)} & 27 \,{\scriptsize(27--27)} & 0.98 \,{\scriptsize(0.97--0.99)} & 0.95 \,{\scriptsize(0.94--0.96)} \\
+Credit rule (ours) & 22 \,{\scriptsize(17--27)} & 22 \,{\scriptsize(22--22)} & 0.98 \,{\scriptsize(0.96--0.99)} & 0.95 \,{\scriptsize(0.94--0.97)} \\
+\midrule
+\multicolumn{5}{@{}l}{\emph{Reference worlds with the tracking reward only}} \\
+Fixed share 0.50 & never & never & 0.00 \,{\scriptsize(0.00--0.00)} & 0.00 \,{\scriptsize(0.00--0.00)} \\
+Fixed share 1.00 & 54 \,{\scriptsize(52--57)} \,{\scriptsize[2/3]} & never & 0.59 \,{\scriptsize(0.00--0.93)} & 0.29 \,{\scriptsize(0.00--0.45)} \\
+Two stages~\cite{hil} & 47 \,{\scriptsize[1/2]} & 57 \,{\scriptsize[1/2]} & 0.49 \,{\scriptsize(0.00--0.98)} & 0.41 \,{\scriptsize(0.00--0.82)} \\
+Tracking progress~\cite{wang2026generalizing} & never & never & 0.46 \,{\scriptsize(0.00--0.91)} & 0.24 \,{\scriptsize(0.00--0.47)} \\
+Credit rule without gates & never & never & 0.00 \,{\scriptsize(0.00--0.00)} & 0.00 \,{\scriptsize(0.00--0.00)} \\
+Credit rule & never & never & 0.00 \,{\scriptsize(0.00--0.00)} & 0.00 \,{\scriptsize(0.00--0.00)} \\
+\bottomrule
+\end{tabular}
