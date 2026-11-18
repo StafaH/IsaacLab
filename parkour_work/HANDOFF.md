@@ -95,6 +95,18 @@ Online, private to the user, update in place and never create new ones:
 - Report document: https://claude.ai/artifact/5zPscwHRhTpC43a9euG1Es (current to 18 November evening).
 - Paper page: https://claude.ai/artifact/LASNPkberPZuC1Qp4S4mQh (still from before the rework).
 
+How to update them:
+
+- The report is a Claude Docs document. Edit it with the Claude Docs connector tools (`read`, `update`), not by
+  publishing a new page: document id `28680b9c-f76d-436a-ba36-41921ebb735c`, body node `f734ffd7-d0d3`. Read the
+  connector's guide first (`guide` with `topic.index` and `topic.editing`), then read the document; new results go under
+  the heading "All 105 tasks after the rework", where the update of 18 November evening is the latest block. The
+  sections above "Results before the rework (14 November)" are the rework; the ones below are the old results.
+- The paper page is an HTML artifact. Republish `parkour_work/paper_page/credit-the-cause.html` with the Artifact tool
+  and the page's link as `url` (read it with the Artifact tool first), so the link stays the same.
+- Both belong to the user's account. If the tools on the new machine cannot open them, say so to the user; do not
+  create replacements.
+
 ## 5. The setup after the rework
 
 - Physics: Newton MJWarp, step 0.005 s, decimation 4 (control at 50 Hz), armature as in mjlab.
