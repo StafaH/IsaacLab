@@ -23,6 +23,7 @@ Terms keep the names of their MDP1 functions, and bind scene data through inputs
 from .commands import heading_velocity_command, uniform_pose_command, uniform_velocity_command
 from .curriculums import difficulty_scheduler
 from .events import (
+    move_env_origin,
     push_by_setting_velocity,
     randomize_actuator_gains,
     randomize_joint_parameters,
@@ -38,6 +39,7 @@ from .observations import (
     base_ang_vel,
     base_lin_vel,
     generated_commands,
+    height_scan,
     joint_pos,
     joint_pos_limit_normalized,
     joint_pos_rel,
@@ -53,6 +55,7 @@ from .rewards import (
     action_rate_l2,
     ang_vel_xy_l2,
     base_height_l2,
+    base_height_over_terrain_l2,
     feet_air_time,
     flat_orientation_l2,
     is_alive,
@@ -76,5 +79,6 @@ from .terminations import (
     is_positive,
     joint_pos_out_of_manual_limit,
     joint_vel_out_of_limit,
+    root_beyond_distance,
     root_height_below_minimum,
 )

@@ -254,6 +254,39 @@ base_height_l2 = Term(
 """Squared error of the root height from ``target_height``, in the world frame: for flat ground at height zero."""
 
 
+@wp.func
+def _base_height_over_terrain_l2(
+    world: int,
+    root_link_pose_w: wp.array(dtype=wp.transformf),
+    ray_hits_w: wp.array2d(dtype=wp.vec3f),
+    target_height: float,
+) -> float:
+    terrain = float(0.0)
+    hits = int(0)
+    for ray in range(ray_hits_w.shape[1]):
+        height = ray_hits_w[world, ray][2]
+        if wp.isfinite(height):
+            terrain += height
+            hits += 1
+    terrain /= float(wp.max(hits, 1))
+    error = wp.transform_get_translation(root_link_pose_w[world])[2] - terrain - target_height
+    return error * error
+
+
+def _base_height_over_terrain_l2_torch(root_link_pose_w, ray_hits_w, *, target_height):
+    heights = ray_hits_w[..., 2]
+    hit = heights.isfinite()
+    terrain = torch.where(hit, heights, 0.0).sum(1) / hit.sum(1).clamp(min=1)
+    return (root_link_pose_w[:, 2] - terrain - target_height).square()
+
+
+base_height_over_terrain_l2 = Term(torch=_base_height_over_terrain_l2_torch, warp=_base_height_over_terrain_l2)
+"""Squared error of the root height from ``target_height`` above the terrain.
+
+The terrain height is the mean height of the points that the rays of a ray caster hit, ``ray_hits_w``.
+"""
+
+
 # Velocity tracking.
 
 

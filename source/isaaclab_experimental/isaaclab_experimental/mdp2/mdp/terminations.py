@@ -87,6 +87,22 @@ def _root_height_below_minimum(
     return wp.transform_get_translation(root_link_pose_w[world])[2] < minimum_height
 
 
+@wp.func
+def _root_beyond_distance(
+    world: int, root_link_pose_w: wp.array(dtype=wp.transformf), env_origins: wp.array(dtype=wp.vec3f), distance: float
+) -> bool:
+    offset = wp.transform_get_translation(root_link_pose_w[world]) - env_origins[world]
+    return offset[0] * offset[0] + offset[1] * offset[1] > distance * distance
+
+
+def _root_beyond_distance_torch(root_link_pose_w, env_origins, *, distance):
+    return (root_link_pose_w[:, :2] - env_origins[:, :2]).norm(dim=-1) > distance
+
+
+root_beyond_distance = Term(torch=_root_beyond_distance_torch, warp=_root_beyond_distance)
+"""Whether the root is farther than ``distance`` from the environment origin in the ground plane."""
+
+
 root_height_below_minimum = Term(
     torch=lambda root_link_pose_w, *, minimum_height: root_link_pose_w[:, 2] < minimum_height,
     warp=_root_height_below_minimum,

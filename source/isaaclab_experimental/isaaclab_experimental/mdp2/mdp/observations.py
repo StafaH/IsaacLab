@@ -7,6 +7,7 @@
 
 Joint terms read the joints of a subset input, ``joint_ids=robot.joints(".*")``, and output one value per joint.
 Root terms read the root state of an asset, ``root_link_pose_w`` and ``root_com_vel_w``.
+Ray caster terms read the position ``pos_w`` and the hit points ``ray_hits_w`` of a ray caster.
 """
 
 from __future__ import annotations
@@ -216,6 +217,27 @@ def _projected_gravity(
 
 projected_gravity = Term(torch=projected_gravity_torch, warp=_projected_gravity, shape=("worlds", 3))
 """Direction of gravity in the root frame."""
+
+
+# Ray casters.
+
+
+@wp.func
+def _height_scan(
+    world: int, ray: int, pos_w: wp.array(dtype=wp.vec3f), ray_hits_w: wp.array2d(dtype=wp.vec3f), offset: float
+) -> float:
+    return pos_w[world][2] - ray_hits_w[world, ray][2] - offset
+
+
+height_scan = Term(
+    torch=lambda pos_w, ray_hits_w, *, offset: pos_w[:, 2:3] - ray_hits_w[..., 2] - offset,
+    warp=_height_scan,
+    shape=("worlds", "rays"),
+)
+"""Height of a ray caster above the point that each of its rays hits, less ``offset`` [m].
+
+A ray that hits nothing gives minus infinity, so the observation needs a ``clip``.
+"""
 
 
 # Actions.

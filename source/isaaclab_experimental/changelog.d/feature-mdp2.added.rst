@@ -97,3 +97,10 @@
 * Added sharing of term state between the world configs that define a use differently: the state belongs to the
   use, each config's op writes it in its own worlds, and terms of every config read it with
   ``mdp2.term_state(use, name)``.
+* Added ray casters to the scene data of :class:`~isaaclab_experimental.envs.MDP2Env`, with the fields ``pos_w``
+  and ``ray_hits_w``, and the terms ``mdp.height_scan`` and ``mdp.base_height_over_terrain_l2`` that read them.
+  The environment casts the rays of the worlds that it reset again, so that the first observation of an episode
+  shows the terrain at the new pose.
+* Added the event ``mdp.move_env_origin``, which moves the origin of a world to a state that a learner writes when
+  the world resets, and the termination ``mdp.root_beyond_distance``, for a root that left the surroundings of its
+  origin.

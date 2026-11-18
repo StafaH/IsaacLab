@@ -43,3 +43,11 @@
   with the robots of a family in the worlds of one simulation: ``Isaac-Velocity-Flat-Quadrupeds-MDP2`` with a
   Unitree Go2, A1, or Go1 in each world, and ``Isaac-Velocity-Flat-Humanoids-MDP2`` with a Unitree G1 or H1. Each
   lists the joints of its family, for one policy that drives every robot of it.
+* Added ``Isaac-Velocity-Rough-UnitreeGo2-MDP2``, velocity tracking with the Unitree Go2 on generated terrain, with
+  a scan of the terrain height in the observations. A learner chooses the terrain of a world by writing the origin
+  of a tile into the state of the task's ``terrain_origin`` event, and the world moves there when it next resets.
+* Added ``Isaac-Parkour-G1-MDP2``, in which the Unitree G1 climbs the boxes of the terrain clips of the OmniRetarget
+  dataset. Every world observes the robot, a scan of the terrain height, and a goal, and a learner chooses per
+  episode whether a world tracks a clip or is rewarded once for standing at the goal, by writing the episode into
+  the state of the task's ``start_episode`` event and the weights of its rewards.
+  ``scripts/reinforcement_learning/mdp2/convert_omniretarget.py`` converts the clips.

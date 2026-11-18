@@ -21,6 +21,7 @@ from isaaclab_newton.physics.newton_backend import capture_graph
 
 from isaaclab.envs.common import VecEnvObs, VecEnvStepReturn
 from isaaclab.scene import InteractiveScene
+from isaaclab.sensors.ray_caster import BaseRayCaster
 from isaaclab.sim import SimulationContext
 from isaaclab.sim.utils import use_stage
 from isaaclab.utils.seed import configure_seed
@@ -185,7 +186,7 @@ class MDP2Env:
         work += [(launch.capturable, functools.partial(launch, evaluate)) for launch in launches.evaluate]
         work += [(True, functools.partial(self._reset_scene, mask))]
         work += [(launch.capturable, functools.partial(launch, reset)) for launch in launches.reset]
-        work += [(True, commit)]
+        work += [(True, commit), (True, self._rescan)]
         work += [(launch.capturable, functools.partial(launch, observe)) for launch in launches.observe]
 
         runs = []
@@ -224,6 +225,7 @@ class MDP2Env:
         commit = functools.partial(self.scene_data.commit, mask.warp, self.mdp.reset_writes)
         mdp2.reset(self.mdp, self.state, mask, commit)
         commit()
+        self._rescan()
 
         mdp2.observe(self.mdp, self.state, self.transition.observations, mask)
 
@@ -235,6 +237,13 @@ class MDP2Env:
         # Clear sensor histories, so that a new episode does not see the contacts that ended the last one.
         for sensor in self.scene.sensors.values():
             sensor.reset(env_mask=mask.warp)
+
+    def _rescan(self) -> None:
+        """Cast the rays of the worlds that were reset again, from the poses that the reset committed."""
+        for sensor in self.scene.sensors.values():
+            if isinstance(sensor, BaseRayCaster):
+                # Reading the data recomputes the worlds that the sensor's reset marked out of date.
+                _ = sensor.data
 
 
 class MDP2RLEnv(MDP2Env, gym.Env):

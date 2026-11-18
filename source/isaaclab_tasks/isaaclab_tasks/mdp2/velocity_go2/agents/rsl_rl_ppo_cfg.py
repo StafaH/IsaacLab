@@ -3,9 +3,9 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""RSL-RL configuration of the Unitree Go2 flat velocity task."""
+"""RSL-RL configurations of the Unitree Go2 velocity tasks."""
 
-from isaaclab.utils import configclass
+from isaaclab.utils import configclass, replace
 
 from isaaclab_rl.rsl_rl import RslRlMLPModelCfg, RslRlOnPolicyRunnerCfg, RslRlPpoAlgorithmCfg
 
@@ -45,3 +45,11 @@ class UnitreeGo2FlatWalkStandPPORunnerCfg(UnitreeGo2FlatPPORunnerCfg):
     # With half of the worlds standing, standing still is a local optimum that walking leaves after 300 iterations.
     max_iterations = 1000
     experiment_name = "unitree_go2_flat_walk_stand"
+
+
+@configclass
+class UnitreeGo2RoughPPORunnerCfg(UnitreeGo2FlatPPORunnerCfg):
+    max_iterations = 1500
+    experiment_name = "unitree_go2_rough"
+    actor = replace(UnitreeGo2FlatPPORunnerCfg.actor, hidden_dims=[512, 256, 128])
+    critic = replace(UnitreeGo2FlatPPORunnerCfg.critic, hidden_dims=[512, 256, 128])

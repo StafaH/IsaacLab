@@ -20,7 +20,7 @@ import warp as wp
 from isaaclab.utils import math as math_utils
 
 from ..rng import uniform
-from ..terms import Term
+from ..terms import State, Term
 
 # Joint state.
 
@@ -243,6 +243,35 @@ def _push_by_setting_velocity_torch(mask, root_com_vel_w, rng, *, velocity_range
 
 push_by_setting_velocity = Term(torch=_push_by_setting_velocity_torch, warp=_push_by_setting_velocity, random=True)
 """Add uniform samples from ``velocity_range`` to the root velocity. Floating bases only."""
+
+
+# Environment origins.
+
+
+def _keep_env_origins(ctx, **params):
+    ctx.state["origin"].copy_(ctx.outputs["env_origins"])
+
+
+@wp.func
+def _move_env_origin(world: int, env_origins: wp.array(dtype=wp.vec3f), origin: wp.array2d(dtype=float)):
+    env_origins[world] = wp.vec3f(origin[world, 0], origin[world, 1], origin[world, 2])
+
+
+def _move_env_origin_torch(mask, env_origins, origin):
+    env_origins.copy_(torch.where(mask[:, None], origin, env_origins))
+
+
+move_env_origin = Term(
+    torch=_move_env_origin_torch,
+    warp=_move_env_origin,
+    state={"origin": State(("worlds", 3), persistent=True)},
+    init=_keep_env_origins,
+)
+"""Move the environment origin to the ``origin`` state, which starts as the origin that the scene gave the world.
+
+A learner that chooses where a world resets, such as the tile of a terrain, writes the state, and the origin moves
+when the world next resets. The event goes before the events that read ``env_origins``.
+"""
 
 
 # Physical properties. These events change the physics model, so they are eager and best run at startup.

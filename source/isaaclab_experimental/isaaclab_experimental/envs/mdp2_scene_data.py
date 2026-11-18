@@ -16,6 +16,7 @@ from newton import ModelFlags
 from isaaclab.actuators import DCMotorCfg, IdealPDActuatorCfg, ImplicitActuatorCfg
 from isaaclab.scene import InteractiveScene
 from isaaclab.sensors import BaseContactSensor
+from isaaclab.sensors.ray_caster import BaseRayCaster
 from isaaclab.sim import SimulationContext
 from isaaclab.utils.warp import ProxyArray
 
@@ -43,6 +44,9 @@ class InteractiveSceneData:
     ``net_normal_forces_w_history`` (``wp.vec3f``, most recent first), and the air and contact times
     ``current_air_time``, ``last_air_time``, ``current_contact_time``, and ``last_contact_time``, per world and body.
     Sensors with filter objects also provide ``normal_force_matrix_w`` (``wp.vec3f``) per world, body, and filter.
+
+    Ray casters provide their position ``pos_w`` per world and the points that their rays hit, ``ray_hits_w``, per
+    world and ray (``wp.vec3f``). A ray that hits nothing gives infinity.
 
     The joint state and the root state of floating bases alias the solver state, so events may write them in place;
     :meth:`commit` makes the solver see the writes. The root pose of a fixed base, and ``gravity_w``, alias the
@@ -156,6 +160,18 @@ class InteractiveSceneData:
                 fields={field: fields[field] for field in views},
             )
             self._views[name] = views
+
+        # Ray casters.
+        for name, sensor in scene.sensors.items():
+            if not isinstance(sensor, BaseRayCaster):
+                continue
+
+            data = sensor.data
+            entities[name] = EntitySchema(
+                names={"rays": tuple(str(ray) for ray in range(sensor.num_rays))},
+                fields={"pos_w": FieldSchema((), wp.vec3f), "ray_hits_w": FieldSchema(("rays",), wp.vec3f)},
+            )
+            self._views[name] = {"pos_w": data.pos_w, "ray_hits_w": data.ray_hits_w}
 
         # Scene-wide fields.
         self._views["scene"] = {
