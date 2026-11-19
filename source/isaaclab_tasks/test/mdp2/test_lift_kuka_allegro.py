@@ -14,6 +14,7 @@ import torch
 import warp as wp
 from isaaclab_experimental import mdp2
 from isaaclab_experimental.envs import MDP2RLEnv
+from isaaclab_experimental.mdp2.config import group_terms
 
 import isaaclab.envs.mdp as mdp1
 from isaaclab.managers import RewardTermCfg, SceneEntityCfg, TerminationTermCfg
@@ -263,7 +264,8 @@ def test_play_mode_starts_the_curriculum_at_its_end():
     from isaaclab_tasks.utils.hydra import resolve_task_config
 
     cfg, _ = resolve_task_config("Isaac-Lift-KukaAllegro-MDP2", None, play_mode=True, overrides=[])
-    uses = [use for group in cfg.task.observations.values() for use in group.values() if use is not None]
+    groups = [group_terms(group)[0] for group in cfg.task.observations.values()]
+    uses = [use for group in groups for use in group.values() if use is not None]
     params = cfg.task.events["adr"].params
     assert cfg.scene.num_envs == 50 and all(use.noise is None for use in uses)
     assert params["init_difficulty"] == params["max_difficulty"] and params["promotion_only"]
