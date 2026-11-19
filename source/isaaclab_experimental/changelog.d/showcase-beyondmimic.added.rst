@@ -3,3 +3,4 @@
   per-physics-step history of filtered contacts, such as self-collisions.
 * Added :attr:`~isaaclab_experimental.mdp2.Event.resample_interval_on_reset`, which keeps the countdown of an MDP2
   interval event across resets, as MDP1's flag of that name does, for intervals longer than the episodes.
+* Added ``init`` hooks to MDP2 action terms, which fill their state once at startup, such as a scale per joint.
