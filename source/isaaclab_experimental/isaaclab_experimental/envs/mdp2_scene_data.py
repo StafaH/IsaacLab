@@ -36,7 +36,9 @@ class InteractiveSceneData:
       frame of the world's environment origin respectively;
     - ``root_com_vel_w``, ``default_root_vel``: ``wp.spatial_vectorf`` per world, linear [m/s] then angular
       [rad/s], in the world frame;
-    - ``body_link_pose_w``: ``wp.transformf`` per world and body, in the world frame.
+    - ``body_link_pose_w``: ``wp.transformf`` per world and body, in the world frame;
+    - ``body_com_vel_w``: ``wp.spatial_vectorf`` per world and body, linear [m/s] then angular [rad/s], of the bodies'
+      centers of mass, in the world frame.
 
     Articulations also provide ``joint_pos``, ``joint_vel``, ``joint_acc`` [rad/s^2 or m/s^2], ``default_joint_pos``,
     ``default_joint_vel``, ``joint_pos_target``, ``joint_effort_target`` and ``applied_effort`` [N·m or N],
@@ -47,7 +49,8 @@ class InteractiveSceneData:
     ``net_normal_forces_w_history`` (``wp.vec3f``, most recent first), and the air and contact times
     ``current_air_time``, ``last_air_time``, ``current_contact_time``, and ``last_contact_time``, per world and body.
     Sensors with filter objects also provide ``normal_force_matrix_w`` (``wp.vec3f``) [N] per world, body, and
-    filter.
+    filter, and the history of the total forces against them, ``force_matrix_w_history`` (``wp.vec3f``, most recent
+    first) [N] per world, history step, body, and filter.
 
     Cameras provide each of their data types, such as ``rgb`` (``uint8``) or ``depth`` [m], per world, pixel row,
     pixel column, and channel, with the dimensions ``height``, ``width``, and ``<data type>_channels``. The
@@ -85,6 +88,7 @@ class InteractiveSceneData:
                 "default_root_pose": data.default_root_pose,
                 "default_root_vel": data.default_root_vel,
                 "body_link_pose_w": data.body_link_pose_w,
+                "body_com_vel_w": data.body_com_vel_w,
             }
             fields = {
                 "root_link_pose_w": FieldSchema((), wp.transformf, writable=True),
@@ -98,6 +102,14 @@ class InteractiveSceneData:
                     derived_from=("root_link_pose_w", "joint_pos")
                     if name in scene.articulations
                     else ("root_link_pose_w",),
+                ),
+                # Forward kinematics computes it from the root and joint state, like the poses.
+                "body_com_vel_w": FieldSchema(
+                    ("bodies",),
+                    wp.spatial_vectorf,
+                    derived_from=("root_link_pose_w", "root_com_vel_w", "joint_pos", "joint_vel")
+                    if name in scene.articulations
+                    else ("root_link_pose_w", "root_com_vel_w"),
                 ),
             }
             names = {"bodies": tuple(asset.body_names)}
@@ -187,6 +199,7 @@ class InteractiveSceneData:
                 "net_forces_w_history": data.net_forces_w_history,
                 "net_normal_forces_w_history": data.net_normal_forces_w_history,
                 "normal_force_matrix_w": data.normal_force_matrix_w,
+                "force_matrix_w_history": data.force_matrix_w_history,
             }
             times = {
                 "current_air_time": data.current_air_time,
@@ -199,6 +212,7 @@ class InteractiveSceneData:
                 "net_forces_w_history": FieldSchema(("history", "bodies"), wp.vec3f),
                 "net_normal_forces_w_history": FieldSchema(("history", "bodies"), wp.vec3f),
                 "normal_force_matrix_w": FieldSchema(("bodies", "filters"), wp.vec3f),
+                "force_matrix_w_history": FieldSchema(("history", "bodies", "filters"), wp.vec3f),
                 **dict.fromkeys(times, FieldSchema(("bodies",))),
             }
 
