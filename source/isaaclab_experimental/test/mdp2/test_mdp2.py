@@ -768,6 +768,36 @@ def test_commands_and_interval_events_follow_their_timers():
     assert torch.equal(scene.data("robot", "joint_vel").torch, torch.full((8, 1), 3.0, device=DEVICE))
 
 
+@pytest.mark.parametrize("backend", ["torch", "warp"])
+def test_interval_events_can_keep_their_countdown_across_resets(backend: str):
+    """An interval longer than the episodes runs only if resets keep its countdown, which startup begins."""
+    pushes = {}
+    for keep in (False, True):
+        scene = PointMassScene(num_worlds=8, device=DEVICE)
+        builder = mdp2.MDPBuilder(scene.schema)
+        builder.add_observation(
+            "policy", "joint_vel", mdp2.Observation(joint_vel, inputs={"joint_vel": robot.joint_vel})
+        )
+        builder.add_termination("time_out", mdp2.TimeLimit(episode_length_s=0.04))
+        builder.add_event(
+            "push_robot",
+            dataclasses.replace(push_robot, interval_range_s=(0.06, 0.06), resample_interval_on_reset=not keep),
+        )
+        mdp = builder.finalize(device=DEVICE, backend=backend)
+        state, transition = mdp.state(scene), mdp.transition()
+        mdp2.startup(mdp, state)
+        env_reset(mdp, state, scene, transition.observations, torch.ones(8, dtype=torch.bool, device=DEVICE))
+
+        # Episodes end after steps 2, 4, and 6, and the push is due after steps 3 and 6; its velocity shows until the
+        # reset of its episode, in steps 3, 4, and 6.
+        pushes[keep] = sum(
+            int((env_step(mdp, state, scene, torch.zeros(8, 1, device=DEVICE), transition)["policy"] > 0.0).all())
+            for _ in range(6)
+        )
+
+    assert pushes == {False: 0, True: 3}
+
+
 def test_random_streams_are_independent_per_world_and_use():
     """Each world and each use of a random term draws from its own stream, once per step."""
 

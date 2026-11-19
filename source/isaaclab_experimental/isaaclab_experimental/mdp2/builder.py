@@ -861,6 +861,7 @@ class MDPBuilder:
                 time_out=cfg.time_out if isinstance(cfg, Termination) else False,
                 observation=observation,
                 timer=timer,
+                restart_timer=cfg.resample_interval_on_reset if isinstance(cfg, Event) else True,
                 random=term.random,
                 capturable=term.capturable,
                 torch_hooks=context.backend is Backend.WARP and implementation is term.torch,
@@ -1017,6 +1018,8 @@ def _check_event(entry: ScheduleEntry, errors: list[str]) -> None:
     cfg = entry.cfg
     if (cfg.mode is EventMode.INTERVAL) != (cfg.interval_range_s is not None):
         errors.append(f"{entry}: interval events need an interval_range_s, and other events cannot have one.")
+    if not cfg.resample_interval_on_reset and cfg.mode is not EventMode.INTERVAL:
+        errors.append(f"{entry}: only interval events can keep their interval across resets.")
     if cfg.commit is True and cfg.mode not in (EventMode.RESET, EventMode.START):
         errors.append(f"{entry}: only reset and start events can ask for a commit.")
 
