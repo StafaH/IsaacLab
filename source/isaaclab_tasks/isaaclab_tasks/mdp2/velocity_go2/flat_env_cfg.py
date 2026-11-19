@@ -52,7 +52,11 @@ class UnitreeGo2FlatSceneCfg(InteractiveSceneCfg):
         collision_group=-1,
         physics_material=GROUND_MATERIAL,
     )
-    robot: ArticulationCfg = replace(UNITREE_GO2_CFG, prim_path="{ENV_REGEX_NS}/Robot")
+    robot: ArticulationCfg = replace(
+        UNITREE_GO2_CFG,
+        prim_path="{ENV_REGEX_NS}/Robot",
+        spawn=replace(UNITREE_GO2_CFG.spawn, variants={"Colliders": "minimal"}),
+    )
     contact_forces = ContactSensorCfg(
         prim_path="{ENV_REGEX_NS}/Robot/[^/]*", history_length=3, track_air_time=True, update_period=SIM_DT
     )
