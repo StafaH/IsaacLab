@@ -101,6 +101,7 @@ class TermOp:
     time_out: bool = False  # Terminations: whether a true output truncates
     observation: ObservationOutput | None = None  # Observations only
     timer: tuple[float, float] | None = None  # Seconds between command resamples or interval events
+    restart_timer: bool = True  # Whether a reset restarts the timer; otherwise startup starts it, once
     stream: int | None = None  # Row of MDPState.rng, for timers and random terms
     random: bool = False  # Whether the term draws from its stream
     capturable: bool = True  # Whether its hooks may run inside a CUDA graph
@@ -405,7 +406,10 @@ def build_plan(
             pending.update(selector for selector in op.writes if selector.scene)
 
     return ExecutionPlan(
-        startup=tuple(Step(StepKind.COMPUTE, op) for op in ops[Phase.STARTUP_EVENTS]),
+        startup=(
+            *(Step(StepKind.RESET_TIMER, op) for op in timed if not op.restart_timer),
+            *(Step(StepKind.COMPUTE, op) for op in ops[Phase.STARTUP_EVENTS]),
+        ),
         process_actions=tuple(Step(StepKind.COMPUTE, op) for op in ops[Phase.ACTIONS] if op.rate is ActionRate.CONTROL),
         apply_actions=tuple(Step(StepKind.COMPUTE, op) for op in ops[Phase.ACTIONS] if op.rate is ActionRate.PHYSICS),
         evaluate=(
@@ -428,7 +432,11 @@ def build_plan(
         ),
         reset=(
             *([Step(StepKind.APPLY_TUNED, tuned)] if tuned else []),
-            *(Step(StepKind.RESET_TIMER, unswitched.get(op.name, op)) for op in timed if not op.entry_key),
+            *(
+                Step(StepKind.RESET_TIMER, unswitched.get(op.name, op))
+                for op in timed
+                if not op.entry_key and op.restart_timer
+            ),
             *events["reset"],
             # Then the tasks restart, and with them the timers and start events of those that run.
             *([Step(StepKind.RESET_PROGRESS, trees)] if trees else []),

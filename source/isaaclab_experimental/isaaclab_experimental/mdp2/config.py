@@ -277,6 +277,9 @@ class Event(TermCfg):
     outputs: dict[str, FieldSelector] = field(default_factory=dict)  # Passed by argument name; the event writes them
     mode: EventMode = EventMode.RESET
     interval_range_s: tuple[float, float] | None = None  # Seconds between interval events
+    # Interval events: whether a reset draws a new interval. False keeps the countdown across episodes, drawn first at
+    # startup, for intervals that may exceed the episodes, as MDP1's flag of that name.
+    resample_interval_on_reset: bool = True
     # Reset and start events: whether the scene commits the writes of the earlier events of the reset before it runs,
     # so that it reads what they changed. None infers it: before an event that reads a field derived from written
     # ones, such as the body poses after joint writes. True always commits first, and False never does.
