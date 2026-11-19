@@ -41,7 +41,7 @@ def test_base_image_is_rendered_by_every_replayed_step():
                 images.append(observations["base_image"].clone())
         assert env.is_captured and env.num_graphs == 1
         assert all(not torch.equal(before, after) for before, after in zip(images, images[1:]))
-        # Lit: a stale render graph draws the geometry black.
-        assert images[-1].amax(dim=1).float().mean() > 0
+        # Colored: the table and the arm show, where a stale render graph draws black geometry on a white background.
+        assert (images[-1].amax(dim=1) - images[-1].amin(dim=1)).amax() > 0
     finally:
         env.close()
