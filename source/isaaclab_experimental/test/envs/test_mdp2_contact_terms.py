@@ -243,3 +243,39 @@ def test_contact_task_replays_like_eager_steps(robot_with_feet: Path):
     # Contact physics is not bitwise deterministic, even between eager runs: it differs by about 1e-6.
     assert runs[0][:, :, 0].abs().sum() > 0.0
     torch.testing.assert_close(runs[0], runs[1], atol=1e-4, rtol=1e-4)
+
+
+def test_captured_steps_read_body_velocities_and_filtered_force_history(robot_with_feet: Path):
+    """Terms read the body velocities and the history of the forces against filter objects of the current step.
+
+    The robot's bodies do not touch each other, so the forces stay zero; the falling bodies' velocities change.
+    """
+    cfg = contact_env_cfg(robot_with_feet, "warp", capture=True)
+    cfg.scene.contact_forces = ContactSensorCfg(
+        prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, filter_prim_paths_expr=["{ENV_REGEX_NS}/Robot/.*"]
+    )
+    body_vel = mdp2.Term(torch=lambda body_com_vel_w: body_com_vel_w, shape=("worlds", "bodies", 6))
+    # The largest force of each body against any filter object, at each step of the history.
+    forces = mdp2.Term(
+        torch=lambda force_matrix_w_history: force_matrix_w_history.norm(dim=-1).amax(dim=-1),
+        shape=("worlds", "history", "bodies"),
+    )
+    cfg.task.observations["policy"] = {
+        "body_vel": mdp2.Observation(body_vel, inputs={"body_com_vel_w": robot.body_com_vel_w}),
+        "forces": mdp2.Observation(forces, inputs={"force_matrix_w_history": contact_forces.force_matrix_w_history}),
+    }
+    cfg.task.rewards, cfg.task.terminations = {}, {"time_out": mdp2.TimeLimit(episode_length_s=10.0)}
+    env = MDP2Env(cfg)
+    try:
+        env.reset()
+        moved = False
+        for _ in range(40):
+            env.step(torch.zeros(NUM_ENVS, env.mdp.action_dim, device=env.device))
+            body_vel = env.scene["robot"].data.body_com_vel_w.torch.flatten(1)
+            forces = env.scene["contact_forces"].data.force_matrix_w_history.torch.norm(dim=-1).amax(dim=-1).flatten(1)
+            torch.testing.assert_close(env.observations["policy"], torch.cat([body_vel, forces], dim=-1))
+            moved |= bool(body_vel.abs().sum() > 0.0)
+
+        assert env.is_captured and moved
+    finally:
+        env.close()
