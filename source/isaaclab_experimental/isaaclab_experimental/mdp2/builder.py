@@ -1034,11 +1034,10 @@ def _check_action(entry: ScheduleEntry, output_shape: tuple[int, ...] | None, er
     Actions write their fields in schedule order, so an action term may write elements of a field that other actions
     also write, such as other joints of a joint target.
     """
-    term = entry.cfg.term
-    if term.random or term.init is not None:
-        errors.append(f"{entry}: action terms cannot be random or have an init hook.")
+    if entry.cfg.term.random:
+        errors.append(f"{entry}: action terms cannot be random.")
     if output_shape is not None and len(output_shape) != 1:
-        errors.append(f"{entry}: an action's shape is ('worlds', columns), got {term.shape}.")
+        errors.append(f"{entry}: an action's shape is ('worlds', columns), got {entry.cfg.term.shape}.")
 
 
 def _check_output_type(entry: ScheduleEntry, dtype: type, errors: list[str]) -> None:

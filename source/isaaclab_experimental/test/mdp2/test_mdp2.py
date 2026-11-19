@@ -1658,6 +1658,47 @@ def test_action_terms_take_their_columns_after_direct_actions(close_above: bool)
         torch.testing.assert_close(state.actions.torch, actions)
 
 
+@wp.func
+def _scaled_effort_warp(
+    world: int,
+    action: wp.array2d(dtype=float),
+    joint_effort_target: wp.array2d(dtype=float),
+    joint_scale: wp.array(dtype=float),
+):
+    for k in range(joint_scale.shape[0]):
+        joint_effort_target[world, k] = joint_scale[k] * action[world, k]
+
+
+def _fill_joint_scale(ctx, *, scale):
+    ctx.state["joint_scale"].copy_(torch.tensor(scale, device=ctx.state["joint_scale"].device))
+
+
+def test_action_terms_fill_their_state_at_startup():
+    """An action term's init fills its state once, such as a scale per joint, which every step then reads."""
+    for backend in ("torch", "warp"):
+        scene = PointMassScene(num_worlds=2, joint_names=("x", "y"), device=DEVICE)
+        scaled_effort = mdp2.Term(
+            torch=lambda action, joint_effort_target, joint_scale: joint_effort_target.copy_(joint_scale * action),
+            warp=_scaled_effort_warp,
+            shape=("worlds", 2),
+            state={"joint_scale": mdp2.State((2,))},
+            init=_fill_joint_scale,
+        )
+        builder = mdp2.MDPBuilder(scene.schema)
+        builder.add_action(
+            "effort",
+            mdp2.Action(
+                scaled_effort, outputs={"joint_effort_target": robot.joint_effort_target}, params={"scale": (2.0, 3.0)}
+            ),
+        )
+        mdp = builder.finalize(device=DEVICE, backend=backend)
+        state = mdp.state(scene)
+        mdp2.startup(mdp, state)
+
+        mdp2.apply_actions(mdp, state, ProxyArray(wp.from_torch(torch.ones(2, 2, device=DEVICE))))
+        assert scene.data("robot", "joint_effort_target").torch.tolist() == [[2.0, 3.0], [2.0, 3.0]]
+
+
 def image_scene(num_worlds: int) -> PointMassScene:
     """A point-mass scene with a ``camera`` entity whose ``rgb`` field is a 2x3 image with 3 channels."""
     scene = PointMassScene(num_worlds=num_worlds, device=DEVICE)
