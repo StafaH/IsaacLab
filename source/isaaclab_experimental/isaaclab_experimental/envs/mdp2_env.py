@@ -351,12 +351,12 @@ class MDP2Env:
         """Return Torch views of observation buffers, grouped: a tensor per group, or a dict of term tensors."""
         observations: VecEnvObs = {}
         for buffer, values in buffers.items():
+            view = values.torch.view(self.num_envs, *self.mdp.observation_layouts[buffer][0])
             if "/" not in buffer:
-                observations[buffer] = values.torch
+                observations[buffer] = view
                 continue
             group, term = buffer.split("/")
-            shape = self.mdp.observation_layouts[buffer][0]
-            observations.setdefault(group, {})[term] = values.torch.view(self.num_envs, *shape)
+            observations.setdefault(group, {})[term] = view
         return observations
 
     def _commit(self, mask: ProxyArray) -> None:

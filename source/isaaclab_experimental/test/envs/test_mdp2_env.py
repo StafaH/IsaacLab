@@ -670,6 +670,10 @@ def test_cameras_render_in_the_captured_step_and_the_budget_records_episodes():
         },
         concatenate=False,
     )
+    # A group of one image term is the image, channel first, as CNN policies read it.
+    cfg.task.observations["image"] = {
+        "rgb": mdp2.Observation(mdp.image_rgb_channel_first, inputs={"image": mdp2.Entity("camera").rgb})
+    }
     # Indexing with a 1-dimensional tensor, as a 0-dimensional one would be read on the host in the graph.
     cart_x = mdp2.Term(torch=lambda joint_pos, joint_ids: joint_pos[:, joint_ids][:, 0])
     cfg.task.quantities["cart_x"] = mdp2.Quantity(
@@ -688,6 +692,8 @@ def test_cameras_render_in_the_captured_step_and_the_budget_records_episodes():
         observations, _ = env.reset()
         assert observations["cameras"]["rgb"].shape == (NUM_ENVS, 64, 96, 3)
         assert observations["cameras"]["rgb"].dtype == torch.uint8
+        assert env.single_observation_space["image"].shape == (3, 64, 96)
+        assert torch.equal(observations["image"], observations["cameras"]["rgb"].permute(0, 3, 1, 2))
         images = []
         for step in range(13):
             observations, *_ = env.step(torch.zeros(NUM_ENVS, 1, device=env.device))

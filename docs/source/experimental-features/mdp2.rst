@@ -173,7 +173,10 @@ episode ended.
 - **Observation groups.** A group in :attr:`~isaaclab_experimental.mdp2.TaskCfg.observations` is a dict of uses,
   concatenated into one ``float32`` tensor, or an :class:`~isaaclab_experimental.mdp2.ObservationGroup`. With
   ``concatenate=False``, the group is observed as a dict of tensors with each term's own shape and type, such as
-  ``uint8`` images from :data:`~isaaclab_experimental.mdp2.mdp.image_rgb`.
+  ``uint8`` images from :data:`~isaaclab_experimental.mdp2.mdp.image_rgb`. A concatenated group of one such term is
+  that term, with its shape and type, as in MDP1: a group of
+  :data:`~isaaclab_experimental.mdp2.mdp.image_rgb_channel_first` is the ``(3, height, width)`` image that RSL-RL's CNN
+  models read.
 - **Action terms.** A :class:`~isaaclab_experimental.mdp2.DirectAction` scales its columns of the action into a
   field. An :class:`~isaaclab_experimental.mdp2.Action` runs a term's hook on its columns instead, such as
   :data:`~isaaclab_experimental.mdp2.mdp.binary_joint_position` for a gripper, which closes on either side of a

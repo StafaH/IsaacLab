@@ -1630,14 +1630,35 @@ def test_groups_that_are_not_concatenated_keep_each_term_shape_and_type():
     # Other types need their own buffer, without processing.
     builder = mdp2.MDPBuilder(image_scene(num_worlds=1).schema)
     builder.add_observation("policy", "rgb", mdp2.Observation(mdp2.mdp.image_rgb, inputs={"image": camera.rgb}))
+    builder.add_observation("policy", "joint_pos", mdp2.Observation(joint_pos, inputs={"joint_pos": robot.joint_pos}))
     scaled = mdp2.Observation(mdp2.mdp.image_rgb, inputs={"image": camera.rgb}, scale=2.0)
     builder.add_observation("cameras", "scaled", scaled, concatenate=False)
     with pytest.raises(ValueError) as error:
         builder.validate()
-    for name in ("policy.rgb", "cameras.scaled"):
-        assert f"observations.{name}: an observation of type uint8 must be in a group with concatenate=False" in str(
-            error.value
+    assert "observations.policy.joint_pos: a concatenated group with an observation of another type" in str(error.value)
+    assert "observations.cameras.scaled: an observation of type uint8 cannot have noise" in str(error.value)
+
+
+def test_a_concatenated_group_of_one_term_of_another_type_is_that_term():
+    """A concatenated group of a single term of another type than float32, such as a channel-first image for a CNN,
+    is that term's buffer, with its shape and type, as MDP1 keeps the term of a group of one term."""
+    camera = mdp2.Entity("camera")
+    for backend in ("torch", "warp"):
+        scene = image_scene(num_worlds=2)
+        task = mdp2.TaskCfg(
+            observations={
+                "image": {"rgb": mdp2.Observation(mdp2.mdp.image_rgb_channel_first, inputs={"image": camera.rgb})}
+            }
         )
+        builder = mdp2.MDPBuilder(scene.schema)
+        builder.add_task(task)
+        mdp = builder.finalize(device=DEVICE, backend=backend)
+        state, transition = mdp.state(scene), mdp.transition()
+        mdp2.evaluate(mdp, state, transition)
+
+        assert dict(mdp.observation_layouts) == {"image": ((3, 2, 3), wp.uint8)}
+        image = transition.observations["image"].torch.view(2, 3, 2, 3)
+        assert torch.equal(image, scene.data("camera", "rgb").torch.permute(0, 3, 1, 2))
 
 
 def test_compose_merges_tasks_in_order():

@@ -131,7 +131,8 @@ class CompileContext:
     )
     subsets: dict[SubsetSelector, tuple[int, ...]] = field(default_factory=dict)
     observation_dims: dict[str, int] = field(default_factory=dict)  # Elements per world of each buffer
-    observation_layouts: dict[str, tuple[tuple[int, ...], type]] = field(default_factory=dict)  # Separate buffers
+    # Buffers of their own: of a term of a group that is not concatenated, or of a group of a term of another type
+    observation_layouts: dict[str, tuple[tuple[int, ...], type]] = field(default_factory=dict)
     action_dim: int = 0
 
 
@@ -399,9 +400,17 @@ class MDPBuilder:
             for buffer, layout in context.observation_layouts.items():
                 if observation_layouts.setdefault(buffer, layout) != layout:
                     errors.append(f"The world configs give the observation '{buffer}' different shapes or types.")
-        mixed = {buffer.split("/")[0] for buffer in observation_layouts} & set(observation_dims)
+        mixed = {buffer.split("/")[0] for buffer in observation_layouts if "/" in buffer} & set(observation_dims)
         if mixed:
             errors.append(f"The world configs disagree on whether the groups {sorted(mixed)} are concatenated.")
+        typed = {
+            group
+            for context in contexts
+            for group in context.observation_dims
+            if group in observation_layouts and group not in context.observation_layouts
+        }
+        if typed:
+            errors.append(f"The world configs disagree on the observation types of the groups {sorted(typed)}.")
         for group, dim in observation_dims.items():
             observation_layouts.setdefault(group, ((dim,), wp.float32))
         if errors:
@@ -754,9 +763,15 @@ def _allocate_columns(
     cfg = entry.cfg
     if isinstance(cfg, Observation):
         start = context.observation_dims.get(entry.buffer, 0)
+        # A concatenated group with an observation of another type than float32 is that observation's buffer.
+        if entry.concatenate and start and (dtype is not wp.float32 or entry.buffer in context.observation_layouts):
+            context.errors.append(
+                f"{entry}: a concatenated group with an observation of another type than float32 holds only that"
+                " observation."
+            )
         columns = slice(start, start + math.prod(output_shape) * max(cfg.history_length, 1))
         context.observation_dims[entry.buffer] = columns.stop
-        if not entry.concatenate:
+        if not entry.concatenate or dtype is not wp.float32:
             context.observation_layouts[entry.buffer] = (output_shape, dtype)
         return ObservationOutput(entry.buffer, columns, cfg.noise, cfg.clip, cfg.scale, cfg.history_length), None
     if isinstance(cfg, Action):
@@ -781,17 +796,16 @@ def _check_action(entry: ScheduleEntry, output_shape: tuple[int, ...] | None, er
 
 
 def _check_output_type(entry: ScheduleEntry, dtype: type, errors: list[str]) -> None:
-    """Record why a term's output type does not fit its use: only observations of groups that are not concatenated may
-    set one."""
+    """Record why a term's output type does not fit its use: only observations without noise, clip, scale, or history
+    may set one."""
     cfg = entry.cfg
     if cfg.term.dtype is not None and not isinstance(cfg, Observation):
         errors.append(f"{entry}: only observations can set an output type.")
     if isinstance(cfg, Observation) and dtype is not wp.float32:
         processed = cfg.noise is not None or cfg.clip is not None or cfg.scale is not None or cfg.history_length
-        if processed or entry.concatenate:
+        if processed:
             errors.append(
-                f"{entry}: an observation of type {dtype.__name__} must be in a group with concatenate=False, without"
-                " noise, clip, scale, or history."
+                f"{entry}: an observation of type {dtype.__name__} cannot have noise, clip, scale, or history."
             )
 
 

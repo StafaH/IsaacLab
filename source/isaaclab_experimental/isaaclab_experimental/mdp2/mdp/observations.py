@@ -280,4 +280,21 @@ image_rgb = Term(
     dtype=wp.uint8,
 )
 """A camera's ``rgb`` image, ``uint8`` of shape ``(height, width, 3)``, bound as ``image=camera.rgb``. It goes in a
-group that is not concatenated: ``ObservationGroup(..., concatenate=False)``."""
+group that is not concatenated, ``ObservationGroup(..., concatenate=False)``, or alone in a group."""
+
+
+@wp.func
+def _image_rgb_channel_first(
+    world: int, channel: int, row: int, column: int, image: wp.array4d(dtype=wp.uint8)
+) -> wp.uint8:
+    return image[world, row, column, channel]
+
+
+image_rgb_channel_first = Term(
+    torch=lambda image: image.permute(0, 3, 1, 2),
+    warp=_image_rgb_channel_first,
+    shape=("worlds", "rgb_channels", "height", "width"),
+    dtype=wp.uint8,
+)
+"""A camera's ``rgb`` image channel first, ``uint8`` of shape ``(3, height, width)``, as MDP1's ``image_rgb`` with
+``channel_first=True`` and ``normalize=False``. Alone in a group, the group is the image, as CNN policies read it."""
