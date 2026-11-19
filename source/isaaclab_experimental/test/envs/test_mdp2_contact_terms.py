@@ -41,6 +41,12 @@ contact_forces = mdp2.Entity("contact_forces")
 feet = contact_forces.bodies(".*_SHANK")
 
 feet_contacts = {"net_normal_forces_w_history": contact_forces.net_normal_forces_w_history, "body_ids": feet}
+feet_speeds = {
+    "net_normal_forces_w_history": contact_forces.net_normal_forces_w_history,
+    "body_com_vel_w": robot.body_com_vel_w,
+    "body_ids": feet,
+    "robot_body_ids": robot.bodies(".*_SHANK"),
+}
 feet_air_times = {
     "current_contact_time": contact_forces.current_contact_time,
     "last_air_time": contact_forces.last_air_time,
@@ -168,6 +174,18 @@ def test_contact_terms_match_mdp1(robot_with_feet: Path):
             "value",
             mdp2.Observation(mdp.feet_air_time, inputs=air_time, params={"threshold": 0.1, "step_dt": mdp2.step_dt}),
         )
+        biped_air_time = {
+            "current_air_time": contact_forces.current_air_time,
+            "current_contact_time": contact_forces.current_contact_time,
+            "command": mdp2.commands.forward,
+            "body_ids": feet,
+        }
+        builder.add_observation(
+            "feet_air_time_positive_biped",
+            "value",
+            mdp2.Observation(mdp.feet_air_time_positive_biped, inputs=biped_air_time, params={"threshold": 0.4}),
+        )
+        builder.add_observation("feet_slide", "value", mdp2.Observation(mdp.feet_slide, inputs=feet_speeds))
         builder.add_termination(
             "illegal_contact", mdp2.Termination(mdp.illegal_contact, inputs=feet_contacts, params={"threshold": 50.0})
         )
@@ -182,24 +200,35 @@ def test_contact_terms_match_mdp1(robot_with_feet: Path):
         mdp1_env = MDP1Env(env, torch.ones(NUM_ENVS, 3, device=env.device))
         sensor_cfg = SceneEntityCfg("contact_forces", body_names=".*_SHANK")
         sensor_cfg.resolve(env.scene)
+        feet_cfg = SceneEntityCfg("robot", body_names=".*_SHANK")
+        feet_cfg.resolve(env.scene)
 
         env.reset()
         rewarded = False
+        single_stance = slid = False
+        # Random efforts make the robots land on one foot, then the other.
+        generator = torch.Generator(device=env.device).manual_seed(0)
         for _ in range(40):
-            env.step(torch.zeros(NUM_ENVS, env.mdp.action_dim, device=env.device))
+            env.step(8.0 * torch.rand(NUM_ENVS, env.mdp.action_dim, device=env.device, generator=generator) - 4.0)
             undesired_contacts = mdp1.undesired_contacts(mdp1_env, 1.0, sensor_cfg).float()
             feet_air_time = velocity_mdp1.feet_air_time(mdp1_env, "forward", sensor_cfg, 0.1)
             illegal_contact = mdp1.illegal_contact(mdp1_env, 50.0, sensor_cfg)
+            biped_air_time = velocity_mdp1.feet_air_time_positive_biped(mdp1_env, "forward", 0.4, sensor_cfg)
+            feet_slide = velocity_mdp1.feet_slide(mdp1_env, sensor_cfg, feet_cfg)
             rewarded |= bool(feet_air_time.abs().sum() > 0.0)
+            single_stance |= bool(biped_air_time.sum() > 0.0)
+            slid |= bool(feet_slide.sum() > 0.0)
 
             for model, state, transition in models.values():
                 mdp2.evaluate(model, state, transition)
                 observations = transition.observations
                 torch.testing.assert_close(observations["undesired_contacts"].torch[:, 0], undesired_contacts)
                 torch.testing.assert_close(observations["feet_air_time"].torch[:, 0], feet_air_time)
+                torch.testing.assert_close(observations["feet_air_time_positive_biped"].torch[:, 0], biped_air_time)
+                torch.testing.assert_close(observations["feet_slide"].torch[:, 0], feet_slide)
                 assert torch.equal(transition.termination_terms.torch[:, 0], illegal_contact)
 
-        assert rewarded  # The feet landed during the rollout.
+        assert rewarded and single_stance and slid  # The feet landed, one at a time, and slid during the rollout.
 
         # A reset clears the contacts that ended the last episode.
         env.reset()
