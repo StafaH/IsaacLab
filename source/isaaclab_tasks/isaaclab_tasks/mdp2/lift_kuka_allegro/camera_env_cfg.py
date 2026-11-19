@@ -8,12 +8,12 @@
 
 from isaaclab_experimental import mdp2
 from isaaclab_experimental.mdp2 import mdp
-from isaaclab_newton.renderers import NewtonWarpRendererCfg
 
 from isaaclab.sensors import CameraCfg
 from isaaclab.utils import configclass, replace
 
 from isaaclab_tasks.core.lift.config.kuka_allegro.camera_cfg import BASE_CAMERA_CFG
+from isaaclab_tasks.utils.presets import MultiBackendRendererCfg
 
 from .lift_env_cfg import TASK, KukaAllegroLiftEnvCfg, KukaAllegroLiftSceneCfg
 
@@ -22,10 +22,11 @@ base_camera = mdp2.Entity("base_camera")
 
 @configclass
 class KukaAllegroLiftCameraSceneCfg(KukaAllegroLiftSceneCfg):
-    """The lift scene with MDP1's base camera, rendered by Newton's Warp renderer."""
+    """The lift scene with MDP1's base camera. Its renderer is a preset as in MDP1: Newton's Warp renderer by
+    default, ``newton_optix`` for OptiX."""
 
     base_camera: CameraCfg = replace(
-        BASE_CAMERA_CFG, data_types=["rgb"], width=64, height=64, renderer_cfg=NewtonWarpRendererCfg()
+        BASE_CAMERA_CFG, data_types=["rgb"], width=64, height=64, renderer_cfg=MultiBackendRendererCfg()
     )
 
 
