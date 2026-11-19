@@ -55,6 +55,8 @@ parser.add_argument("--penalty", type=float, default=5.0, help="Weight of the di
 parser.add_argument("--log_interval", type=int, default=50)
 parser.add_argument("--out", default=None, help="Path of a JSON file with the log")
 parser.add_argument("--save", default=None, help="Path of a checkpoint of the policy and the discriminator")
+parser.add_argument("--load", default=None, help="Checkpoint to load instead of training")
+parser.add_argument("--video", default=None, help="Path of an MP4: worlds in the clip's style, then without it")
 parser.add_argument("--benchmark", action="store_true", help="Time env.step with random actions, and exit")
 args = parser.parse_args()
 
@@ -89,6 +91,10 @@ def make_env():
 
     cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
     cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, args.num_envs, args.seed
+    if args.video:
+        from video import add_camera
+
+        add_camera(cfg)
     env = gym.make(TASK, cfg=cfg).unwrapped
     obs = env.reset()[0]["policy"]
     op = next(op for op in env.mdp.term_ops if op.use == "rewards.style")
@@ -197,7 +203,11 @@ def measure():
     return {"style/speed_error": error[styled].mean(), "velocity/speed_error": error[plain].mean(), "falls": sum(falls)}
 
 
-iterations = round(args.budget * 1.0e6 / (T * num_envs))
+if args.load:
+    checkpoint = torch.load(args.load, map_location=DEVICE)
+    learner.agent.load_state_dict(checkpoint["agent"])
+    discriminator.load_state_dict(checkpoint["discriminator"])
+iterations = 0 if args.load else round(args.budget * 1.0e6 / (T * num_envs))
 history = []
 measures, measured = {}, 0
 wp.synchronize()
@@ -247,4 +257,8 @@ if args.save:
         {"args": vars(args), "agent": learner.agent.state_dict(), "discriminator": discriminator.state_dict()},
         args.save,
     )
+if args.video:
+    from video import record
+
+    record(env, learner.policy, args.video, 400, min(3, num_envs // 2))
 env.close()
