@@ -593,6 +593,8 @@ class MDPBuilder:
             errors.append(f"{entry}: interval events need an interval_range_s, and other events cannot have one.")
         if isinstance(cfg, Quantity) and (cfg.log or cfg.record) and output_shape:
             errors.append(f"{entry}: a logged or recorded quantity must have shape ('worlds',), got {output_shape}.")
+        if isinstance(cfg, Event) and not cfg.resample_interval_on_reset and cfg.mode is not EventMode.INTERVAL:
+            errors.append(f"{entry}: only interval events can keep their interval across resets.")
         if isinstance(cfg, Event) and cfg.commit is True and cfg.mode is not EventMode.RESET:
             errors.append(f"{entry}: only reset events can ask for a commit.")
         if isinstance(cfg, Command) and implementation is not None and implementation.reset is not None:
@@ -680,6 +682,7 @@ class MDPBuilder:
                 time_out=cfg.time_out if isinstance(cfg, Termination) else False,
                 observation=observation,
                 timer=timer,
+                restart_timer=cfg.resample_interval_on_reset if isinstance(cfg, Event) else True,
                 random=term.random,
                 capturable=term.capturable,
                 torch_hooks=context.backend is Backend.WARP and implementation is term.torch,

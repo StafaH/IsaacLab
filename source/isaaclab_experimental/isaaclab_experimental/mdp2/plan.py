@@ -75,6 +75,7 @@ class TermOp:
     time_out: bool = False  # Terminations: whether a true output truncates
     observation: ObservationOutput | None = None  # Observations only
     timer: tuple[float, float] | None = None  # Seconds between command resamples or interval events
+    restart_timer: bool = True  # Whether a reset restarts the timer; otherwise startup starts it, once
     stream: int | None = None  # Row of MDPState.rng, for timers and random terms
     random: bool = False  # Whether the term draws from its stream
     capturable: bool = True  # Whether its hooks may run inside a CUDA graph
@@ -189,7 +190,10 @@ def build_plan(ops: Mapping[Phase, tuple], schema: SceneSchema) -> ExecutionPlan
         pending.update(selector for selector in op.writes if selector.scene)
 
     return ExecutionPlan(
-        startup=tuple(Step(StepKind.COMPUTE, op) for op in ops[Phase.STARTUP_EVENTS]),
+        startup=(
+            *(Step(StepKind.RESET_TIMER, op) for op in timed if not op.restart_timer),
+            *(Step(StepKind.COMPUTE, op) for op in ops[Phase.STARTUP_EVENTS]),
+        ),
         apply_actions=tuple(Step(StepKind.COMPUTE, op) for op in ops[Phase.ACTIONS]),
         evaluate=(
             # Quantities, terminations, and rewards see the commands that governed the action.
@@ -203,7 +207,7 @@ def build_plan(ops: Mapping[Phase, tuple], schema: SceneSchema) -> ExecutionPlan
             *(Step(StepKind.UPDATE_STATE, op) for op in ops[Phase.OBSERVATIONS] if op.update is not None),
         ),
         reset=(
-            *(Step(StepKind.RESET_TIMER, op) for op in timed),
+            *(Step(StepKind.RESET_TIMER, op) for op in timed if op.restart_timer),
             *reset_events,
             *(Step(StepKind.COMPUTE, op) for op in ops[Phase.COMMANDS]),
             # State restarts last, from the fields and commands of the new episode.
