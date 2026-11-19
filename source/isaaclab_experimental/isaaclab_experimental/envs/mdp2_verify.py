@@ -52,8 +52,9 @@ def verify_capture(env_type: type[MDP2Env], cfg: MDP2EnvCfg, num_steps: int) -> 
     (eager, _), (captured, suspects) = runs
     for step, (expected, actual) in enumerate(zip(eager, captured)):
         for name, value in expected.items():
-            # NaN marks values such as an absent heading target, so it matches NaN.
-            tolerance = {"rtol": 0.0, "atol": 0.0} if reproducible else {"rtol": 1e-3, "atol": 1e-5}
+            # NaN marks values such as an absent heading target, so it matches NaN. On reproducible physics, Torch
+            # hooks may still round differently in a graph than eagerly, by far less than a frozen value differs.
+            tolerance = {"rtol": 1e-5, "atol": 1e-6} if reproducible else {"rtol": 1e-3, "atol": 1e-5}
             if not torch.allclose(value.double(), actual[name].double(), equal_nan=True, **tolerance):
                 raise RuntimeError(
                     f"Captured step {step} differs from the uncaptured step at '{name}'. A capturable Python hook or"
