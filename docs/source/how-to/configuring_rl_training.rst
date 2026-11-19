@@ -167,6 +167,9 @@ rewards, commands and events are shared with its default PPO agent.
 The actor's ``action_range`` specifies bounds in the raw coordinates accepted by the
 environment. ``clip_actions=None`` preserves that range.
 
+``Isaac-Velocity-Flat-G1-MDP2``, the MDP2 version of the task, registers the same agent
+configurations, so ``--agent rsl_rl_sac_cfg_entry_point`` trains it with the same settings.
+
 Use the same agent entry point with the playback and export commands. Published
 ``pretrained`` checkpoints are PPO policies and cannot be loaded by ``OffPolicyRunner`` agents.
 
