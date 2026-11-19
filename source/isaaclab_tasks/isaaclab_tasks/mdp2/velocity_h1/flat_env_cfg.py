@@ -6,11 +6,12 @@
 """Unitree H1 velocity tracking: follow a commanded base velocity and heading on flat ground.
 
 The task is that of the Unitree G1, see :mod:`..velocity_g1`, with the rewards bound to the joints and the feet of
-the H1.
+the H1, and a reward for the height of its base.
 """
 
 from isaaclab_experimental import mdp2
 from isaaclab_experimental.envs import MDP2RLEnvCfg
+from isaaclab_experimental.mdp2 import mdp
 from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg
 
 import isaaclab.sim as sim_utils
@@ -28,6 +29,7 @@ from ..velocity_g1.flat_env_cfg import DECIMATION, GROUND_MATERIAL, SIM_DT, cont
 from ..velocity_g1.flat_env_cfg import TASK as G1_TASK
 
 legs = robot.joints(".*_hip_.*", ".*_knee")
+feet = contact_forces.bodies(".*ankle_link")
 rewards = G1_TASK.rewards
 
 
@@ -64,14 +66,24 @@ TASK = replace(
     G1_TASK,
     rewards={
         **rewards,
-        "base_height_l2": replace(rewards["base_height_l2"], params={"target_height": 0.98}),
+        # Without this term the H1 walks in a crouch.
+        "base_height_l2": mdp2.Reward(
+            mdp.base_height_l2,
+            inputs={"root_link_pose_w": robot.root_link_pose_w},
+            params={"target_height": 0.98},
+            weight=-20.0,
+        ),
         "dof_torques_l2": replace(
             rewards["dof_torques_l2"], inputs={"applied_effort": robot.applied_effort, "joint_ids": legs}
         ),
         "dof_acc_l2": replace(rewards["dof_acc_l2"], inputs={"joint_acc": robot.joint_acc, "joint_ids": legs}),
         "feet_air_time": replace(
             rewards["feet_air_time"],
-            inputs={**rewards["feet_air_time"].inputs, "body_ids": contact_forces.bodies(".*ankle_link")},
+            inputs={**rewards["feet_air_time"].inputs, "body_ids": feet},
+        ),
+        "feet_slide": replace(
+            rewards["feet_slide"],
+            inputs={**rewards["feet_slide"].inputs, "body_ids": feet, "robot_body_ids": robot.bodies(".*ankle_link")},
         ),
         "dof_pos_limits": replace(
             rewards["dof_pos_limits"],
