@@ -3,14 +3,17 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Unitree G1 velocity tracking: follow a commanded base velocity and heading on flat ground."""
+"""Unitree G1 velocity tracking: follow a commanded base velocity and heading on flat ground.
+
+The task is MDP1's ``Isaac-Velocity-Flat-G1`` on Newton MJWarp, term for term, so that the two run the same MDP.
+"""
 
 import math
 
 from isaaclab_experimental import mdp2
 from isaaclab_experimental.envs import MDP2RLEnvCfg
 from isaaclab_experimental.mdp2 import mdp
-from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg
+from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg, NewtonCollisionPipelineCfg, NewtonShapeCfg
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
@@ -23,8 +26,6 @@ from isaaclab_tasks.utils import PresetCfg
 
 from isaaclab_assets.robots.unitree import G1_MINIMAL_CFG
 
-from .mdp import feet_air_time_biped
-
 SIM_DT = 0.005
 DECIMATION = 4
 GROUND_MATERIAL = sim_utils.PhysxRigidBodyMaterialCfg(
@@ -36,6 +37,7 @@ contact_forces = mdp2.Entity("contact_forces")
 scene = mdp2.Entity("scene")
 joints = robot.joints(".*")
 feet = contact_forces.bodies(".*_ankle_roll_link")
+legs = robot.joints(".*_hip_.*", ".*_knee_joint")
 
 root_state = {"root_link_pose_w": robot.root_link_pose_w, "root_com_vel_w": robot.root_com_vel_w}
 velocity_tracking = {**root_state, "command": mdp2.commands.base_velocity}
@@ -74,9 +76,18 @@ class UnitreeG1FlatPhysicsCfg(PresetCfg):
     """Newton physics presets of the Unitree G1 flat velocity task."""
 
     newton_mjwarp: NewtonCfg = NewtonCfg(
-        solver_cfg=MJWarpSolverCfg(njmax=150, nconmax=60, cone="pyramidal", impratio=1.0, integrator="implicitfast"),
+        solver_cfg=MJWarpSolverCfg(
+            njmax=95,
+            nconmax=10,
+            cone="pyramidal",
+            impratio=1.0,
+            integrator="implicitfast",
+            use_mujoco_contacts=False,
+        ),
+        collision_cfg=NewtonCollisionPipelineCfg(max_triangle_pairs=2_500_000),
         num_substeps=2,
         debug_mode=False,
+        default_shape_cfg=NewtonShapeCfg(margin=0.0, ke=160000.0, kd=1100.0),
     )
     default: NewtonCfg = newton_mjwarp
 
@@ -102,69 +113,59 @@ TASK = mdp2.TaskCfg(
         ),
     },
     observations={
-        "policy": mdp2.ObservationGroup(
-            terms=dict(
-                base_lin_vel=mdp2.Observation(mdp.base_lin_vel, inputs=root_state, noise=mdp2.UniformNoise(-0.1, 0.1)),
-                base_ang_vel=mdp2.Observation(mdp.base_ang_vel, inputs=root_state, noise=mdp2.UniformNoise(-0.2, 0.2)),
-                projected_gravity=mdp2.Observation(
-                    mdp.projected_gravity, inputs=upright, noise=mdp2.UniformNoise(-0.05, 0.05)
-                ),
-                velocity_commands=mdp2.Observation(
-                    mdp.generated_commands, inputs={"command": mdp2.commands.base_velocity}
-                ),
-                joint_pos=mdp2.Observation(
-                    mdp.joint_pos_rel,
-                    inputs={
-                        "joint_pos": robot.joint_pos,
-                        "default_joint_pos": robot.default_joint_pos,
-                        "joint_ids": joints,
-                    },
-                    noise=mdp2.UniformNoise(-0.01, 0.01),
-                ),
-                joint_vel=mdp2.Observation(
-                    mdp.joint_vel_rel,
-                    inputs={
-                        "joint_vel": robot.joint_vel,
-                        "default_joint_vel": robot.default_joint_vel,
-                        "joint_ids": joints,
-                    },
-                    noise=mdp2.UniformNoise(-1.5, 1.5),
-                ),
-                actions=mdp2.Observation(mdp.last_action, inputs={"actions": mdp2.last_action}),
-            )
-        )
+        "policy": {
+            "base_lin_vel": mdp2.Observation(mdp.base_lin_vel, inputs=root_state, noise=mdp2.UniformNoise(-0.1, 0.1)),
+            "base_ang_vel": mdp2.Observation(mdp.base_ang_vel, inputs=root_state, noise=mdp2.UniformNoise(-0.2, 0.2)),
+            "projected_gravity": mdp2.Observation(
+                mdp.projected_gravity, inputs=upright, noise=mdp2.UniformNoise(-0.05, 0.05)
+            ),
+            "velocity_commands": mdp2.Observation(
+                mdp.generated_commands, inputs={"command": mdp2.commands.base_velocity}
+            ),
+            "joint_pos": mdp2.Observation(
+                mdp.joint_pos_rel,
+                inputs={
+                    "joint_pos": robot.joint_pos,
+                    "default_joint_pos": robot.default_joint_pos,
+                    "joint_ids": joints,
+                },
+                noise=mdp2.UniformNoise(-0.01, 0.01),
+            ),
+            "joint_vel": mdp2.Observation(
+                mdp.joint_vel_rel,
+                inputs={
+                    "joint_vel": robot.joint_vel,
+                    "default_joint_vel": robot.default_joint_vel,
+                    "joint_ids": joints,
+                },
+                noise=mdp2.UniformNoise(-1.5, 1.5),
+            ),
+            "actions": mdp2.Observation(mdp.last_action, inputs={"actions": mdp2.last_action}),
+        }
     },
     rewards={
         "track_lin_vel_xy_exp": mdp2.Reward(
-            mdp.track_lin_vel_xy_exp, inputs=velocity_tracking, params={"std": 0.5}, weight=2.0
+            mdp.track_lin_vel_xy_yaw_frame_exp, inputs=velocity_tracking, params={"std": 0.5}, weight=1.0
         ),
         "track_ang_vel_z_exp": mdp2.Reward(
-            mdp.track_ang_vel_z_exp, inputs=velocity_tracking, params={"std": 0.5}, weight=2.0
+            mdp.track_ang_vel_z_world_exp,
+            inputs={"root_com_vel_w": robot.root_com_vel_w, "command": mdp2.commands.base_velocity},
+            params={"std": 0.5},
+            weight=1.0,
         ),
         "termination_penalty": mdp2.Reward(mdp.is_terminated, inputs={"terminated": mdp2.terminated}, weight=-200.0),
         "lin_vel_z_l2": mdp2.Reward(mdp.lin_vel_z_l2, inputs=root_state, weight=-0.2),
         "ang_vel_xy_l2": mdp2.Reward(mdp.ang_vel_xy_l2, inputs=root_state, weight=-0.05),
         "flat_orientation_l2": mdp2.Reward(mdp.flat_orientation_l2, inputs=upright, weight=-1.0),
-        # Without this term the G1 walks in a crouch.
-        "base_height_l2": mdp2.Reward(
-            mdp.base_height_l2,
-            inputs={"root_link_pose_w": robot.root_link_pose_w},
-            params={"target_height": 0.72},
-            weight=-20.0,
-        ),
         "dof_torques_l2": mdp2.Reward(
-            mdp.joint_torques_l2,
-            inputs={"applied_effort": robot.applied_effort, "joint_ids": robot.joints(".*_hip_.*", ".*_knee_joint")},
-            weight=-2.0e-6,
+            mdp.joint_torques_l2, inputs={"applied_effort": robot.applied_effort, "joint_ids": legs}, weight=-2.0e-6
         ),
         "dof_acc_l2": mdp2.Reward(
-            mdp.joint_acc_l2,
-            inputs={"joint_acc": robot.joint_acc, "joint_ids": robot.joints(".*_hip_.*", ".*_knee_joint")},
-            weight=-1.0e-7,
+            mdp.joint_acc_l2, inputs={"joint_acc": robot.joint_acc, "joint_ids": legs}, weight=-1.0e-7
         ),
         "action_rate_l2": mdp2.Reward(mdp.action_rate_l2, inputs={"actions": mdp2.last_action}, weight=-0.005),
         "feet_air_time": mdp2.Reward(
-            feet_air_time_biped,
+            mdp.feet_air_time_positive_biped,
             inputs={
                 "current_air_time": contact_forces.current_air_time,
                 "current_contact_time": contact_forces.current_contact_time,
@@ -172,7 +173,17 @@ TASK = mdp2.TaskCfg(
                 "body_ids": feet,
             },
             params={"threshold": 0.4},
-            weight=1.0,
+            weight=0.75,
+        ),
+        "feet_slide": mdp2.Reward(
+            mdp.feet_slide,
+            inputs={
+                "net_normal_forces_w_history": contact_forces.net_normal_forces_w_history,
+                "body_com_vel_w": robot.body_com_vel_w,
+                "body_ids": feet,
+                "robot_body_ids": robot.bodies(".*_ankle_roll_link"),
+            },
+            weight=-0.1,
         ),
         "dof_pos_limits": mdp2.Reward(
             mdp.joint_pos_limits,
@@ -185,7 +196,14 @@ TASK = mdp2.TaskCfg(
         ),
         # The joints that walking does not need stay near their default positions.
         "joint_deviation_hip": joint_deviation(".*_hip_yaw_joint", ".*_hip_roll_joint", weight=-0.1),
-        "joint_deviation_arms": joint_deviation(".*_shoulder_.*", ".*_elbow_.*", weight=-0.1),
+        "joint_deviation_arms": joint_deviation(
+            ".*_shoulder_pitch_joint",
+            ".*_shoulder_roll_joint",
+            ".*_shoulder_yaw_joint",
+            ".*_elbow_pitch_joint",
+            ".*_elbow_roll_joint",
+            weight=-0.1,
+        ),
         "joint_deviation_fingers": joint_deviation(
             ".*_zero_joint",
             ".*_one_joint",
@@ -208,10 +226,10 @@ TASK = mdp2.TaskCfg(
             },
             params={"threshold": 1.0},
         ),
-        "bad_orientation": mdp2.Termination(mdp.bad_orientation, inputs=upright, params={"limit_angle": 1.0}),
     },
     events={
-        # Newton has one friction coefficient, so MDP1's dynamic friction of 0.6 does not apply.
+        # Newton has one friction coefficient, so MDP1's dynamic friction of 0.6 and its material buckets do not
+        # apply. MDP1's reset event of a zero external force on the torso is left out: it applies no force.
         "physics_material": mdp2.Event(
             mdp.randomize_rigid_body_material,
             mode=mdp2.EventMode.STARTUP,
@@ -238,7 +256,7 @@ TASK = mdp2.TaskCfg(
             outputs=root_state,
             params={
                 "pose_range": ((-0.5, 0.5), (-0.5, 0.5), (0.0, 0.0), (0.0, 0.0), (0.0, 0.0), (-3.14, 3.14)),
-                "velocity_range": ((0.0, 0.0),) * 6,
+                "velocity_range": ((-0.5, 0.5),) * 6,
             },
         ),
         "reset_robot_joints": mdp2.Event(
@@ -279,3 +297,8 @@ class UnitreeG1FlatEnvCfg(MDP2RLEnvCfg):
     scene: UnitreeG1FlatSceneCfg = UnitreeG1FlatSceneCfg(num_envs=4096, env_spacing=2.5)
     task: mdp2.TaskCfg = TASK
     decimation: int = DECIMATION
+
+    def play_mode(self):
+        """Play without the random pushes, as the MDP1 velocity tasks do."""
+        super().play_mode()
+        self.task = replace(self.task, events={**self.task.events, "push_robot": None})
