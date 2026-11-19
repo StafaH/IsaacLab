@@ -21,6 +21,9 @@ from .plan import Launch
 
 _ARGUMENT = re.compile(r"\ba\d+\b")  # Source names of kernel arguments, see Fusion.argument
 
+LANES = 256
+"""Threads per world of an element block; larger blocks loop over their elements."""
+
 
 @dataclass(frozen=True)
 class FusedKernel:
@@ -149,23 +152,30 @@ class Fusion:
         if not self._blocks:
             return
 
-        # Each block runs in a contiguous range of threads, ordered by world, then element.
+        # Each block runs in a contiguous range of threads, ordered by world, then element. A block of more than
+        # LANES elements runs LANES threads per world that stride over its elements, so that a masked world costs
+        # LANES threads, not one per element.
         body, begin = [], 0
         for shape, lines in self._blocks:
             size = math.prod(shape)
+            lanes = min(size, LANES)
+            indices = [f"i{d} = element // {math.prod(shape[d + 1 :])} % {n}" for d, n in enumerate(shape)]
             body += [
-                f"{'elif' if begin else 'if'} thread < {begin + size} * worlds:",
+                f"{'elif' if begin else 'if'} thread < {begin + lanes} * worlds:",
                 f"    local = thread - {begin} * worlds",
-                f"    world = local // {size}",
-                f"    element = local % {size}",
-                *(
-                    f"    i{d} = element // {math.prod(shape[d + 1 :])} % {dim_size}"
-                    for d, dim_size in enumerate(shape)
-                ),
+                f"    world = local // {lanes}",
+                f"    element = local % {lanes}",
                 *([f"    if not {self._mask}[world]:", "        return"] if self._mask else []),
-                *(f"    {line}" for line in lines),
             ]
-            begin += size
+            if lanes == size:
+                body += [f"    {line}" for line in [*indices, *lines]]
+            else:
+                body += [
+                    f"    while element < {size}:",
+                    *(f"        {line}" for line in [*indices, *lines]),
+                    f"        element += {lanes}",
+                ]
+            begin += lanes
 
         used = set(_ARGUMENT.findall("\n".join(body)))
         arguments = [argument for argument in self._arguments.values() if argument[0] in used]
