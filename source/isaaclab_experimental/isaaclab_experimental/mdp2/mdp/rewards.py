@@ -353,6 +353,58 @@ track_ang_vel_z_exp = Term(torch=_track_ang_vel_z_exp_torch, warp=_track_ang_vel
 """Exponential kernel of the squared error of the root's yaw rate, in the root frame, from the command."""
 
 
+@wp.func
+def _track_lin_vel_xy_yaw_frame_exp(
+    world: int,
+    command: wp.array2d(dtype=float),
+    root_link_pose_w: wp.array(dtype=wp.transformf),
+    root_com_vel_w: wp.array(dtype=wp.spatial_vectorf),
+    std: float,
+) -> float:
+    # The yaw frame turns with the heading of the root, the direction of its x axis in the ground plane.
+    forward = wp.quat_rotate(wp.transform_get_rotation(root_link_pose_w[world]), wp.vec3f(1.0, 0.0, 0.0))
+    yaw = wp.atan2(forward[1], forward[0])
+    cos_yaw = wp.cos(yaw)
+    sin_yaw = wp.sin(yaw)
+    velocity = wp.spatial_top(root_com_vel_w[world])
+
+    error_x = command[world, 0] - (cos_yaw * velocity[0] + sin_yaw * velocity[1])
+    error_y = command[world, 1] - (cos_yaw * velocity[1] - sin_yaw * velocity[0])
+    return wp.exp(-(error_x * error_x + error_y * error_y) / (std * std))
+
+
+def _track_lin_vel_xy_yaw_frame_exp_torch(
+    command: torch.Tensor, root_link_pose_w: torch.Tensor, root_com_vel_w: torch.Tensor, *, std: float
+) -> torch.Tensor:
+    yaw = math_utils.yaw_quat(root_link_pose_w[:, 3:7])
+    velocity = math_utils.quat_apply_inverse(yaw, root_com_vel_w[:, :3])
+    error = (command[:, :2] - velocity[:, :2]).square().sum(-1)
+    return torch.exp(-error / std**2)
+
+
+track_lin_vel_xy_yaw_frame_exp = Term(torch=_track_lin_vel_xy_yaw_frame_exp_torch, warp=_track_lin_vel_xy_yaw_frame_exp)
+"""Exponential kernel of the squared error of the root's horizontal velocity, in the yaw frame of the root, from the
+command: the frame of the root's heading, with a vertical z axis."""
+
+
+@wp.func
+def _track_ang_vel_z_world_exp(
+    world: int, command: wp.array2d(dtype=float), root_com_vel_w: wp.array(dtype=wp.spatial_vectorf), std: float
+) -> float:
+    error = command[world, 2] - wp.spatial_bottom(root_com_vel_w[world])[2]
+    return wp.exp(-(error * error) / (std * std))
+
+
+def _track_ang_vel_z_world_exp_torch(
+    command: torch.Tensor, root_com_vel_w: torch.Tensor, *, std: float
+) -> torch.Tensor:
+    return torch.exp(-(command[:, 2] - root_com_vel_w[:, 5]).square() / std**2)
+
+
+track_ang_vel_z_world_exp = Term(torch=_track_ang_vel_z_world_exp_torch, warp=_track_ang_vel_z_world_exp)
+"""Exponential kernel of the squared error of the root's yaw rate, in the world frame, from the command."""
+
+
 # Actions.
 
 
@@ -487,4 +539,91 @@ feet_air_time = Term(torch=_feet_air_time_torch, warp=_feet_air_time)
 """Sum over the ``body_ids`` feet that touched down this step of their air time minus ``threshold`` [s].
 
 Zero for worlds whose planar velocity ``command`` is at most 0.1 m/s. Bind ``step_dt`` [s] to ``mdp2.step_dt``.
+"""
+
+
+@wp.func
+def _feet_air_time_positive_biped(
+    world: int,
+    current_air_time: wp.array2d(dtype=float),
+    current_contact_time: wp.array2d(dtype=float),
+    command: wp.array2d(dtype=float),
+    body_ids: wp.array(dtype=wp.int32),
+    threshold: float,
+) -> float:
+    if wp.length(wp.vec2f(command[world, 0], command[world, 1])) <= 0.1:
+        return 0.0
+
+    feet_in_contact = int(0)
+    shortest = float(threshold)
+    for k in range(body_ids.shape[0]):
+        body = body_ids[k]
+        contact_time = current_contact_time[world, body]
+        if contact_time > 0.0:
+            feet_in_contact += 1
+            shortest = wp.min(shortest, contact_time)
+        else:
+            shortest = wp.min(shortest, current_air_time[world, body])
+    return wp.where(feet_in_contact == 1, shortest, 0.0)
+
+
+def _feet_air_time_positive_biped_torch(
+    current_air_time: torch.Tensor,
+    current_contact_time: torch.Tensor,
+    command: torch.Tensor,
+    body_ids: torch.Tensor,
+    *,
+    threshold: float,
+) -> torch.Tensor:
+    contact_time = current_contact_time[:, body_ids]
+    in_contact = contact_time > 0.0
+    time = torch.where(in_contact, contact_time, current_air_time[:, body_ids])
+    reward = time.amin(dim=-1).clamp(max=threshold) * (in_contact.sum(-1) == 1)
+    return reward * (command[:, :2].norm(dim=-1) > 0.1)
+
+
+feet_air_time_positive_biped = Term(torch=_feet_air_time_positive_biped_torch, warp=_feet_air_time_positive_biped)
+"""Time that the ``body_ids`` feet of a biped have spent in their state, one in the air and one on the ground, up to
+``threshold`` [s].
+
+Zero unless exactly one foot is on the ground, and for worlds whose planar velocity ``command`` is at most 0.1 m/s.
+"""
+
+
+@wp.func
+def _feet_slide(
+    world: int,
+    net_normal_forces_w_history: wp.array3d(dtype=wp.vec3f),
+    body_com_vel_w: wp.array2d(dtype=wp.spatial_vectorf),
+    body_ids: wp.array(dtype=wp.int32),
+    robot_body_ids: wp.array(dtype=wp.int32),
+) -> float:
+    total = float(0.0)
+    for k in range(body_ids.shape[0]):
+        peak = float(0.0)
+        for step in range(net_normal_forces_w_history.shape[1]):
+            peak = wp.max(peak, wp.length(net_normal_forces_w_history[world, step, body_ids[k]]))
+        if peak > 1.0:
+            velocity = wp.spatial_top(body_com_vel_w[world, robot_body_ids[k]])
+            total += wp.length(wp.vec2f(velocity[0], velocity[1]))
+    return total
+
+
+def _feet_slide_torch(
+    net_normal_forces_w_history: torch.Tensor,
+    body_com_vel_w: torch.Tensor,
+    body_ids: torch.Tensor,
+    robot_body_ids: torch.Tensor,
+) -> torch.Tensor:
+    contacts = contact_mask_torch(net_normal_forces_w_history, body_ids, 1.0)
+    speed = body_com_vel_w[:, robot_body_ids, :2].norm(dim=-1)
+    return (speed * contacts).sum(-1)
+
+
+feet_slide = Term(torch=_feet_slide_torch, warp=_feet_slide)
+"""Sum of the horizontal speeds of the feet on the ground, in the world frame [m/s].
+
+The ``body_ids`` bodies of a contact sensor are on the ground when their normal contact force exceeded 1 N in the
+sensor history, and ``body_com_vel_w`` is that of the robot, whose ``robot_body_ids`` bodies are the same feet in the
+same order.
 """

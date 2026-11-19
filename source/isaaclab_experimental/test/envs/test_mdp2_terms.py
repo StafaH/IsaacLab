@@ -27,6 +27,8 @@ from isaaclab.sim import SimulationCfg
 from isaaclab.utils import math as math_utils
 from isaaclab.utils.warp import ProxyArray
 
+import isaaclab_tasks.core.velocity.mdp as velocity_mdp1
+
 pytestmark = [pytest.mark.kitless, pytest.mark.skipif(not torch.cuda.is_available(), reason="Newton needs a GPU")]
 
 ROBOT_USD = Path(__file__).parents[3] / "isaaclab_newton/test/assets/data/floating_two_leg.usda"
@@ -168,6 +170,16 @@ def test_observations_and_rewards_match_mdp1(env: MDP2Env, backend: str):
         "track_ang_vel_z_exp": mdp2.Observation(
             mdp.track_ang_vel_z_exp, inputs={**root_state, "command": robot.joint_pos}, params={"std": 0.5}
         ),
+        "track_lin_vel_xy_yaw_frame_exp": mdp2.Observation(
+            mdp.track_lin_vel_xy_yaw_frame_exp,
+            inputs={**root_state, "command": robot.joint_pos},
+            params={"std": 0.5},
+        ),
+        "track_ang_vel_z_world_exp": mdp2.Observation(
+            mdp.track_ang_vel_z_world_exp,
+            inputs={"root_com_vel_w": robot.root_com_vel_w, "command": robot.joint_pos},
+            params={"std": 0.5},
+        ),
     }
 
     values = mdp2_values(env, backend, uses)
@@ -198,6 +210,10 @@ def test_observations_and_rewards_match_mdp1(env: MDP2Env, backend: str):
         "base_height_l2": mdp1.base_height_l2(mdp1_env, 0.4, root_cfg),
         "track_lin_vel_xy_exp": mdp1.track_lin_vel_xy_exp(mdp1_env, 0.5, "velocity", root_cfg),
         "track_ang_vel_z_exp": mdp1.track_ang_vel_z_exp(mdp1_env, 0.5, "velocity", root_cfg),
+        "track_lin_vel_xy_yaw_frame_exp": velocity_mdp1.track_lin_vel_xy_yaw_frame_exp(
+            mdp1_env, 0.5, "velocity", root_cfg
+        ),
+        "track_ang_vel_z_world_exp": velocity_mdp1.track_ang_vel_z_world_exp(mdp1_env, "velocity", 0.5, root_cfg),
     }
 
     assert values["joint_pos_limits"].abs().sum() > 0.0  # Some joints are beyond their limits.
