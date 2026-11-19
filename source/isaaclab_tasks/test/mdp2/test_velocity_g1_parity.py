@@ -123,6 +123,11 @@ def test_config_matches_mdp1(mdp1_cfg):
     assert not terms(mdp1_cfg.curriculum)
 
 
+def relative_difference(value: torch.Tensor, expected: torch.Tensor) -> float:
+    """Return the largest difference of two values relative to the largest magnitude of the expected one."""
+    return ((value - expected).abs().max() / expected.abs().max().clamp(min=1e-6)).item()
+
+
 class MDP1View:
     """What the MDP1 terms read from an environment, from an MDP2 environment."""
 
@@ -173,10 +178,11 @@ def test_terms_match_mdp1_on_the_same_states(mdp1_cfg, backend):
         for name, term in rewards.items():
             # The rewards saw the command before the step updated it.
             view.command = command
-            value = term.func(view, **term.params) * term.weight * env.step_dt
-            mdp2_value = transition.reward_terms.torch[:, reward_index[name]]
-            torch.testing.assert_close(mdp2_value, value, msg=name)
-            differences[name] = max(differences[name], (mdp2_value - value).abs().max().item())
+            # Unweighted, so that the tolerance is relative to the term, up to the rounding of the weighting.
+            value = term.func(view, **term.params).float()
+            mdp2_value = transition.reward_terms.torch[:, reward_index[name]] / (term.weight * env.step_dt)
+            torch.testing.assert_close(mdp2_value, value, rtol=1e-5, atol=1e-5, msg=name)
+            differences[name] = max(differences[name], relative_difference(mdp2_value, value))
             nonzero[name] |= bool(value.abs().sum() > 0.0)
 
         view.command = env.state.arrays[mdp2.commands.base_velocity].torch
@@ -184,7 +190,7 @@ def test_terms_match_mdp1_on_the_same_states(mdp1_cfg, backend):
         mdp2_values = transition.observations["policy"].torch.split([value.shape[1] for value in values], -1)
         for name, value, mdp2_value in zip(observations, values, mdp2_values):
             torch.testing.assert_close(mdp2_value, value, msg=name)
-            differences[name] = max(differences[name], (mdp2_value - value).abs().max().item())
+            differences[name] = max(differences[name], relative_difference(mdp2_value, value))
 
         value = base_contact.func(view, **base_contact.params)
         assert torch.equal(transition.termination_terms.torch[:, termination_index["base_contact"]], value)
@@ -213,7 +219,7 @@ def test_terms_match_mdp1_on_the_same_states(mdp1_cfg, backend):
     finally:
         env.close()
 
-    print(f"\nMax abs differences, {backend}:", {name: f"{value:.2e}" for name, value in differences.items()})
+    print(f"\nMax relative differences, {backend}:", {name: f"{value:.2e}" for name, value in differences.items()})
     # The rollouts exercise the terms: every reward is nonzero somewhere, and the torso touches the ground.
     assert all(nonzero.values()), [name for name, value in nonzero.items() if not value]
     terminated = torch.stack(terminated)
