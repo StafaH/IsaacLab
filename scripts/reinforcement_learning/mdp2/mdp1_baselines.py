@@ -15,6 +15,8 @@ weights per environment are a tensor that a wrapper multiplies in. The baselines
 ``recovery``: pushes in the second half of the environments. ``reward_search``: sixteen weightings of the tracking
 rewards. ``hil``: tracking in the first half, heading goals in the second, and a discriminator's style reward in
 all. ``distillation``: the Go2 task with a second, noisy observation group with history, in every environment.
+``style_g1`` and ``style_go2``: velocity tracking with the style of motion clips in the first half, see
+``velocity_style_mdp1_baseline.py``.
 """
 
 import functools
@@ -24,6 +26,7 @@ import time
 import torch
 import warp as wp
 from tracking_mdp1_baseline import tracking_cfg
+from velocity_style_mdp1_baseline import style_cfg
 
 import isaaclab.envs.mdp as mdp
 from isaaclab.envs import ManagerBasedRLEnv
@@ -201,6 +204,8 @@ if __name__ == "__main__":
         "reward_search": reward_search_cfg,
         "hil": hil_cfg,
         "distillation": distillation_cfg,
+        "style_g1": lambda: style_cfg("g1"),
+        "style_go2": lambda: style_cfg("go2"),
     }[name]()
     cfg.scene.num_envs, cfg.sim.device = num_envs, "cuda:0"
     env = ManagerBasedRLEnv(cfg)
