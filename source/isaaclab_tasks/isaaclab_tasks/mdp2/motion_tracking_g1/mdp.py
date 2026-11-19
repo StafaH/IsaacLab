@@ -641,25 +641,15 @@ motion_global_body_velocity_error_exp = mdp2.Term(warp=_body_vel_error_exp)
 ones if ``angular``; ``clip_body_vel`` is the matching velocity of the clip."""
 
 
-@wp.func
-def _self_collision_cost(
-    world: int,
-    force_matrix_w_history: wp.array4d(dtype=wp.vec3f),
-    body_ids: wp.array(dtype=wp.int32),
-    threshold: float,
-) -> float:
-    count = float(0.0)
-    for step in range(force_matrix_w_history.shape[1]):
-        peak = float(0.0)
-        for k in range(body_ids.shape[0]):
-            for f in range(force_matrix_w_history.shape[3]):
-                peak = wp.max(peak, wp.length(force_matrix_w_history[world, step, body_ids[k], f]))
-        if peak > threshold:
-            count += 1.0
-    return count
+def _self_collision_cost(force_matrix_w_history, body_ids, threshold):
+    # A reduction over (history, bodies, filters) per world: coalesced as one batched Torch operation, where a world's
+    # thread looping over the history serially reads memory of thousands of contact pairs.
+    # The largest force of each body over its filters first, so that selecting the bodies gathers little.
+    peak = force_matrix_w_history.norm(dim=-1).amax(dim=-1)[:, :, body_ids.long()].amax(dim=-1)
+    return (peak > threshold).sum(dim=1).float()
 
 
-self_collision_cost = mdp2.Term(warp=_self_collision_cost)
+self_collision_cost = mdp2.Term(torch=_self_collision_cost)
 """Physics steps of the history with a filtered contact force above ``threshold`` [N] on any of the bodies, as
 MDP1's ``self_collision_cost``."""
 
