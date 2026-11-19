@@ -491,7 +491,7 @@ class MDP2RLEnv(MDP2Env, gym.Env):
             op.name.split(".", 1)[1]: (
                 self.state.arrays[op.writes[0]].torch,
                 torch.zeros(self.num_envs, device=self.device),
-                slice(None) if op.worlds is None else list(op.worlds),
+                None if op.worlds is None else torch.tensor(list(op.worlds), device=self.device),
             )
             for op in self.mdp.ops[mdp2.Phase.QUANTITIES]
             if op.log
@@ -503,6 +503,12 @@ class MDP2RLEnv(MDP2Env, gym.Env):
         ]
         self._time_limit = time_limits[0] if time_limits else None
         self._last_time_outs = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        # The averages that the captured step writes for ``extras["log"]``, by name.
+        self._log_names = [f"Episode_Reward/{name}" for name in self._reward_names]
+        self._log_names += [f"Episode_Termination/{name}" for name in self._termination_names]
+        self._log_names += [f"Episode_Termination/{self._time_limit}"] if self._time_limit is not None else []
+        self._log_names += [f"Metrics/{name}" for name in self._metrics]
+        self._log_values = torch.zeros(len(self._log_names), device=self.device)
         self.obs_buf: VecEnvObs = {}
         if cfg.episode_budget is not None:
             self._init_episode_budget(cfg.episode_budget)
@@ -544,7 +550,9 @@ class MDP2RLEnv(MDP2Env, gym.Env):
     def step(self, action: torch.Tensor) -> VecEnvStepReturn:
         """Apply the actions, step the physics, evaluate the MDP, reset the worlds that ended, and observe."""
         self._step_or_replay(action)
-        self._log_episodes()
+        # Learners keep the log of each step, so it is a copy of the buffer that the next step overwrites.
+        values = self._log_values.clone()
+        self.extras["log"] = {name: values[k] for k, name in enumerate(self._log_names)}
         self.obs_buf = _clone(self.observations)
 
         transition = self.transition
@@ -632,39 +640,37 @@ class MDP2RLEnv(MDP2Env, gym.Env):
         transition.done.torch.copy_(restarted)
 
     def _after_evaluate(self) -> None:
-        """Keep the logged quantities of the worlds that ended, and whether they timed out, before their reset."""
+        """Keep the logged quantities of the worlds that ended, and whether they timed out, before their reset, add the
+        step's term rewards to the episode sums, and write the averages of the last finished episodes for the log.
+        Part of the captured step, so it works on device tensors only."""
         # With an episode budget, only the episodes of active worlds count, and only some of them restart.
         if self.cfg.episode_budget is not None:
             self._spend_episode_budget()
-        done = self._ended if self.cfg.episode_budget is not None else self.transition.done.torch
+        transition = self.transition
+        done = self._ended if self.cfg.episode_budget is not None else transition.done.torch
         for value, last, _ in self._metrics.values():
             torch.where(done, value, last, out=last)
         if self._time_limit is not None:
             timed_out = self.state.episode_length.torch >= self.max_episode_length
             torch.where(done, timed_out, self._last_time_outs, out=self._last_time_outs)
 
-    def _log_episodes(self) -> None:
-        """Add the step's term rewards to the episode sums, and record the episodes that ended in ``extras["log"]``."""
-        transition = self.transition
-        ended = (self._ended if self.cfg.episode_budget is not None else transition.done.torch)[:, None]
+        ended = done[:, None]
         self._episode_rewards += transition.reward_terms.torch
-
         torch.where(ended, self._episode_rewards, self._last_episode_rewards, out=self._last_episode_rewards)
         terminations = transition.termination_terms.torch.float()
         torch.where(ended, terminations, self._last_terminations, out=self._last_terminations)
         self._episode_rewards.masked_fill_(ended, 0.0)
 
         rewards = self._last_episode_rewards.sum(dim=0) / self._active_worlds[mdp2.Phase.REWARDS]
-        rewards /= self.max_episode_length_s
-        terminations = self._last_terminations.sum(dim=0) / self._active_worlds[mdp2.Phase.TERMINATIONS]
-        log = {f"Episode_Reward/{name}": rewards[k] for k, name in enumerate(self._reward_names)}
-        log |= {f"Episode_Termination/{name}": terminations[k] for k, name in enumerate(self._termination_names)}
+        values = [rewards / self.max_episode_length_s]
+        values.append(self._last_terminations.sum(dim=0) / self._active_worlds[mdp2.Phase.TERMINATIONS])
         if self._time_limit is not None:
-            log[f"Episode_Termination/{self._time_limit}"] = self._last_time_outs.float().mean()
+            values.append(self._last_time_outs.float().mean()[None])
         # A quantity that only some worlds compute is averaged over them.
-        for name, (_, last, worlds) in self._metrics.items():
-            log[f"Metrics/{name}"] = last[worlds].mean()
-        self.extras["log"] = log
+        values += [
+            (last if worlds is None else last[worlds]).mean()[None] for _, last, worlds in self._metrics.values()
+        ]
+        torch.cat(values, out=self._log_values)
 
 
 def _clone(observations: VecEnvObs) -> VecEnvObs:
