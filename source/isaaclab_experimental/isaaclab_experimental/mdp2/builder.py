@@ -1039,17 +1039,16 @@ def _check_action(entry: ScheduleEntry, output_shape: tuple[int, ...] | None, er
 
 
 def _check_output_type(entry: ScheduleEntry, dtype: type, errors: list[str]) -> None:
-    """Record why a term's output type does not fit its use: only observations of groups that are not concatenated may
-    set one."""
+    """Record why a term's output type does not fit its use: only observations without noise, clip, scale, or history
+    may set one."""
     cfg = entry.cfg
     if cfg.term.dtype is not None and not isinstance(cfg, Observation):
         errors.append(f"{entry}: only observations can set an output type.")
     if isinstance(cfg, Observation) and dtype is not wp.float32:
         processed = cfg.noise is not None or cfg.clip is not None or cfg.scale is not None or cfg.history_length
-        if processed or entry.concatenate:
+        if processed:
             errors.append(
-                f"{entry}: an observation of type {dtype.__name__} must be in a group with concatenate=False, without"
-                " noise, clip, scale, or history."
+                f"{entry}: an observation of type {dtype.__name__} cannot have noise, clip, scale, or history."
             )
 
 
@@ -1425,6 +1424,14 @@ def _allocate_slots(
                 shapes = {(op.shape, op.dtype) for op in slot_ops}
                 if len(shapes) > 1:
                     errors.append(f"The observations '{buffer}' must have the same shape and type, got {shapes}.")
+                layouts[buffer] = (slot_ops[0].shape, slot_ops[0].dtype)
+            elif any(op.dtype is not wp.float32 for op in slot_ops):
+                # A concatenated group of one term of another type than float32 is that term, as in MDP1.
+                if len(named) > 1 or len({(op.shape, op.dtype) for op in slot_ops}) > 1:
+                    errors.append(
+                        f"'{buffer}' is a concatenated group with an observation of another type than float32, so it"
+                        " must hold only that observation."
+                    )
                 layouts[buffer] = (slot_ops[0].shape, slot_ops[0].dtype)
             for first, second in itertools.combinations(slot_ops, 2):
                 if not _exclusive(first, second, modes):

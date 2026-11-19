@@ -223,7 +223,8 @@ class ObservationGroup:
 
     A concatenated group is one ``float32`` buffer of its terms in declaration order. Otherwise each term keeps its
     own buffer, shape, and type, and may output another type, such as a ``uint8`` image, when it has no noise, clip,
-    scale, or history.
+    scale, or history. A concatenated group may also hold one such term alone, and is then that term's buffer, with
+    its shape and type, as MDP1 keeps the term of a group of one term.
     """
 
     terms: dict[str, Observation | None] = field(default_factory=dict)

@@ -170,8 +170,9 @@ class MDP:
     plan: ExecutionPlan
     action_dim: int
     observation_dims: Mapping[str, int]  # Elements per world of each observation buffer
-    # Per buffer: the shape after the world dimension and the element type. A concatenated group is (dim,) float32;
-    # a term of a group that is not concatenated is the buffer "group/term", with the term's own shape and type.
+    # Per buffer: the shape after the world dimension and the element type. A concatenated group is (dim,) float32,
+    # or its term's shape and type if that term is of another type; a term of a group that is not concatenated is the
+    # buffer "group/term", with the term's own shape and type.
     observation_layouts: Mapping[str, tuple[tuple[int, ...], type]]
     max_episode_length: int | None  # Control steps until truncation, None without a time limit
     streams: tuple[str, ...]  # Use names of the rows of MDPState.rng, with "/noise" for observation noise
