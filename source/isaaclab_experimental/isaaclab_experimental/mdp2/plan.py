@@ -377,6 +377,10 @@ def build_plan(
     # Start events write the scene where their task starts; the others set up whole episodes.
     start_events = [op for op in ops[Phase.RESET_EVENTS] if op.entry_key is not None]
     reset_events = [op for op in ops[Phase.RESET_EVENTS] if op.entry_key is None]
+    # A reset event that writes a command runs after the commands resample, so that its value stands.
+    command_fields = {op.writes[0] for op in ops[Phase.COMMANDS]}
+    late_events = [op for op in reset_events if command_fields & set(op.writes)]
+    reset_events = [op for op in reset_events if not command_fields & set(op.writes)]
     if starts:
         scoped = [op for phase_ops in ops.values() for op in phase_ops if isinstance(op, TermOp) and op.entry_key]
         starts += [
@@ -390,9 +394,9 @@ def build_plan(
     unswitched = {op.name: replace(op, when=None, stages=()) for op in switched}
     # The reset events see the progress of the episode that ended; the start events of the tasks that run from the
     # start of the new one, after the progress restarts.
-    events = {"reset": [], "start": []}
+    events = {"reset": [], "start": [], "late": []}
     pending: set[FieldSelector] = set()  # Scene fields written since the last commit
-    for kind, event_ops in (("reset", reset_events), ("start", start_events)):
+    for kind, event_ops in (("reset", reset_events), ("start", start_events), ("late", late_events)):
         for op in event_ops:
             if op.commit or op.commit is None and pending and _reads_stale(op, pending, schema):
                 events[kind].append(Step(StepKind.COMMIT, op))
@@ -409,6 +413,8 @@ def build_plan(
             *computed(ops[Phase.QUANTITIES]),
             *progress,
             *computed(ops[Phase.TERMINATIONS] + ops[Phase.REWARDS]),
+            # Reset events with an update hook observe every step, after the step's terminations and rewards.
+            *(Step(StepKind.UPDATE_STATE, op) for op in ops[Phase.RESET_EVENTS] if op.update is not None),
             *(Step(StepKind.COMPUTE_IF_DUE, op) for op in timed if op.phase is Phase.COMMANDS),
             # Commands with an update hook track something every step, like a heading.
             *(Step(StepKind.UPDATE_STATE, op) for op in ops[Phase.COMMANDS] if op.update is not None),
@@ -429,6 +435,7 @@ def build_plan(
             *(Step(StepKind.RESET_TIMER, unswitched.get(op.name, op)) for op in timed if op.entry_key),
             *events["start"],
             *(Step(StepKind.COMPUTE, unswitched.get(op.name, op)) for op in ops[Phase.COMMANDS]),
+            *events["late"],
             # State restarts last, from the fields and commands of the new episode.
             *(Step(StepKind.RESET_STATE, unswitched.get(op.name, op)) for op in stateful),
         ),
