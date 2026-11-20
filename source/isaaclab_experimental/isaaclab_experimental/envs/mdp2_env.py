@@ -543,7 +543,7 @@ class MDP2RLEnv(MDP2Env, gym.Env):
             op.name.split(".", 1)[1]: (
                 self.state.arrays[op.writes[0]].torch,
                 torch.zeros(self.num_envs, device=self.device),
-                slice(None) if op.worlds is None else list(op.worlds),
+                slice(None) if op.worlds is None else torch.tensor(list(op.worlds), device=self.device),
             )
             for op in self.mdp.ops[mdp2.Phase.QUANTITIES]
             if op.record
