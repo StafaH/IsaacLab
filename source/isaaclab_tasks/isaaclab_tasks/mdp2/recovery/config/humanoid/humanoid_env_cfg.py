@@ -24,4 +24,4 @@ def recovery_task(motions: str, start_range: tuple[float, float] = (0.0, 0.9)) -
 class HumanoidRecoveryEnvCfg(HumanoidTrackingEnvCfg):
     """The humanoid tracking environment with pushes in half of its worlds."""
 
-    task: list[mdp2.TaskCfg] = [recovery_task("dance"), pushed(recovery_task("dance"))]
+    task: mdp2.TaskCfg = mdp2.split(steady=recovery_task("dance"), pushed=pushed(recovery_task("dance")))

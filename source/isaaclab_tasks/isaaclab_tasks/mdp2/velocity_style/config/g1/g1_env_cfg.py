@@ -58,7 +58,9 @@ CLIPS = {
 NUM_FEATURES = 84
 """Size of the motion features of the G1: 10 values of its root and the positions and velocities of 37 joints."""
 
-G1_STYLE_TASKS = [style_task(TASK, CLIPS, hil.Discriminator(NUM_FEATURES), style_weight=4.0), TASK]
+G1_STYLE_TASKS = mdp2.split(
+    styled=style_task(TASK, CLIPS, hil.Discriminator(NUM_FEATURES), style_weight=4.0), plain=TASK
+)
 """The MDP of the worlds that follow velocity commands in the style of the clips, and the velocity task."""
 
 
@@ -74,5 +76,5 @@ class UnitreeG1FlatStyleEnvCfg(MDP2RLEnvCfg):
         use_newton_actuators=True,
     )
     scene: UnitreeG1FlatSceneCfg = UnitreeG1FlatSceneCfg(num_envs=4096, env_spacing=2.5)
-    task: list[mdp2.TaskCfg] = G1_STYLE_TASKS
+    task: mdp2.TaskCfg = G1_STYLE_TASKS
     decimation: int = DECIMATION

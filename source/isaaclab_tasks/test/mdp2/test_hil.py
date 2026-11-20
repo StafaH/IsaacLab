@@ -25,7 +25,7 @@ def test_worlds_split_between_tasks_and_the_graph_reads_the_live_discriminator()
     cfg.sim.device = "cuda:0"
     cfg.scene.num_envs = NUM_ENVS
     cfg.seed = 0
-    cfg.task = humanoid_tasks("walk")
+    cfg.task = mdp2.split(**humanoid_tasks("walk"))
     env = MDP2RLEnv(cfg)
     try:
         ops = {op.name: op for op in env.mdp.term_ops}

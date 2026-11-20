@@ -56,7 +56,7 @@ torch.backends.cuda.matmul.allow_tf32 = True
 def make_env(num_envs, mode, camera=False):
     cfg = resolve_presets(load_cfg_from_registry(args.task, "env_cfg_entry_point"), selected=("newton_mjwarp",))
     cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, num_envs, args.seed
-    cfg.task = {"together": cfg.task, "teacher": cfg.task[0], "student": cfg.task[1]}[mode]
+    cfg.task = {"together": cfg.task, **cfg.task.subtasks}[mode]
     if camera:
         add_camera(cfg)
     return gym.make(args.task, cfg=cfg).unwrapped

@@ -126,6 +126,6 @@ SKILLS = {
 class UnitreeGo2SkillsEnvCfg(UnitreeGo2FlatEnvCfg):
     """The Go2 flat environment with its worlds split between the skills."""
 
-    task: list[mdp2.TaskCfg] = skill_tasks(
-        {name: SKILLS[name] for name in ("walk", "hind_legs", "hind_walk", "get_up")}
+    task: mdp2.TaskCfg = mdp2.split(
+        **skill_tasks({name: SKILLS[name] for name in ("walk", "hind_legs", "hind_walk", "get_up")})
     )

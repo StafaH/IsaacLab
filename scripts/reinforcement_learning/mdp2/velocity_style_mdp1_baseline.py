@@ -365,7 +365,7 @@ ROBOTS = {
 def style_cfg(robot: str) -> VelocityStyleMDP1EnvCfg:
     """Return the MDP1 environment config of the MDP2 style environment of ``robot``, ``"g1"`` or ``"go2"``."""
     spec = ROBOTS[robot]
-    velocity, style_task = spec.velocity, spec.style_tasks[0]
+    velocity, style_task = spec.velocity, spec.style_tasks.subtasks["styled"]
     cfg = VelocityStyleMDP1EnvCfg()
     # The scene and physics of the MDP2 task.
     cfg.scene = spec.scene(num_envs=4096, env_spacing=2.5)

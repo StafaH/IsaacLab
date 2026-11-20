@@ -5,6 +5,7 @@
 
 """Tests for the MDP2 Kuka Allegro lift task with a base camera on Newton."""
 
+import dataclasses
 import importlib.util
 
 import pytest
@@ -44,7 +45,8 @@ def test_base_image_is_rendered_by_every_replayed_step(renderer, graphs):
     cfg.sim.device = "cuda:0"
     cfg.scene.num_envs = NUM_ENVS
     cfg.seed = 0
-    cfg.task.events["reset"].params["bank_size"] = 2
+    params = cfg.task.events["reset"].params
+    params["fill"] = dataclasses.replace(params["fill"], bank_size=2)
     env = MDP2RLEnv(cfg)
     try:
         assert env.single_observation_space["base_image"].shape == (3, 64, 64)

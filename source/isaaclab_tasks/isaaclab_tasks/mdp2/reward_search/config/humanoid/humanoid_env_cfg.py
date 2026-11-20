@@ -39,4 +39,4 @@ CANDIDATES = humanoid_candidates("walk")
 class HumanoidRewardSearchEnvCfg(HumanoidTrackingEnvCfg):
     """The humanoid tracking environment with its worlds split between sixteen reward candidates."""
 
-    task: list[mdp2.TaskCfg] = reward_candidates(humanoid_task("walk"), CANDIDATES)
+    task: mdp2.TaskCfg = reward_candidates(humanoid_task("walk"), CANDIDATES)

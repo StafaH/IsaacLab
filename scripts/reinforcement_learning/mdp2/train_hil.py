@@ -69,15 +69,17 @@ def make_env(num_envs, camera=False):
     """Create the environment of the mode, with a camera in every world for recording."""
     cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
     cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, num_envs, args.seed
-    tasks = {"hybrid": cfg.task, "tracking": cfg.task[:1], "goals": cfg.task[1:]}[args.mode]
-    for task in tasks:
+    subtasks = cfg.task.subtasks
+    tasks = {"hybrid": subtasks, "tracking": {"tracking": subtasks["tracking"]}, "goals": {"goals": subtasks["goals"]}}
+    tasks = tasks[args.mode]
+    for task in tasks.values():
         if not args.style:
             task.rewards["style"] = None
         elif args.style_weight is not None:
             task.rewards["style"].weight = args.style_weight
         if args.action_scale is not None:
             task.actions["joint_pos"].scale = args.action_scale
-    cfg.task = tasks if len(tasks) > 1 else tasks[0]
+    cfg.task = mdp2.split(**tasks) if len(tasks) > 1 else next(iter(tasks.values()))
     if camera:
         add_camera(cfg)
     return gym.make(TASK, cfg=cfg).unwrapped
