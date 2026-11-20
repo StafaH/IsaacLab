@@ -55,7 +55,7 @@ def make_env(num_envs, camera=False):
     cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
     cfg.sim.device, cfg.scene.num_envs, cfg.seed = "cuda:0", num_envs, args.seed
     tasks = skill_tasks({name: SKILLS[name] for name in NAMES})
-    cfg.task = tasks if len(tasks) > 1 else tasks[0]
+    cfg.task = mdp2.split(**tasks) if len(tasks) > 1 else next(iter(tasks.values()))
     if camera:
         add_camera(cfg, eye=EYE)
     return RslRlVecEnvWrapper(gym.make(TASK, cfg=cfg), clip_actions=agent_cfg.clip_actions)

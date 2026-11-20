@@ -15,15 +15,17 @@ from isaaclab_experimental import mdp2
 from isaaclab.utils import replace
 
 
-def reward_candidates(task: mdp2.TaskCfg, weights: list[dict[str, float]]) -> list[mdp2.TaskCfg]:
+def reward_candidates(task: mdp2.TaskCfg, weights: list[dict[str, float]]) -> mdp2.TaskCfg:
     """Return one copy of ``task`` per candidate, with the reward weights that the candidate gives by term name."""
-    return [
-        replace(
-            task,
-            rewards={
-                name: replace(reward, weight=candidate.get(name, reward.weight))
-                for name, reward in task.rewards.items()
-            },
-        )
-        for candidate in weights
-    ]
+    return mdp2.split(
+        **{
+            f"candidate_{index}": replace(
+                task,
+                rewards={
+                    name: replace(reward, weight=candidate.get(name, reward.weight))
+                    for name, reward in task.rewards.items()
+                },
+            )
+            for index, candidate in enumerate(weights)
+        }
+    )

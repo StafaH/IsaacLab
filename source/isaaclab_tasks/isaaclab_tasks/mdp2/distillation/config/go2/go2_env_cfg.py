@@ -35,4 +35,4 @@ STUDENT = mdp2.ObservationGroup(
 class UnitreeGo2DistillationEnvCfg(UnitreeGo2FlatEnvCfg):
     """The Go2 flat environment with teacher worlds and student worlds, half of each."""
 
-    task: list[mdp2.TaskCfg] = teacher_student_tasks(TASK, PRIVILEGED, STUDENT)
+    task: mdp2.TaskCfg = teacher_student_tasks(TASK, PRIVILEGED, STUDENT)

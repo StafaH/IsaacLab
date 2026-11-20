@@ -86,7 +86,7 @@ def tracking_task(
             ),
             "episode_steps": mdp2.Quantity(tracking.episode_steps, inputs={"episode_length": mdp2.episode_length}),
             "joint_pos_error": mdp2.Quantity(
-                tracking.joint_pos_error, inputs={"joint_pos": robot.joint_pos, **clip_joint_pos}, log=True
+                tracking.joint_pos_error, inputs={"joint_pos": robot.joint_pos, **clip_joint_pos}, record=True
             ),
             "joint_vel_error": mdp2.Quantity(
                 tracking.joint_vel_error,
@@ -97,7 +97,9 @@ def tracking_task(
                 },
             ),
             "body_pos_error": mdp2.Quantity(
-                tracking.body_pos_error, inputs={"body_link_pose_w": robot.body_link_pose_w, **clip_body_pos}, log=True
+                tracking.body_pos_error,
+                inputs={"body_link_pose_w": robot.body_link_pose_w, **clip_body_pos},
+                record=True,
             ),
             "root_vel_error": mdp2.Quantity(
                 tracking.root_vel_error,

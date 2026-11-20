@@ -6,6 +6,8 @@
 """Tests for the MDP2 tasks that split their worlds between task configs: recovery, distillation, skills, and
 manipulation."""
 
+import dataclasses
+
 import pytest
 import torch
 from isaaclab_experimental import mdp2
@@ -89,11 +91,12 @@ def test_skills_tell_the_policy_which_skill_each_world_practices():
 def test_manipulation_tracks_the_orientation_only_in_the_reorienting_worlds():
     num_envs = 12
     cfg = KukaAllegroManipulationEnvCfg()
-    cfg.task = skill_tasks(SKILLS)
+    cfg.task = mdp2.split(**skill_tasks(SKILLS))
     cfg.sim.physics = KukaAllegroLiftPhysicsCfg().newton_mjwarp
     cfg.sim.device, cfg.scene.num_envs, cfg.seed = "cuda:0", num_envs, 0
-    for task in cfg.task:
-        task.events["reset"].params["bank_size"] = 2
+    for task in cfg.task.subtasks.values():
+        params = task.events["reset"].params
+        params["fill"] = dataclasses.replace(params["fill"], bank_size=2)
     env = MDP2RLEnv(cfg)
     try:
         ops = {op.name: op for op in env.mdp.term_ops}

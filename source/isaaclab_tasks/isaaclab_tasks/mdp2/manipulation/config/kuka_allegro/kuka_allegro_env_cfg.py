@@ -36,4 +36,4 @@ SKILLS = {
 class KukaAllegroManipulationEnvCfg(KukaAllegroLiftEnvCfg):
     """The Kuka Allegro lift environment with its worlds split between the skills."""
 
-    task: list[mdp2.TaskCfg] = skill_tasks({name: SKILLS[name] for name in ("lift", "place")})
+    task: mdp2.TaskCfg = mdp2.split(**skill_tasks({name: SKILLS[name] for name in ("lift", "place")}))

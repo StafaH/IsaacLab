@@ -51,7 +51,9 @@ CLIPS = {
 NUM_FEATURES = 34
 """Size of the motion features of the Go2: 10 values of its root and the positions and velocities of 12 joints."""
 
-GO2_STYLE_TASKS = [style_task(TASK, CLIPS, hil.Discriminator(NUM_FEATURES), style_weight=2.25), TASK]
+GO2_STYLE_TASKS = mdp2.split(
+    styled=style_task(TASK, CLIPS, hil.Discriminator(NUM_FEATURES), style_weight=2.25), plain=TASK
+)
 """The MDP of the worlds that follow velocity commands in the style of the clips, and the velocity task."""
 
 
@@ -67,5 +69,5 @@ class UnitreeGo2FlatStyleEnvCfg(MDP2RLEnvCfg):
         use_newton_actuators=True,
     )
     scene: UnitreeGo2FlatSceneCfg = UnitreeGo2FlatSceneCfg(num_envs=4096, env_spacing=2.5)
-    task: list[mdp2.TaskCfg] = GO2_STYLE_TASKS
+    task: mdp2.TaskCfg = GO2_STYLE_TASKS
     decimation: int = DECIMATION

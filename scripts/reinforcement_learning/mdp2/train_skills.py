@@ -61,9 +61,9 @@ def make_env(num_envs, camera=False):
     cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, num_envs, args.seed
     tasks = skill_tasks({name: SKILLS[name] for name in NAMES})
     if args.action_scale is not None:
-        for task in tasks:
+        for task in tasks.values():
             task.actions["joint_pos"] = replace(task.actions["joint_pos"], scale=args.action_scale)
-    cfg.task = tasks if len(tasks) > 1 else tasks[0]
+    cfg.task = mdp2.split(**tasks) if len(tasks) > 1 else next(iter(tasks.values()))
     if camera:
         add_camera(cfg, eye=EYE)
     return gym.make(args.task, cfg=cfg).unwrapped

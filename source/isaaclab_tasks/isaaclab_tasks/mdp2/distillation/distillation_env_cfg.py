@@ -17,8 +17,10 @@ from isaaclab.utils import replace
 
 def teacher_student_tasks(
     task: mdp2.TaskCfg, privileged: mdp2.ObservationGroup, student: mdp2.ObservationGroup
-) -> list[mdp2.TaskCfg]:
+) -> mdp2.TaskCfg:
     """Return task for the teacher worlds, observing privileged, and for the student worlds, which also
     observe student."""
     teacher = replace(task, observations={"privileged": privileged})
-    return [teacher, replace(task, observations={"privileged": privileged, "student": student})]
+    return mdp2.split(
+        teacher=teacher, student=replace(task, observations={"privileged": privileged, "student": student})
+    )

@@ -28,7 +28,7 @@ NUM_FEATURES = 66
 """Size of the motion features of the humanoid: 10 values of its root and the positions and velocities of 28 joints."""
 
 
-def humanoid_tasks(motion: str) -> list[mdp2.TaskCfg]:
+def humanoid_tasks(motion: str) -> dict[str, mdp2.TaskCfg]:
     """Return the tracking and goal-following MDPs for the humanoid clip motion, with a new discriminator."""
     motion_file = os.path.join(MOTIONS_DIR, f"humanoid_{motion}.npz")
     return hil_tasks(motion_file, SIM_DT * DECIMATION, NUM_BODIES, hil.Discriminator(NUM_FEATURES))
@@ -45,5 +45,5 @@ class HumanoidHILEnvCfg(MDP2RLEnvCfg):
         dt=SIM_DT, render_interval=DECIMATION, physics=HumanoidTrackingPhysicsCfg(), use_newton_actuators=True
     )
     scene: HumanoidTrackingSceneCfg = HumanoidTrackingSceneCfg(num_envs=4096, env_spacing=4.0)
-    task: list[mdp2.TaskCfg] = humanoid_tasks("walk")
+    task: mdp2.TaskCfg = mdp2.split(**humanoid_tasks("walk"))
     decimation: int = DECIMATION

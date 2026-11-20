@@ -159,5 +159,6 @@ class HumanoidTrackingLiveEvalEnvCfg(HumanoidTrackingEnvCfg):
     """The walk environment with evaluation worlds: the last 128 worlds start on the first frame without noise, so
     a learner that acts without exploration there reads its evaluation from the training simulation."""
 
-    task: list[mdp2.TaskCfg] = [humanoid_task("walk"), evaluation_task("walk")]
-    task_worlds: list[int] = [1920, 128]
+    task: mdp2.TaskCfg = mdp2.split(
+        train=humanoid_task("walk"), eval=evaluation_task("walk"), worlds={"train": 1920, "eval": 128}
+    )

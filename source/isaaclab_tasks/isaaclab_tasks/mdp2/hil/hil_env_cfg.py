@@ -41,8 +41,8 @@ def hil_tasks(
     discriminator: hil.Discriminator,
     episode_length_s: float = 10.0,
     style_weight: float = 15.0,
-) -> list[mdp2.TaskCfg]:
-    """Return the MDP of the worlds that track the clip in motion_file, and of the worlds that follow goals."""
+) -> dict[str, mdp2.TaskCfg]:
+    """Return, by name, the MDP of the worlds that track the clip in motion_file, and of the worlds that follow goals."""
     clip = np.load(motion_file)
     frames = len(clip["dof_positions"][:: round(float(clip["fps"]) * step_dt)])
     num_features = discriminator.mean.numel()
@@ -189,4 +189,4 @@ def hil_tasks(
             ),
         },
     )
-    return [tracking_mode, following]
+    return {"tracking": tracking_mode, "goals": following}

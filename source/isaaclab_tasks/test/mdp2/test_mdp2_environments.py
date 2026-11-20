@@ -27,9 +27,9 @@ def test_mdp2_environment_resets_and_steps(task_name):
     env_cfg.sim.device = "cuda:0"
     env_cfg.scene.num_envs = 4
     # Tasks that split their worlds in fixed counts get one world per task.
-    if env_cfg.task_worlds is not None:
-        env_cfg.scene.num_envs = len(env_cfg.task_worlds)
-        env_cfg.task_worlds = [1] * len(env_cfg.task_worlds)
+    if env_cfg.task.worlds is not None:
+        env_cfg.scene.num_envs = len(env_cfg.task.worlds)
+        env_cfg.task.worlds = dict.fromkeys(env_cfg.task.worlds, 1)
     env = gym.make(task_name, cfg=env_cfg)
     try:
         obs, _ = env.reset(seed=0)

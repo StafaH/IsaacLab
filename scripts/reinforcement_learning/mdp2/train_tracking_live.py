@@ -20,6 +20,7 @@ import time
 import gymnasium as gym
 import torch
 import warp as wp
+from isaaclab_experimental import mdp2
 from ppo import PPO
 
 import isaaclab_tasks  # noqa: F401
@@ -43,10 +44,13 @@ torch.backends.cuda.matmul.allow_tf32 = True
 begin = time.perf_counter()
 cfg = resolve_presets(load_cfg_from_registry(TASK, "env_cfg_entry_point"), selected=("newton_mjwarp",))
 cfg.sim.device, cfg.scene.num_envs, cfg.seed = DEVICE, args.num_envs + args.eval_envs, args.seed
-cfg.task = [humanoid_task(args.motion), evaluation_task(args.motion)]
-cfg.task_worlds = [args.num_envs, args.eval_envs]
+cfg.task = mdp2.split(
+    train=humanoid_task(args.motion),
+    eval=evaluation_task(args.motion),
+    worlds={"train": args.num_envs, "eval": args.eval_envs},
+)
 if args.lost_distance is not None:
-    for task in cfg.task:
+    for task in cfg.task.subtasks.values():
         task.terminations["tracking_lost"].params["threshold"] = args.lost_distance**2
 env = gym.make(TASK, cfg=cfg).unwrapped
 obs = env.reset()[0]["policy"]

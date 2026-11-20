@@ -18,18 +18,16 @@ from isaaclab.utils import replace
 from . import mdp as skills_mdp
 
 
-def skill_tasks(skills: dict[str, mdp2.TaskCfg], group: str = "policy") -> list[mdp2.TaskCfg]:
-    """Return the task of each skill with the ``skill`` command, observed at the end of ``group``."""
-    tasks = []
-    for index, task in enumerate(skills.values()):
+def skill_tasks(skills: dict[str, mdp2.TaskCfg], group: str = "policy") -> dict[str, mdp2.TaskCfg]:
+    """Return the task of each skill, by name, with the ``skill`` command, observed at the end of ``group``."""
+    tasks = {}
+    for index, (name, task) in enumerate(skills.items()):
         command = mdp2.Command(skills_mdp.one_hot_command, params={"index": index, "skills": len(skills)})
         observation = mdp2.Observation(mdp.generated_commands, inputs={"command": mdp2.commands.skill})
         terms = {**group_terms(task.observations[group])[0], "skill": observation}
-        tasks.append(
-            replace(
-                task,
-                commands={**task.commands, "skill": command},
-                observations={**task.observations, group: mdp2.ObservationGroup(terms=terms)},
-            )
+        tasks[name] = replace(
+            task,
+            commands={**task.commands, "skill": command},
+            observations={**task.observations, group: mdp2.ObservationGroup(terms=terms)},
         )
     return tasks
