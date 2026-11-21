@@ -84,8 +84,8 @@ dependencies = [
     "rsl-rl-lib @ git+https://github.com/leggedrobotics/rsl_rl.git@ea39cc2ae4a615c3d70d4ed9055d8b6e3b4c8acd",
     "gitpython>=3.1.60",  # used by RL training and experiment logging
     # ----- newton (default physics engine) -----
-    # Pin the current Newton development revision until it is included in a release.
-    "newton[sim] @ git+https://github.com/newton-physics/newton.git@d31603ff5e8389d1d6b2a5daef6ea2cb074c26ff",
+    # Pin the Newton branch with heterogeneous worlds, on the Newton revision that Isaac Lab develops against.
+    "newton[sim] @ git+https://github.com/StafaH/newton.git@1cd12831d4b256e0e59d58273763e90ab7794144",
     # Import and mesh-processing packages used by Newton, including the ones that honoring
     # USD-authored ``physics:approximation`` requires. Keep these explicit instead of selecting
     # newton[importers], whose standalone USD dependency would overlap with usd-exchange.
@@ -420,9 +420,10 @@ environments = [
 override-dependencies = [
     "numpy>=2",
     "mujoco~=3.17.0",
-    "mujoco-warp~=3.17.0",
-    "newton[sim] @ git+https://github.com/newton-physics/newton.git@d31603ff5e8389d1d6b2a5daef6ea2cb074c26ff ; extra != 'optix'",
-    "newton[sim,optix] @ git+https://github.com/newton-physics/newton.git@d31603ff5e8389d1d6b2a5daef6ea2cb074c26ff ; extra == 'optix'",
+    # MuJoCo Warp 3.17.0 with tree sleep policies per world, which heterogeneous worlds need.
+    "mujoco-warp @ git+https://github.com/StafaH/mujoco_warp.git@656b366be0fed16f4fc6daf7ed199d4f2b957417",
+    "newton[sim] @ git+https://github.com/StafaH/newton.git@1cd12831d4b256e0e59d58273763e90ab7794144 ; extra != 'optix'",
+    "newton[sim,optix] @ git+https://github.com/StafaH/newton.git@1cd12831d4b256e0e59d58273763e90ab7794144 ; extra == 'optix'",
     # Force the Newton-matched schemas over isaacsim's ==0.2.0 pin.
     "newton-usd-schemas>=0.5.0",
     # isaacsim-asset-isolated and isaacsim-robot-schema 6.2 pin usd-exchange ==2.3.0.
