@@ -33,6 +33,7 @@ __all__ = [
     "RecordStates",
     "ResetBank",
     "farthest_points",
+    "prototype_groups",
     "reset_bank",
     "reset_from_bank",
     "base_ang_vel",
@@ -103,6 +104,7 @@ from .reset_states import (
     RecordStates,
     ResetBank,
     farthest_points,
+    prototype_groups,
     reset_bank,
     reset_from_bank,
 )
