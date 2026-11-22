@@ -7,6 +7,7 @@
 ``Isaac-Lift-KukaAllegro-Camera``."""
 
 from isaaclab_experimental import mdp2
+from isaaclab_experimental.envs.mdp2_env_cfg import ResetStep
 from isaaclab_experimental.mdp2 import mdp
 
 from isaaclab.sensors import CameraCfg
@@ -49,3 +50,6 @@ class KukaAllegroLiftCameraEnvCfg(KukaAllegroLiftEnvCfg):
 
     scene: KukaAllegroLiftCameraSceneCfg = KukaAllegroLiftCameraSceneCfg(num_envs=4096, env_spacing=3)
     task: mdp2.TaskCfg = CAMERA_TASK
+    # Render the camera again after resets, so that a new episode's first image shows its start, as MDP1's camera does
+    # when a reset marks it outdated; otherwise it shows the end of the previous episode.
+    reset_step: list = [ResetStep.EVENTS, ResetStep.COMMIT, ResetStep.RENDER, ResetStep.OBSERVE]
